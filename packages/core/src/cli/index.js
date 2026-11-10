@@ -12,6 +12,7 @@ export { registerDoctorCommand } from './commands/doctor.js';
 export { registerDbCommands } from './commands/db.js';
 export { registerAuditCommands } from './commands/audit.js';
 export { registerBanCommands } from './commands/ban.js';
+export { registerTasksCommands } from './commands/tasks.js';
 export { registerOpsCommands } from './commands/ops.js';
 export { registerVersionCommand } from './commands/version.js';
 export { registerPrivacyCommands } from './commands/privacy.js';

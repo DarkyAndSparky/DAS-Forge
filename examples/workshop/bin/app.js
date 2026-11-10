@@ -85,6 +85,20 @@ async function main() {
   registerAlertsCommands(cli, { ctx, getDb });
 
   cliModule.registerBanCommands(cli, { bans: ctx.bans });
+  // Scheduled tasks from the console: the same housekeeping jobs as the server, registered but never started, so
+  // `app tasks list` shows them and `app tasks run <name>` runs one now (same lock as the server's own run).
+  // Jobs that need the running server (metrics, the backup, alerts) are not here: `app backup` covers the backup.
+  const taskScheduler = scheduler.createScheduler({
+    lockDir: path.join(path.dirname(dbFilePath), '.locks'),
+    lastRunStore: scheduler.createDbLastRunStore(ctx.db),
+  });
+  scheduler.registerStandardJobs(taskScheduler, {
+    db: ctx.db, sessionStore: ctx.sessionStore, bans: ctx.bans, emailQueue: ctx.emailQueue,
+    auditRetentionDays: ctx.appConfig.audit.retentionDays, auditPersonalDataDays: ctx.appConfig.audit.personalDataDays,
+    auditPurgeBatchSize: ctx.appConfig.audit.purgeBatchSize, auditArchiveDir: ctx.appConfig.audit.archiveDir,
+    mailKeepFinishedDays: ctx.appConfig.email.queue.keepFinishedDays,
+  });
+  cliModule.registerTasksCommands(cli, { scheduler: taskScheduler, auditLog: (e) => audit.log(ctx.db, e) });
   cliModule.registerOpsCommands(cli, { db: ctx.db });
   cliModule.registerAuditCommands(cli, { db: ctx.db, tailFn: audit.tail, queryFn: audit.query, verifyFn: audit.verifyChain, anchorFn: audit.anchor });
 

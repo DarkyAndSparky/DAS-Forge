@@ -277,7 +277,7 @@ async function main() {
   // Standard housekeeping in one call: sessions, audit rows, bans, metrics, spent tokens, finished mail.
   schedulerModule.registerStandardJobs(jobScheduler, {
     db, logger, sessionStore: ctx.sessionStore, bans: ctx.bans, metrics, emailQueue: ctx.emailQueue,
-    auditRetentionDays: appConfig.audit.retentionDays, auditPurgeBatchSize: appConfig.audit.purgeBatchSize,
+    auditRetentionDays: appConfig.audit.retentionDays, auditPersonalDataDays: appConfig.audit.personalDataDays, auditPurgeBatchSize: appConfig.audit.purgeBatchSize,
     mailKeepFinishedDays: appConfig.email.queue.keepFinishedDays,
   });
   ctx.emailQueue?.start({ intervalMs: appConfig.email.queue.intervalMs });

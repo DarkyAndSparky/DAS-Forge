@@ -12,7 +12,7 @@
  * Status: critical/high -> fail; moderate -> warn; low -> listed, status ok. Advisories the operator has accepted
  * (`ignore: [{ id, reason, until? }]`, id = GHSA id) are left out until `until` passes.
  */
-import { assertOutboundUrl } from '../http/outbound.js';
+import { assertOutboundUrl } from '../../http/outbound.js';
 import { existsSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { readFileSync } from 'node:fs';

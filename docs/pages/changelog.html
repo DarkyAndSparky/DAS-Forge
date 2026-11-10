@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>История изменений — DAS-Forge 0.1.274</title>
+<title>История изменений — DAS-Forge 0.1.283</title>
 <style>
 :root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
 @media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
@@ -44,7 +44,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
         fill="#0d0f12" text-anchor="middle">WS</text>
 </svg></div>
-<div><h1>История изменений</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.274 · <code>packages/core/CHANGELOG.md</code></p></div>
+<div><h1>История изменений</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.283 · <code>packages/core/CHANGELOG.md</code></p></div>
 </header>
 <main class="page">
 <h1 id="changelog-das-forge-core">Changelog — @das-forge/core</h1>
@@ -52,6 +52,51 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
 <h2 id="unreleased">[Unreleased]</h2>
 <h3 id="planned">Planned</h3>
 <ul><li>Workshop Stage F (портирование IT Assets в <code>apps/</code>).</li><li>CLI help: <code>usage</code>/<code>flags</code>/<code>examples</code> заполнены пока для <code>migrate</code>, <code>migrate status</code> и всех <code>user *</code> команд (0.1.18) — остальные ~18 команд (<code>backup *</code>, <code>cert *</code>, <code>audit *</code>, <code>privacy *</code>, <code>db *</code>, <code>config check</code>, <code>health</code>, <code>doctor</code>, <code>version</code>) показывают честную заглушку "(No detailed flag/example reference yet…)" вместо пустого экрана, но сам текст ещё не написан.</li></ul>
+<h2 id="0-1-283">[0.1.283]</h2>
+<h3 id="added">Added</h3>
+<ul><li>G-13: команды <code>tasks list [--json]</code> и <code>tasks run &lt;имя&gt;</code> (<code>cli.registerTasksCommands(cli, { scheduler, auditLog })</code>). Список не запускает ничего; <code>run</code> исполняет задачу в процессе консоли с тем же замком и защитой от наложения, что у сервера, и пишет <code>cli.tasks.run</code> (результат, время) от имени <code>cli/&lt;пользователь ОС&gt;</code>. Неизвестное имя — код 2 и перечень известных задач, сбой задачи — код 1.</li><li>В <code>examples/workshop/bin/app.js</code> и <code>templates/app/bin/app.js</code> подключены стандартные задачи уборки (сессии, аудит, стирание персональных данных, баны, почта, токены); задачи, которым нужен работающий сервер (метрики, оповещения), и резервная копия — не вошли (для копии есть <code>backup</code>).</li></ul>
+<h3 id="tests">Tests</h3>
+<ul><li><code>cli-tasks.test.js</code> (5).</li></ul>
+<h2 id="0-1-282">[0.1.282]</h2>
+<h3 id="added">Added</h3>
+<ul><li>G-13: страница «Логи» стала страницей приёмников: куда пишет каждый (файл, адрес без параметров и ключей, syslog <code>протокол://хост:порт</code>), какие потоки и минимальный уровень принимает, состояние («работает» / «сбой, копится очередь» / «теряет строки»), счётчики и последняя ошибка; список выводится стандартным постраничным блоком. Кнопка «Проверить приёмники» (<code>POST /admin/logs/test</code>, через step-up, запись <code>admin.logs.test</code>): тестовая строка уходит в каждый приёмник напрямую, в обход фильтров, и результат показан по каждому (доставлено / не доставлено и причина).</li><li><code>createLogDestination()</code> получил <code>describe()</code> и <code>test({ timeoutMs })</code>.</li><li>Менять приёмники из интерфейса не стали сознательно: адреса и ключи остаются в конфигурации (<code>logs.sinks</code>), изменение требует перезапуска.</li></ul>
+<h3 id="tests">Tests</h3>
+<ul><li><code>admin-ops.test.js</code>: страница показывает адрес и фильтры и не показывает ключи; кнопка проверки доходит до файла, мёртвый адрес отмечен сбоем, запись в журнале.</li></ul>
+<h2 id="0-1-281">[0.1.281]</h2>
+<h3 id="dependencies">Dependencies</h3>
+<ul><li><code>vitest</code> ^5.0.5 → ^5.1.0 (ядро, workshop, шаблон). Проверено по реестру npm: <code>latest</code> = 5.1.0, выпущена 2 ноября, <code>engines.node</code> <code>^22.12 || ^24 || &gt;=26</code>, vite-peer <code>^6.4 || ^7 || ^8</code> (в lock уже подходящий). В заметках релиза breaking changes нет; изменения по умолчанию касаются только browser-режима (порт 23315, трассировка при сбое), он у нас не используется.</li><li><code>eslint</code> остаётся на 10.x (решение владельца: проектов на ядре пока нет, откат на 9.x не нужен). <code>npm audit</code>: 3 умеренные находки в <code>minimatch</code> (DoS при разборе шаблонов) через <code>eslint</code> — только инструмент разработки, в приложение не попадает; исправление есть только через откат на eslint 9, поэтому принято как известный риск до выхода патча в eslint 10.</li><li>Lock-файл в архиве отстаёт от <code>package.json</code> (генерируется на машине с доступом к реестру): после <code>npm install</code> нужно прислать обновлённый <code>package-lock.json</code>.</li></ul>
+<h2 id="0-1-280">[0.1.280]</h2>
+<h3 id="added">Added</h3>
+<ul><li>G-13: раздельные сроки хранения аудита. Настройка <code>audit.personalDataDays</code> (0 = выключено) и задача <code>audit-personal-gc</code> (03:55): настоящие логины и IP за псевдонимами, не встречавшиеся N дней, стираются; строка остаётся, поля читаются «[erased]», цепочка хешей остаётся валидной. Срок самих строк — прежний <code>audit.retentionDays</code>. Функция <code>audit.purgePersonalData</code>, запись <code>audit.personal_data.purge</code> в журнале. Параметр <code>auditPersonalDataDays</code> у <code>registerStandardJobs</code> (подключён в шаблоне и в workshop).</li><li>ADR 0009 с обоснованием (требования 152-ФЗ, GDPR, рекомендация CNIL, PCI DSS, приказы ФСТЭК №21/№239; что не проверено — перечислено в ADR).</li></ul>
+<h3 id="fixed">Fixed</h3>
+<ul><li>Тест G-03 в <code>admin-ops.test.js</code> (0.1.270) стоял вне блока, где определены <code>manage</code>/<code>byName</code>/<code>actor</code>: падал <code>ReferenceError</code> и давал 8 ошибок ESLint <code>no-undef</code>. Перенесён внутрь блока.</li><li>Живая консоль: нижняя часть теперь имеет собственную верхнюю линию «=» (раньше за верхнюю принималась линия из вывода журнала, которая уезжала вверх вместе с логами и оставляла две пустые строки). Порядок: «=», одна пустая строка, надпись, одна пустая строка, «=», строки ответа, приглашение. Высота закреплённой части +3 строки. Тест раскладки в <code>live-console.test.js</code>.</li></ul>
+<h3 id="limits">Limits</h3>
+<ul><li>Срок считается от последнего появления значения; свободный текст в <code>meta</code> не псевдонимизируется; старые строки до псевдонимов уходят по <code>retentionDays</code>.</li></ul>
+<h3 id="tests">Tests</h3>
+<ul><li><code>audit-personal-data.test.js</code> (4): стирание, цепочка цела, свежее остаётся, запись в журнале, проверка параметра, задача включается только при сроке.</li></ul>
+<h2 id="0-1-279">[0.1.279]</h2>
+<h3 id="added">Added</h3>
+<ul><li>G-13: отдельное право на чувствительные поля аудита — <code>createAdmin({ auditAccess: { read, export, sensitive } })</code>. Без <code>sensitive</code> читатель не видит IP, <code>meta</code> и «что изменилось» (список, карточка события, живая лента), список IP в сводке; выгрузка без колонок <code>ip</code> и <code>meta</code>, в журнале выгрузки пометка <code>withoutSensitive</code>. Администраторы видят всё; если <code>sensitive</code> не задан — поведение прежнее (обратная совместимость).</li></ul>
+<h3 id="tests">Tests</h3>
+<ul><li><code>audit-auditor.test.js</code>: 4 новых случая (скрытие во всех представлениях, показ с правом и администратору, выгрузка, обратная совместимость).</li></ul>
+<h2 id="0-1-278">[0.1.278]</h2>
+<h3 id="changed">Changed</h3>
+<ul><li>G-13 (контакты): <a href="security.html"><code>SECURITY.md</code></a> и <a href="code-of-conduct.html"><code>CODE_OF_CONDUCT.md</code></a> — вместо заглушек адрес проекта DAS-Forge (по решению автора), приватная форма GitHub остаётся основной. <code>LICENSE</code> без изменений («DAS-Forge contributors»).</li><li><a href="templates-app-security.html"><code>templates/app/SECURITY.md</code></a>: отдельное место для контакта автора приложения (<code>&lt;SECURITY_CONTACT&gt;</code>, <code>&lt;APP_NAME&gt;</code>), <code>release:check</code> ядра его не проверяет (проверяет только корень репозитория).</li></ul>
+<h2 id="0-1-277">[0.1.277]</h2>
+<h3 id="tests-docs">Tests / Docs</h3>
+<ul><li>G-12: замер фильтров аудита на 1 000 000 строк: все ≤ 162 мс (<a href="performance-budget.html"><code>docs/performance-budget.md</code></a>, там же бюджет «до 0,5 с на страницу» и не измеренное). <code>requestId</code> и <code>result</code> идут полным сканом (55–63 мс) — индексы не добавлялись сознательно (цена записи каждой строки аудита).</li><li><code>scripts/audit-bench.mjs</code> — повторяемый замер.</li><li><code>test/audit-query-plan.test.js</code>: <code>actor</code>, <code>action</code>, <code>entity+entityId</code>, <code>since/until</code> обязаны использовать индекс (EXPLAIN QUERY PLAN).</li></ul>
+<h2 id="0-1-276">[0.1.276]</h2>
+<h3 id="changed-ci-по-pr-от-dependabot-1-5">Changed (CI, по PR от Dependabot #1–#5)</h3>
+<ul><li><code>actions/checkout</code> v4 → v7, <code>actions/setup-node</code> v4 → v7, <code>github/codeql-action</code> v3 → v4, <code>gitleaks/gitleaks-action</code> v2 → v3, <code>aquasecurity/trivy-action</code> 0.28.0 → v0.36.0 (теги теперь с <code>v</code>). Релизы прочитаны: v7 checkout блокирует checkout форков в <code>pull_request_target</code>/<code>workflow_run</code> (мы их не используем); setup-node v6+ кэширует только npm (у нас <code>cache: npm</code> явно); gitleaks v3 — только Node 24, входы те же; Node 20 на GitHub-раннерах убирают 16.09.2026, v2/v3-старые действия перестали бы работать; trivy 0.36.0 без breaking changes.</li><li>Не проверено запуском: результат первого прогона CI на GitHub.</li></ul>
+<h3 id="process">Process</h3>
+<ul><li>Правило обновлений: свежие версии берём сразу (чтение changelog — шаг работы, а не повод отложить); осторожность — только когда changelog показывает несовместимость с нашим кодом.</li></ul>
+<h2 id="0-1-275">[0.1.275]</h2>
+<h3 id="fixed">Fixed</h3>
+<ul><li>Регрессия 0.1.272: в <code>health/checks/dependencies.js</code> импорт <code>../http/outbound.js</code> вместо <code>../../http/outbound.js</code> — ядро не загружалось целиком (37 файлов тестов, 3 теста lazy-imports). Причина моей ошибки: после правки проверил только <code>node --check</code> (синтаксис), а не загрузку модуля. Исправлено.</li></ul>
+<h3 id="tests">Tests</h3>
+<ul><li><code>imports-resolve.test.js</code>: каждый относительный импорт в <code>src/</code> и <code>test/</code> указывает на существующий файл.</li></ul>
+<h3 id="process">Process</h3>
+<ul><li>Правило проверки изменения: после правки файла — реальный импорт модуля, а не только <code>node --check</code>.</li></ul>
 <h2 id="0-1-274">[0.1.274]</h2>
 <h3 id="fixed">Fixed</h3>
 <ul><li>G-11: кнопка «Выйти» (<code>ui/shell.js</code>) молча глотала сбой запроса <code>/logout</code> и всё равно уходила на <code>/login</code>, хотя сессия могла остаться живой. Теперь при ошибке сети или ответе не-2xx кнопка снова активна и показывается сообщение (<code>ui.signOutFailed</code>, ru/en); редирект — только при успехе. Пустые <code>catch</code> вокруг <code>localStorage</code> оставлены осознанно.</li></ul>

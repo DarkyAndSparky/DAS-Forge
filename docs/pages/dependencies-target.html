@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Целевые зависимости — DAS-Forge 0.1.274</title>
+<title>Целевые зависимости — DAS-Forge 0.1.283</title>
 <style>
 :root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
 @media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
@@ -44,7 +44,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
         fill="#0d0f12" text-anchor="middle">WS</text>
 </svg></div>
-<div><h1>Целевые зависимости</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.274 · <code>docs/dependencies-target.md</code></p></div>
+<div><h1>Целевые зависимости</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.283 · <code>docs/dependencies-target.md</code></p></div>
 </header>
 <main class="page">
 <h1 id="целевые-зависимости-рабочий-ориентир">Целевые зависимости (рабочий ориентир)</h1>
@@ -52,7 +52,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
 <p>Рабочие ориентиры при разработке ядра: этот файл и <a href="audit-findings.html"><code>docs/audit-findings.md</code></a>. <a href="roadmap.html"><code>docs/roadmap.md</code></a> заморожен (исторический ориентир), <code>docs/index.html</code> ведомый — синхронизируется с кодовой базой.</p>
 <blockquote>Полный и всегда актуальный список зависимостей ядра, шаблона и разработки собирается из <code>package.json</code> и лежит в <a href="../index.html#dependencies">руководстве «Зависимости»</a>. Этот файл хранит решения и историю подключений.</blockquote>
 <h2 id="уже-в-проекте-актуальные-версии">Уже в проекте (актуальные версии)</h2>
-<div class="tbl"><table><thead><tr><th>Пакет</th><th>Актуальная</th><th>В зависимостях</th></tr></thead><tbody><tr><td>zod</td><td>4.6.5</td><td>^4.6.7</td></tr><tr><td>argon2</td><td>0.45.1</td><td>^0.45.2</td></tr><tr><td>sharp</td><td>0.35.5</td><td>^0.35.5</td></tr><tr><td>dompurify</td><td>3.4.16</td><td>^3.4.17</td></tr><tr><td>jsdom</td><td>30.1.1</td><td>^31.0.0</td></tr><tr><td>express</td><td>5.3.0</td><td>^5.3.0</td></tr><tr><td>cookie-parser</td><td>1.4.7</td><td>^1.4.7</td></tr><tr><td>vitest</td><td>5.0.3</td><td>^5.0.5</td></tr></tbody></table></div>
+<div class="tbl"><table><thead><tr><th>Пакет</th><th>Актуальная</th><th>В зависимостях</th></tr></thead><tbody><tr><td>zod</td><td>4.6.5</td><td>^4.6.7</td></tr><tr><td>argon2</td><td>0.45.1</td><td>^0.45.2</td></tr><tr><td>sharp</td><td>0.35.5</td><td>^0.35.5</td></tr><tr><td>dompurify</td><td>3.4.16</td><td>^3.4.17</td></tr><tr><td>jsdom</td><td>30.1.1</td><td>^31.0.0</td></tr><tr><td>express</td><td>5.3.0</td><td>^5.3.0</td></tr><tr><td>cookie-parser</td><td>1.4.7</td><td>^1.4.7</td></tr><tr><td>vitest</td><td>5.0.3</td><td>^5.1.0</td></tr></tbody></table></div>
 <p>Минимальные версии подняты до тех, что стоят в проверенном <code>package-lock.json</code> (<code>npm audit</code>: 0 уязвимостей): express ^5.3.0, sharp ^0.35.5, multer ^2.5.0, nodemailer ^10.4.0 и др. В корневом <code>package.json</code> <code>overrides</code> фиксирует транзитивные <code>proxy-addr ^2.0.8</code> (подмена IP) и <code>body-parser ^2.4.0</code> (отказ в обслуживании при сжатом теле). Приложению, которое ставит ядро отдельно, нужны такие же <code>overrides</code> или свежий <code>npm audit fix</code>.</p>
 <h2 id="кандидаты-в-ядро-по-мере-подхода-к-зоне">Кандидаты в ядро (по мере подхода к зоне)</h2>
 <p>compression ^1.8.2, cors ^2.8.6, express-rate-limit ^8.7.1, express-session ^1.19.0, helmet ^8.3.0 (в ядре с 0.1.41), libheif-js ^1.23.5, uuid ^14.0.3, pino ^10.4.0, pino-http ^11.0.0, selfsigned ^5.5.0, docx ^9.15.3, adm-zip ^0.6.1, nodemailer ^10.4.0, jsdom ^31.0.0, multer ^2.5.0.</p>

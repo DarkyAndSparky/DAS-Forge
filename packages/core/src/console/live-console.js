@@ -2,7 +2,7 @@ import { DAS_FORGE_WORDMARK } from '../ui/ascii-brand.js';
 
 /**
  * A live console for a server started in a terminal window: the log scrolls in the upper part, the lower part stays
- * in place - the "DAS FORGE" lettering, a line of "=", a few lines where a command's answer appears, and a prompt
+ * in place - a line of "=", the "DAS FORGE" lettering, a line of "=" (an empty line between each and the lettering), a few lines where a command's answer appears, and a prompt
  * where `/health`, `/status`, `/help`, `/stop` can be typed.
  *
  * It only exists in a real terminal that is big enough (see `liveConsoleSupported`); in Docker, a service, a pipe or
@@ -12,8 +12,8 @@ import { DAS_FORGE_WORDMARK } from '../ui/ascii-brand.js';
 
 export const OUTPUT_LINES = 5;
 const WORDMARK_HEIGHT = DAS_FORGE_WORDMARK.length;
-/** Lines the fixed part takes: lettering, "=", answer lines, prompt. */
-export const FOOTER_HEIGHT = WORDMARK_HEIGHT + 1 + OUTPUT_LINES + 1;
+/** Lines the fixed part takes: "=", an empty line, the lettering, an empty line, "=", answer lines, prompt. */
+export const FOOTER_HEIGHT = 1 + 1 + WORDMARK_HEIGHT + 1 + 1 + OUTPUT_LINES + 1;
 const MIN_LOG_LINES = 8;
 const MIN_COLUMNS = 100;
 const INDENT = '  ';
@@ -65,10 +65,15 @@ export function startLiveConsole({ commands = {}, onStop, stdout = process.stdou
     const top = rows - FOOTER_HEIGHT + 1;
     const out = [];
     const put = (r, text) => out.push(`${ESC}[${r};1H${ESC}[2K${text}`);
-    DAS_FORGE_WORDMARK.forEach((l, i) => put(top + i, INDENT + l));
-    put(top + WORDMARK_HEIGHT, INDENT + '='.repeat(Math.max(1, Math.min(cols - 4, Math.max(...DAS_FORGE_WORDMARK.map((l) => l.length))))));
+    const bar = INDENT + '='.repeat(Math.max(1, Math.min(cols - 4, Math.max(...DAS_FORGE_WORDMARK.map((l) => l.length)))));
+    // the bar above stays with the fixed part, so it never scrolls away with the log; one empty line on each side of the lettering
+    put(top, bar);
+    put(top + 1, '');
+    DAS_FORGE_WORDMARK.forEach((l, i) => put(top + 2 + i, INDENT + l));
+    put(top + 2 + WORDMARK_HEIGHT, '');
+    put(top + 3 + WORDMARK_HEIGHT, bar);
     const shown = output.length > OUTPUT_LINES ? [...output.slice(0, OUTPUT_LINES - 1), `… (+${output.length - OUTPUT_LINES + 1})`] : output;
-    for (let i = 0; i < OUTPUT_LINES; i++) put(top + WORDMARK_HEIGHT + 1 + i, shown[i] === undefined ? '' : INDENT + clip(shown[i], cols - 4));
+    for (let i = 0; i < OUTPUT_LINES; i++) put(top + WORDMARK_HEIGHT + 4 + i, shown[i] === undefined ? '' : INDENT + clip(shown[i], cols - 4));
     const promptText = `${INDENT}> `;
     const room = cols - promptText.length - 1;
     const visible = [...typed].slice(-room).join('');

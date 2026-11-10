@@ -1,4 +1,4 @@
-import { purgeOlderThan, archiveAndPurge } from '../audit/retention.js';
+import { purgeOlderThan, archiveAndPurge, purgePersonalData } from '../audit/retention.js';
 import { purgePasswordResetTokens } from '../auth/password-reset.js';
 import { createRegistrationStore } from '../accounts/registration.js';
 
@@ -17,13 +17,14 @@ const registered = new WeakMap(); // scheduler -> names registered by registerSt
  * @param {{purge: () => unknown}} [o.metrics] - `admin.createMetrics(db)`
  * @param {{purgeFinished: (o: {olderThanDays: number}) => number}} [o.emailQueue]
  * @param {number} [o.auditRetentionDays=0] - 0 = keep audit rows forever (no job)
+ * @param {number} [o.auditPersonalDataDays=0] - erase the real logins/IPs behind audit pseudonyms unseen for this many days (rows stay, chain stays valid); 0 = off
  * @param {number} [o.auditPurgeBatchSize]
  * @param {string} [o.auditArchiveDir] - when set, rows are archived (gzip NDJSON + checksum) before audit-gc deletes them
  * @param {number} [o.mailKeepFinishedDays=30]
  * @param {boolean} [o.passwordResets=true]
  * @returns {string[]} names of the jobs registered
  */
-export function registerStandardJobs(scheduler, { db, logger = null, sessionStore = null, bans = null, metrics = null, emailQueue = null, auditRetentionDays = 0, auditPurgeBatchSize, auditArchiveDir = '', mailKeepFinishedDays = 30, passwordResets = true } = {}) {
+export function registerStandardJobs(scheduler, { db, logger = null, sessionStore = null, bans = null, metrics = null, emailQueue = null, auditRetentionDays = 0, auditPersonalDataDays = 0, auditPurgeBatchSize, auditArchiveDir = '', mailKeepFinishedDays = 30, passwordResets = true } = {}) {
   if (!scheduler?.registerJob) throw new TypeError('registerStandardJobs: scheduler is required');
   if (!db) throw new TypeError('registerStandardJobs: db is required');
   const names = [];
@@ -42,6 +43,12 @@ export function registerStandardJobs(scheduler, { db, logger = null, sessionStor
       }
       const removed = purgeOlderThan(db, cutoff, { record: true, actor: 'system', batchSize: auditPurgeBatchSize });
       if (removed > 0) info('audit-gc removed old audit rows', { removed, retentionDays: auditRetentionDays });
+    });
+  }
+  if (auditPersonalDataDays > 0) {
+    add('audit-personal-gc', '55 3 * * *', () => {
+      const removed = purgePersonalData(db, auditPersonalDataDays, { record: true, actor: 'system' });
+      if (removed > 0) info('audit-personal-gc erased personal details of audit pseudonyms', { removed, days: auditPersonalDataDays });
     });
   }
   if (bans) add('bans-gc', '15 4 * * *', () => { bans.purge(); });

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { createLogDestination } from '../src/logs/destination.js';
 import { createSqliteAdapter } from '../src/database/index.js';
 import { ensureAuthTables } from '../src/auth/schema.js';
 import { createUser } from '../src/auth/users.js';
@@ -347,6 +348,22 @@ describe('users section: account administration', () => {
     expect(() => build({ userManagement: { roles: ['a'] } })).toThrow(/hashPassword/);
     expect(() => build({ userManagement: { authProvider: { hashPassword: async () => 'h' }, roles: [] } })).toThrow(/roles/);
   });
+
+  it('a stale form is refused with CONFLICT, a current one is saved, a form without a fingerprint still works', async () => {
+    const { db, routes } = manage();
+    createUser(db, { username: 'ann', email: 'ann@example.com', passwordHash: 'h', role: 'operator' });
+    const ann = byName(db, 'ann');
+    const stale = userVersion(ann); // the form both administrators opened
+    let r = await call(routes['POST /admin/users/:id/role'], { user: actor, params: { id: String(ann.id) }, body: { role: 'admin', _v: stale } });
+    expect(r.location).toBe('/admin/users?msg=ok'); // the first one saves
+    r = await call(routes['POST /admin/users/:id/profile'], { user: actor, params: { id: String(ann.id) }, body: { username: 'anna', email: '', _v: stale } });
+    expect(r.location).toBe('/admin/users?msg=bad&e=CONFLICT'); // the second one is told, not silently applied
+    expect(byName(db, 'ann').email).toBe('ann@example.com');
+    r = await call(routes['POST /admin/users/:id/profile'], { user: actor, params: { id: String(ann.id) }, body: { username: 'anna', email: '', _v: userVersion(byName(db, 'ann')) } });
+    expect(r.location).toBe('/admin/users?msg=ok'); // after reloading the page it goes through
+    r = await call(routes['POST /admin/users/:id/role'], { user: actor, params: { id: String(ann.id) }, body: { role: 'operator' } });
+    expect(r.location).toBe('/admin/users?msg=ok'); // no fingerprint = not checked
+  });
 });
 
 describe('backups, logs, about sections', () => {
@@ -368,6 +385,39 @@ describe('backups, logs, about sections', () => {
     expect(p.body).toContain('&lt;x&gt;');
     const b = build({ logDestination: { stats: () => [] } });
     expect((await call(b.routes['GET /admin/logs'], { user: admin, query: {} })).body).toContain('stdout');
+  });
+
+  it('logs: shows where each sink writes and what it takes, never a secret; the test button reaches every sink (G-13)', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'logs-'));
+    const file = path.join(dir, 'app.log');
+    const logDestination = createLogDestination({
+      sinks: [
+        { type: 'file', path: file, streams: ['app', 'audit'], minLevel: 'warn' },
+        { type: 'http', url: 'http://127.0.0.1:1/ingest?token=SECRET-TOKEN', headers: { authorization: 'Bearer SECRET-HEADER' }, retryBaseMs: 5, flushIntervalMs: 5 },
+      ],
+      warn: () => {},
+    });
+    const { db, routes } = build({ logDestination });
+    const page = await call(routes['GET /admin/logs'], { user: admin, query: {} });
+    expect(page.body).toContain(file);
+    expect(page.body).toContain('http://127.0.0.1:1/ingest');
+    expect(page.body).toContain('app, audit');
+    expect(page.body).toContain('≥ warn');
+    expect(page.body).not.toContain('SECRET-TOKEN');
+    expect(page.body).not.toContain('SECRET-HEADER');
+
+    const r = await call(routes['POST /admin/logs/test'], { user: admin, body: {} });
+    expect(r.code).toBe(200);
+    expect(r.body).toMatch(/доставлено|delivered/);
+    expect(r.body).toMatch(/не доставлено|not delivered/);
+    const res = await logDestination.test({ timeoutMs: 2000 });
+    expect(res.map((x) => x.ok)).toEqual([true, false]); // the file got the line (filters bypassed), the dead address did not
+    expect(readFileSync(file, 'utf8')).toContain('das-forge log sink test');
+    expect(res[1].error).toBeTruthy();
+    const entry = query(db, { action: 'admin.logs.test' })[0];
+    expect(entry.result).toBe('failure');
+    expect(entry.meta).toMatchObject({ sinks: 2, failed: 1 });
+    await logDestination.close({ timeoutMs: 50 });
   });
 
   it('about reads dependencies/licenses and checks npm with a fake fetch', async () => {
@@ -587,23 +637,5 @@ describe('processing register section', () => {
   it('is absent without the option', () => {
     const { routes } = build({});
     expect(routes['GET /admin/registry']).toBeUndefined();
-  });
-});
-
-describe('users section: two administrators edit the same account (G-03)', () => {
-  it('a stale form is refused with CONFLICT, a current one is saved, a form without a fingerprint still works', async () => {
-    const { db, routes } = manage();
-    createUser(db, { username: 'ann', email: 'ann@example.com', passwordHash: 'h', role: 'operator' });
-    const ann = byName(db, 'ann');
-    const stale = userVersion(ann); // the form both administrators opened
-    let r = await call(routes['POST /admin/users/:id/role'], { user: actor, params: { id: String(ann.id) }, body: { role: 'admin', _v: stale } });
-    expect(r.location).toBe('/admin/users?msg=ok'); // the first one saves
-    r = await call(routes['POST /admin/users/:id/profile'], { user: actor, params: { id: String(ann.id) }, body: { username: 'anna', email: '', _v: stale } });
-    expect(r.location).toBe('/admin/users?msg=bad&e=CONFLICT'); // the second one is told, not silently applied
-    expect(byName(db, 'ann').email).toBe('ann@example.com');
-    r = await call(routes['POST /admin/users/:id/profile'], { user: actor, params: { id: String(ann.id) }, body: { username: 'anna', email: '', _v: userVersion(byName(db, 'ann')) } });
-    expect(r.location).toBe('/admin/users?msg=ok'); // after reloading the page it goes through
-    r = await call(routes['POST /admin/users/:id/role'], { user: actor, params: { id: String(ann.id) }, body: { role: 'operator' } });
-    expect(r.location).toBe('/admin/users?msg=ok'); // no fingerprint = not checked
   });
 });

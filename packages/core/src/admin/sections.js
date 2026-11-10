@@ -95,10 +95,10 @@ const targetOf = (e) => {
 };
 const targetHtml = (e) => (targetOf(e) ? ` <span class="adm-muted">(${esc(targetOf(e))})</span>` : '');
 
-export function mountAuditSection({ app, db, guard, exportGuard = guard, canExport = () => true, page: render, basePath, localeOf, texts = {}, stepUp = [] }) {
+export function mountAuditSection({ app, db, guard, exportGuard = guard, canExport = () => true, canSeeSensitive = () => true, page: render, basePath, localeOf, texts = {}, stepUp = [] }) {
   const path = `${basePath}/audit`;
 
-  const rowHtml = (e, l, locale) => `<tr><td><a href="${path}/event/${esc(e.id)}">${esc(e.id)}</a></td><td>${timeHtml(e.createdAt, locale)}</td><td>${esc(e.actor ?? '—')}</td><td>${actionCell(e, locale)}</td><td>${esc(e.entity ?? '')}${e.entityId != null ? `#${esc(e.entityId)}` : ''}${targetHtml(e)}</td><td><span class="adm-badge ${e.result === 'success' ? 'ok' : 'danger'}">${esc(e.result === 'success' ? l.okTxt : e.result === 'failure' ? l.failTxt : e.result === 'denied' ? l.deniedTxt : e.result)}</span></td><td>${esc(e.ip ?? '')}</td></tr>`;
+  const rowHtml = (e, l, locale, sens = true) => `<tr><td><a href="${path}/event/${esc(e.id)}">${esc(e.id)}</a></td><td>${timeHtml(e.createdAt, locale)}</td><td>${esc(e.actor ?? '—')}</td><td>${actionCell(e, locale)}</td><td>${esc(e.entity ?? '')}${e.entityId != null ? `#${esc(e.entityId)}` : ''}${targetHtml(e)}</td><td><span class="adm-badge ${e.result === 'success' ? 'ok' : 'danger'}">${esc(e.result === 'success' ? l.okTxt : e.result === 'failure' ? l.failTxt : e.result === 'denied' ? l.deniedTxt : e.result)}</span></td><td>${sens ? esc(e.ip ?? '') : ''}</td></tr>`;
 
   app.get(path, ...guard, (req, res) => {
     const l = pickTexts(L, texts['admin-audit'], localeOf(req), 'admin-audit');
@@ -116,7 +116,7 @@ export function mountAuditSection({ app, db, guard, exportGuard = guard, canExpo
       if (r.ok) { try { createDbLastRunStore(db).set('alerts-audit-chain', new Date().toISOString()); } catch { /* the diagnostics just will not see this check */ } }
       banner = `<div class="adm-card" style="margin-bottom:1rem"><span class="adm-badge ${r.ok ? 'ok' : 'danger'}">${r.ok ? esc(l.chainOk) : `${esc(l.chainBad)} #${esc(r.brokenAtId)}`}</span> <span class="adm-muted">${esc(l.checked)}: ${esc(r.checked)}</span></div>`;
     }
-    const rows = items.map((e) => rowHtml(e, l, localeOf(req))).join('') || emptyRow(7, l.emptyAudit);
+    const rows = items.map((e) => rowHtml(e, l, localeOf(req), canSeeSensitive(req))).join('') || emptyRow(7, l.emptyAudit);
     const day = (back) => new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 16);
     const preset = (label, since) => `<a class="adm-btn" href="${path}?${esc(new URLSearchParams({ ...f, since, until: '' }).toString().replace(/&until=(?=&|$)/, ''))}">${esc(label)}</a>`;
     const tabs = `<p class="adm-tabs"><a class="adm-btn${f.view ? '' : ' primary'}" href="${path}">${esc(l.allEvents)}</a> <a class="adm-btn${f.view ? ' primary' : ''}" href="${path}?view=logins">${esc(l.logins)}</a> <a class="adm-btn" href="${path}/summary">${esc(l.summaryTab)}</a> ${preset(l.today, new Date(new Date().setHours(0, 0, 0, 0)).toISOString().slice(0, 16))} ${preset(l.week, day(7))}</p>`;
@@ -155,7 +155,11 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
    */
   function streamExport(req, res, { format }) {
     const f = filtersOf(req);
-    const COLS = ['id', 'createdAt', 'actor', 'action', 'entity', 'entityId', 'result', 'requestId', 'ip', 'meta', 'hash', 'prevHash'];
+    const sens = canSeeSensitive(req);
+    // Without the sensitive right the export carries neither the address nor the details (G-13).
+    const ALL = ['id', 'createdAt', 'actor', 'action', 'entity', 'entityId', 'result', 'requestId', 'ip', 'meta', 'hash', 'prevHash'];
+    const keep = ALL.map((c) => sens || (c !== 'ip' && c !== 'meta'));
+    const COLS = ALL.filter((_, i) => keep[i]);
     const excel = localeOf(req);
     res.set('Content-Type', format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8')
       .set('Content-Disposition', `attachment; filename="audit.${format}"`).set('Cache-Control', 'no-store');
@@ -171,7 +175,7 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
         const hashes = hashesOf(batch.map((e) => e.id));
         const rows = batch.map((e) => {
           const h = hashes.get(e.id);
-          return [e.id, e.createdAt, e.actor ?? null, e.action, e.entity ?? null, e.entityId ?? null, e.result, e.requestId ?? null, e.ip ?? null, e.meta ?? null, h?.hash ?? null, h?.prev_hash ?? null];
+          return [e.id, e.createdAt, e.actor ?? null, e.action, e.entity ?? null, e.entityId ?? null, e.result, e.requestId ?? null, e.ip ?? null, e.meta ?? null, h?.hash ?? null, h?.prev_hash ?? null].filter((_, i) => keep[i]);
         });
         if (format === 'json') {
           for (const row of rows) { res.write(`${first ? '\n' : ',\n'}${JSON.stringify(Object.fromEntries(COLS.map((c, i) => [c, row[i]])))}`); first = false; }
@@ -183,7 +187,7 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
       }
       if (batch.length < 1000) break;
     }
-    log(db, { ...contextFromRequest(req), action: 'admin.audit.export', entity: 'audit', meta: { rows: total, format, filters: f } });
+    log(db, { ...contextFromRequest(req), action: 'admin.audit.export', entity: 'audit', meta: { rows: total, format, filters: f, ...(sens ? {} : { withoutSensitive: true }) } });
     res.end(format === 'json' ? '\n]\n' : '\r\n');
   }
 
@@ -197,7 +201,7 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
     const after = Math.max(0, Math.trunc(Number(req.query?.after)) || 0);
     const items = query(db, { ...toQuery(f), afterId: after, limit: 50 }); // oldest first, at most 50 per poll
     res.set('Cache-Control', 'no-store');
-    res.json({ rows: items.map((e) => rowHtml(e, l, localeOf(req))).reverse().join(''), lastId: items.length ? items[items.length - 1].id : after, count: items.length });
+    res.json({ rows: items.map((e) => rowHtml(e, l, localeOf(req), canSeeSensitive(req))).reverse().join(''), lastId: items.length ? items[items.length - 1].id : after, count: items.length });
   });
 
   // Summary for a period: the numbers, a chart per day, and the noisiest sources of failed sign-ins.
@@ -213,7 +217,7 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
     render(req, res, { active: path, title: l.summaryTab, bodyHtml: `<p>${periods} <a class="adm-btn" href="${path}">${esc(l.back)}</a></p>
 <div style="display:flex;flex-wrap:wrap;gap:.75rem">${card(l.sEvents, t.events)}${card(l.sLogins, t.logins)}${card(l.sFails, t.loginFailures)}${card(l.sLocks, t.lockouts)}${card(l.sNewDev, t.newDevices)}${card(l.sAdmin, t.adminActions)}${card(l.sActive, t.activeUsers)}</div>
 <div class="adm-card" style="margin-top:.75rem"><h3>${esc(l.sPerDay)}</h3>${chart}</div>
-<div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-top:.75rem">${list(l.sTopIps, r.topFailedIps)}${list(l.sTopLogins, r.topFailedLogins)}${list(l.sTopActions, r.topActions.map((x) => ({ key: describeEvent({ action: x.key }, localeOf(req)).title, count: x.count })))}</div>
+<div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-top:.75rem">${canSeeSensitive(req) ? list(l.sTopIps, r.topFailedIps) : ''}${list(l.sTopLogins, r.topFailedLogins)}${list(l.sTopActions, r.topActions.map((x) => ({ key: describeEvent({ action: x.key }, localeOf(req)).title, count: x.count })))}</div>
 <p class="adm-muted">${esc(l.sNote)}</p>` });
   });
 
@@ -225,8 +229,9 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
     if (!e || e.id !== id) return res.status(404).type('html').send(`<!doctype html><title>404</title><p>404</p>`);
     const h = hashesOf([id]).get(id);
     const d = describeEvent(e, localeOf(req));
-    const changes = e.meta?.changes && typeof e.meta.changes === 'object' && !Array.isArray(e.meta.changes) ? Object.entries(e.meta.changes) : [];
-    const meta = e.meta && typeof e.meta === 'object' ? Object.entries(e.meta).filter(([k]) => !(k === 'changes' && changes.length)) : [];
+    const sens = canSeeSensitive(req);
+    const changes = !sens ? [] : e.meta?.changes && typeof e.meta.changes === 'object' && !Array.isArray(e.meta.changes) ? Object.entries(e.meta.changes) : [];
+    const meta = sens && e.meta && typeof e.meta === 'object' ? Object.entries(e.meta).filter(([k]) => !(k === 'changes' && changes.length)) : [];
     const cell = (v) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v ?? ''));
     const line = (k, v) => `<tr><th style="text-align:left;width:11rem">${esc(k)}</th><td>${esc(cell(v))}</td></tr>`;
     const link = (href, label) => `<a class="adm-btn" href="${href}">${esc(label)}</a>`;
@@ -236,7 +241,7 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
       e.entity && e.entityId != null ? link(q({ entity: e.entity, entityId: e.entityId }), l.objectHistory) : '',
       e.actor ? link(q({ actor: e.actor }), l.byActor) : '',
     ].join(' ');
-    const body = `<p>${link(path, l.back)}</p><div class="adm-card"><table class="adm-table"><tbody>${line('#', e.id)}${line(l.when, e.createdAt)}${line(l.actor, e.actor ?? '—')}${line(l.action, d.known ? `${d.title} (${e.action})` : e.action)}${d.phrase ? line(l.summary, d.phrase) : ''}${d.known ? line(l.category, d.categoryTitle) : ''}${line(l.entity, `${e.entity ?? ''}${e.entityId != null ? `#${e.entityId}` : ''}${targetOf(e) ? ` (${targetOf(e)})` : ''}`)}${line(l.result, e.result)}${line(l.ip, e.ip ?? '')}${line(l.request, e.requestId ?? '')}${line(l.hashLbl, h?.hash ?? '')}${line(l.prevHashLbl, h?.prev_hash ?? '')}</tbody></table></div>
+    const body = `<p>${link(path, l.back)}</p><div class="adm-card"><table class="adm-table"><tbody>${line('#', e.id)}${line(l.when, e.createdAt)}${line(l.actor, e.actor ?? '—')}${line(l.action, d.known ? `${d.title} (${e.action})` : e.action)}${d.phrase ? line(l.summary, d.phrase) : ''}${d.known ? line(l.category, d.categoryTitle) : ''}${line(l.entity, `${e.entity ?? ''}${e.entityId != null ? `#${e.entityId}` : ''}${targetOf(e) ? ` (${targetOf(e)})` : ''}`)}${line(l.result, e.result)}${sens ? line(l.ip, e.ip ?? '') : ''}${line(l.request, e.requestId ?? '')}${line(l.hashLbl, h?.hash ?? '')}${line(l.prevHashLbl, h?.prev_hash ?? '')}</tbody></table></div>
 ${changes.length ? `<div class="adm-card"><h2>${esc(l.changed)}</h2><table class="adm-table"><thead><tr><th>${esc(l.fieldName)}</th><th>${esc(l.was)}</th><th>${esc(l.became)}</th></tr></thead><tbody>${changes.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(cell(v?.from))}</td><td>${esc(cell(v?.to))}</td></tr>`).join('')}</tbody></table></div>` : ''}<div class="adm-card"><h2>${esc(l.details)}</h2>${meta.length ? `<table class="adm-table"><thead><tr><th>${esc(l.fieldName)}</th><th>${esc(l.fieldValue)}</th></tr></thead><tbody>${meta.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(cell(v))}</td></tr>`).join('')}</tbody></table>` : `<p class="adm-muted">${esc(l.noDetails)}</p>`}</div><p>${links}</p>`;
     render(req, res, { active: path, title: `${l.eventCard} #${e.id}`, bodyHtml: body });
   });

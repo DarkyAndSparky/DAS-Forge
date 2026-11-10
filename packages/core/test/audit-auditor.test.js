@@ -78,3 +78,57 @@ describe('auditor role: audit access without the administration', () => {
     expect((await call(plain.routes['GET /admin/audit'], { user: admin, query: {} })).code).toBe(200);
   });
 });
+
+describe('auditor role: the sensitive-fields right (G-13)', () => {
+  const SENS = { auditAccess: { read: 'audit.read', export: 'audit.export', sensitive: 'audit.sensitive' } };
+  const plainReader = { id: 5, username: 'r', permissions: ['audit.read', 'audit.export'] };
+  const fullReader = { id: 6, username: 'f', permissions: ['audit.read', 'audit.export', 'audit.sensitive'] };
+  const seed = (db) => {
+    log(db, { actor: 'a', action: 'admin.user.force_logout', entity: 'user', entityId: 1, ip: '203.0.113.77', meta: { note: 'ZZ-DETAIL', changes: { email: { from: 'old@x.io', to: 'new@x.io' } } } });
+    return query(db, { limit: 1 })[0].id;
+  };
+
+  it('without the right: no address, no details, no changes, no top-IP list', async () => {
+    const { db, routes } = build(SENS);
+    const id = seed(db);
+    for (const [p, q] of [['GET /admin/audit', {}], ['GET /admin/audit/live', { after: '0' }], ['GET /admin/audit/event/:id', {}], ['GET /admin/audit/summary', {}]]) {
+      const r = await call(routes[p], { user: plainReader, query: q, params: { id: String(id) } });
+      expect(r.code, p).toBe(200);
+      expect(r.body, p).not.toContain('203.0.113.77');
+      expect(r.body, p).not.toContain('ZZ-DETAIL');
+      expect(r.body, p).not.toContain('old@x.io');
+    }
+  });
+
+  it('with the right, and for an administrator, everything is shown', async () => {
+    const { db, routes } = build(SENS);
+    const id = seed(db);
+    for (const user of [fullReader, admin]) {
+      const list = await call(routes['GET /admin/audit'], { user, query: {} });
+      expect(list.body).toContain('203.0.113.77');
+      const card = await call(routes['GET /admin/audit/event/:id'], { user, query: {}, params: { id: String(id) } });
+      expect(card.body).toContain('ZZ-DETAIL');
+      expect(card.body).toContain('old@x.io');
+    }
+  });
+
+  it('the export leaves out ip and meta without the right', async () => {
+    const { db, routes } = build(SENS);
+    seed(db);
+    const lean = await call(routes['GET /admin/audit.json'], { user: plainReader, query: {} });
+    expect(lean.body).not.toContain('203.0.113.77');
+    expect(lean.body).not.toContain('ZZ-DETAIL');
+    expect(lean.body).not.toContain('"ip"');
+    const full = await call(routes['GET /admin/audit.json'], { user: fullReader, query: {} });
+    expect(full.body).toContain('203.0.113.77');
+    expect(full.body).toContain('ZZ-DETAIL');
+    const csv = await call(routes['GET /admin/audit.csv'], { user: plainReader, query: {} });
+    expect(csv.body).not.toContain('203.0.113.77');
+  });
+
+  it('when `sensitive` is not configured nothing changes: a reader sees everything', async () => {
+    const { db, routes } = build(ACCESS);
+    seed(db);
+    expect((await call(routes['GET /admin/audit'], { user: reader, query: {} })).body).toContain('203.0.113.77');
+  });
+});

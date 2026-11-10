@@ -1,6 +1,6 @@
 export { log, onEntry } from './log.js';
 export { tail, query, page, count, normalizeTimestamp } from './query.js';
-export { purgeOlderThan, archiveAndPurge } from './retention.js';
+export { purgeOlderThan, archiveAndPurge, purgePersonalData } from './retention.js';
 export { archiveBefore, verifyArchive } from './archive.js';
 export { AuditEntrySchema, ensureAuditTable } from './schema.js';
 export { eraseSubjects, ERASED } from './subjects.js';

@@ -34,6 +34,23 @@ export async function archiveAndPurge(db, beforeIso, { archiveDir, record = true
   return { removed, archive };
 }
 
+/**
+ * Erases the personal details behind audit pseudonyms (real logins and IP addresses) that have not been seen for `days` days.
+ * The rows stay and the hash chain stays valid (the hash covers the pseudonym); the fields read "[erased]" afterwards.
+ * A person or address that is still active keeps its mapping: it is erased `days` days after the LAST time it was seen.
+ * Rows written before pseudonyms existed hold plain values and age out through the ordinary row retention.
+ * @returns {number} mappings removed
+ */
+export function purgePersonalData(db, days, { record = true, actor = null, now = Date.now() } = {}) {
+  const d = Math.trunc(Number(days));
+  if (!Number.isFinite(d) || d < 1) throw new RangeError('purgePersonalData(): days must be an integer >= 1');
+  ensureAuditTable(db);
+  const cutoff = new Date(now - d * 86_400_000).toISOString();
+  const removed = purgeStaleSubjects(db, cutoff);
+  if (record && removed > 0) log(db, { actor, action: 'audit.personal_data.purge', meta: { days: d, removed } });
+  return removed;
+}
+
 function purgeSync(db, beforeIso, { record, actor, batchSize }) {
   if (!beforeIso) {
     throw new TypeError('purgeOlderThan() requires a cutoff ISO datetime string');

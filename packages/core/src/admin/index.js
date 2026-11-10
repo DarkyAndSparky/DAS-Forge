@@ -74,7 +74,7 @@ function duration(sec) {
  * @param {object} [o.theme] - {tokens, darkTokens, cssUrl}
  * @param {string} [o.brandHtml]
  * @param {string} [o.permission='admin.access']
- * @param {{read: string, export: string}|null} [o.auditAccess] - e.g. `{ read: 'audit.read', export: 'audit.export' }`: a user with `read` (and no `admin.access`) sees only the Audit section; the CSV/JSON export needs `export`. Holders of `permission` keep everything. Default null: the audit is for `permission` only
+ * @param {{read: string, export: string, sensitive?: string}|null} [o.auditAccess] - e.g. `{ read: 'audit.read', export: 'audit.export' }`: a user with `read` (and no `admin.access`) sees only the Audit section; the CSV/JSON export needs `export`. Optional `sensitive` (e.g. 'audit.sensitive'): without it the reader sees the journal without addresses (IP), details (`meta`, "what changed") and the top-IP list, and the export leaves those columns out; if `sensitive` is not set everyone with access sees all. Holders of `permission` keep everything. Default null: the audit is for `permission` only
  * @param {Array<{path:string,label:string,permission?:string}>} [o.sections] - extra nav entries
  * @param {object} [o.vendorIdentity] - the app's `branding.defineVendorIdentity()`: the menu header shows the administrator's name and logo, else this identity's own
  * @param {string} [o.basePath='/admin']
@@ -376,7 +376,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
       });
     }
     mountAuditSection(auditAccess
-      ? { ...ctx, guard: [requireAuth(), anyOf(requirePermission, [permission, auditAccess.read])], exportGuard: [requireAuth(), anyOf(requirePermission, [permission, auditAccess.export])], canExport: (req) => has(req.user, permission) || has(req.user, auditAccess.export) }
+      ? { ...ctx, guard: [requireAuth(), anyOf(requirePermission, [permission, auditAccess.read])], exportGuard: [requireAuth(), anyOf(requirePermission, [permission, auditAccess.export])], canExport: (req) => has(req.user, permission) || has(req.user, auditAccess.export), canSeeSensitive: (req) => !auditAccess.sensitive || has(req.user, permission) || has(req.user, auditAccess.sensitive) }
       : ctx);
     if (bans) mountSecuritySection({ ...ctx, bans });
     if (users) mountUsersSection({ ...ctx, manage: userManagement });
@@ -391,7 +391,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
     if (mail?.service) mountBroadcastSection({ ...ctxOps, mail, roles: userManagement?.roles ?? [] });
     if (config) mountConfigSection({ ...ctx, config, configSources });
     if (alerts) mountAlertsSection({ ...ctx, stepUp, alerts, mailConfigured: Boolean(alertsMail) });
-    if (logDestination) mountLogsSection({ ...ctx, logDestination });
+    if (logDestination) mountLogsSection({ ...ctx, stepUp, logDestination });
     if (appearance) {
       mountLogoRoute(app, { db, uploadsDir: appearance.uploadsDir }); // public: the login page shows the logo too
       mountAppearanceSection({ ...ctx, appearance });

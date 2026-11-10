@@ -393,7 +393,7 @@ async function main() {
   // so a forgotten line can no longer let a table grow without limit. The doctor warns if it is missing.
   schedulerModule.registerStandardJobs(jobScheduler, {
     db, logger, sessionStore: ctx.sessionStore, bans: ctx.bans, metrics, emailQueue: ctx.emailQueue,
-    auditRetentionDays: appConfig.audit.retentionDays, auditPurgeBatchSize: appConfig.audit.purgeBatchSize, auditArchiveDir: appConfig.audit.archiveDir,
+    auditRetentionDays: appConfig.audit.retentionDays, auditPersonalDataDays: appConfig.audit.personalDataDays, auditPurgeBatchSize: appConfig.audit.purgeBatchSize, auditArchiveDir: appConfig.audit.archiveDir,
     mailKeepFinishedDays: appConfig.email.queue.keepFinishedDays,
   });
   ctx.emailQueue?.start({ intervalMs: appConfig.email.queue.intervalMs });

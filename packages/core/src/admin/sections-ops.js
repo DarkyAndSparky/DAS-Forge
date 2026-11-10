@@ -8,6 +8,7 @@ import path from 'node:path';
 import { log } from '../audit/log.js';
 import { contextFromRequest } from '../audit/context.js';
 import { readForm, emptyRow } from './sections.js';
+import { pageParams, pagerFor } from './paging.js';
 
 const CORE_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version; } catch { return null; } })();
 
@@ -25,6 +26,7 @@ const L = {
     find: 'Найти', total: 'Всего', created: 'Создан', done: 'Готово', bad: 'Не удалось', file: 'Файл', size: 'Размер', dest: 'Хранилище',
     date: 'Дата', run: 'Запустить копию сейчас', none: 'нет данных', sink: 'Приёмник', sent: 'Отправлено', dropped: 'Потеряно',
     spilled: 'В резервный файл', queued: 'В очереди', failures: 'Сбоев', lastError: 'Последняя ошибка', lastOk: 'Последний успех',
+    target: 'Куда пишет', filter: 'Что принимает', status: 'Состояние', stOk: 'работает', stFailing: 'сбой, копится очередь', stLosing: 'теряет строки', allStreams: 'все потоки', testRun: 'Проверить приёмники', testHint: 'Тестовая строка уйдёт в каждый приёмник напрямую, в обход фильтров; результат покажем здесь. Адреса и ключи приёмников задаются в конфигурации (logs.sinks), из интерфейса они не меняются.', testResult: 'Результат проверки', testOk: 'доставлено', testFail: 'не доставлено', sinksHint: 'Приёмники и их фильтры задаются в конфигурации (logs.sinks); изменение требует перезапуска.',
     noSinks: 'Приёмники логов не настроены (вывод идёт только в stdout).', app: 'Приложение', core: 'Ядро', node: 'Node.js',
     platform: 'Платформа', deps: 'Зависимости', pkg: 'Пакет', range: 'Требуется', installed: 'Установлена', depState: 'Состояние', latest: 'Последняя',
     groupApp: 'Зависимости приложения', groupCore: 'Зависимости ядра (@das-forge/core)', purpose: 'Назначение', peerTag: 'peer', optTag: 'необязательна', notInstalled: 'не установлена', coreUpdHint: 'Зависимости ядра обновляются вместе с ним: обновите @das-forge/core.',
@@ -66,6 +68,7 @@ const L = {
     find: 'Find', total: 'Total', created: 'Created', done: 'Done', bad: 'Failed', file: 'File', size: 'Size', dest: 'Destination',
     date: 'Date', run: 'Run a backup now', none: 'no data', sink: 'Sink', sent: 'Sent', dropped: 'Dropped', spilled: 'Spilled to file',
     queued: 'Queued', failures: 'Failures', lastError: 'Last error', lastOk: 'Last success',
+    target: 'Writes to', filter: 'Accepts', status: 'State', stOk: 'working', stFailing: 'failing, queue growing', stLosing: 'losing lines', allStreams: 'all streams', testRun: 'Test the sinks', testHint: 'A test line goes straight into every sink, bypassing the filters; the result is shown here. Addresses and keys are set in the configuration (logs.sinks) and are not changed from the interface.', testResult: 'Test result', testOk: 'delivered', testFail: 'not delivered', sinksHint: 'Sinks and their filters are set in the configuration (logs.sinks); a change needs a restart.',
     noSinks: 'No log sinks configured (output goes to stdout only).', app: 'Application', core: 'Core', node: 'Node.js',
     platform: 'Platform', deps: 'Dependencies', pkg: 'Package', range: 'Required', installed: 'Installed', depState: 'Status', latest: 'Latest',
     groupApp: 'Application dependencies', groupCore: 'Core dependencies (@das-forge/core)', purpose: 'Purpose', peerTag: 'peer', optTag: 'optional', notInstalled: 'not installed', coreUpdHint: 'Core dependencies are updated with the core: update @das-forge/core.',
@@ -197,14 +200,36 @@ export function mountBackupsSection({ app, db, guard, page: render, basePath, lo
   }
 }
 
-export function mountLogsSection({ app, guard, page: render, basePath, localeOf, texts = {}, logDestination }) {
+export function mountLogsSection({ app, db, guard, page: render, basePath, localeOf, texts = {}, logDestination, stepUp = [] }) {
   const p = `${basePath}/logs`;
-  app.get(p, ...guard, (req, res) => {
+  const view = (req, res, results = null) => {
     const l = pickTexts(L, texts['admin-ops'], localeOf(req), 'admin-ops');
     const stats = logDestination?.stats?.() ?? [];
-    const rows = stats.map((s) => `<tr><td>${esc(s.type)}</td><td>${esc(s.sent)}</td><td>${esc(s.dropped)}</td><td>${esc(s.spilled)}</td><td>${esc(s.queued)}</td><td>${esc(s.failures)}</td><td>${s.lastSuccessAt ? timeHtml(s.lastSuccessAt, localeOf(req)) : esc(l.unknown)}</td><td>${esc(s.lastError ?? '')}</td></tr>`).join('');
-    render(req, res, { active: p, title: l.logs, bodyHtml: stats.length ? `<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.sink)}</th><th>${esc(l.sent)}</th><th>${esc(l.dropped)}</th><th>${esc(l.spilled)}</th><th>${esc(l.queued)}</th><th>${esc(l.failures)}</th><th>${esc(l.lastOk)}</th><th>${esc(l.lastError)}</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="adm-card"><p class="adm-muted">${esc(l.noSinks)}</p></div>` });
-  });
+    const info = logDestination?.describe?.() ?? [];
+    const status = (s) => (s.queued > 0 && s.failures > 0 && s.lastError ? ['danger', l.stFailing] : s.dropped > 0 ? ['warn', l.stLosing] : ['ok', l.stOk]);
+    const pg = pageParams(req);
+    const rows = stats.slice(pg.offset, pg.offset + pg.size).map((s, k) => {
+      const d = info[pg.offset + k] ?? {};
+      const [cls, label] = status(s);
+      const filter = `${d.streams ? d.streams.join(', ') : l.allStreams}${d.minLevel ? ` · ≥ ${d.minLevel}` : ''}`;
+      return `<tr><td>${esc(s.type)}</td><td>${esc(d.target ?? '')}</td><td>${esc(filter)}</td><td><span class="adm-badge ${cls}">${esc(label)}</span></td><td>${esc(s.sent)}</td><td>${esc(s.dropped)}</td><td>${esc(s.spilled)}</td><td>${esc(s.queued)}</td><td>${esc(s.failures)}</td><td>${s.lastSuccessAt ? timeHtml(s.lastSuccessAt, localeOf(req)) : esc(l.unknown)}</td><td>${esc(s.lastError ?? '')}</td></tr>`;
+    }).join('');
+    const table = `<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.sink)}</th><th>${esc(l.target)}</th><th>${esc(l.filter)}</th><th>${esc(l.status)}</th><th>${esc(l.sent)}</th><th>${esc(l.dropped)}</th><th>${esc(l.spilled)}</th><th>${esc(l.queued)}</th><th>${esc(l.failures)}</th><th>${esc(l.lastOk)}</th><th>${esc(l.lastError)}</th></tr></thead><tbody>${rows}</tbody></table></div>${pagerFor({ req, res, path: p, name: 'logs', page: pg.page, size: pg.size, count: Math.min(pg.size, Math.max(0, stats.length - pg.offset)), total: stats.length, locale: localeOf(req) })}`;
+    const resultCard = results
+      ? `<div class="adm-card" style="margin-bottom:1rem"><h2>${esc(l.testResult)}</h2><table class="adm-table"><tbody>${results.map((r) => `<tr><td>${esc(r.type)}</td><td>${esc(r.target)}</td><td><span class="adm-badge ${r.ok ? 'ok' : 'danger'}">${esc(r.ok ? l.testOk : l.testFail)}</span></td><td>${esc(r.error ?? '')}</td></tr>`).join('')}</tbody></table></div>`
+      : '';
+    const testForm = logDestination?.test ? `<div class="adm-card" style="margin-bottom:1rem"><p class="adm-muted">${esc(l.testHint)}</p><form method="post" action="${p}/test"><button class="adm-btn" type="submit">${esc(l.testRun)}</button></form></div>` : '';
+    render(req, res, { active: p, title: l.logs, bodyHtml: stats.length ? `${resultCard}${testForm}${table}<p class="adm-muted">${esc(l.sinksHint)}</p>` : `<div class="adm-card"><p class="adm-muted">${esc(l.noSinks)}</p></div>` });
+  };
+  app.get(p, ...guard, (req, res) => view(req, res));
+
+  if (logDestination?.test) {
+    app.post(`${p}/test`, ...guard, ...stepUp, async (req, res) => {
+      const results = await logDestination.test();
+      if (db) log(db, { ...contextFromRequest(req), action: 'admin.logs.test', entity: 'logs', meta: { sinks: results.length, failed: results.filter((r) => !r.ok).length }, result: results.every((r) => r.ok) ? 'success' : 'failure' });
+      view(req, res, results);
+    });
+  }
 }
 
 export function mountAboutSection({ app, db, guard, page: render, basePath, localeOf, texts = {}, about, stepUp = [] }) {

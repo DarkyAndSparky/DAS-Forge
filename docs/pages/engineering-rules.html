@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Правила разработки ядра (адаптация AI Agent Engineering Pack v2.0) — DAS-Forge 0.1.274</title>
+<title>Правила разработки ядра (адаптация AI Agent Engineering Pack v2.0) — DAS-Forge 0.1.283</title>
 <style>
 :root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
 @media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
@@ -44,7 +44,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
         fill="#0d0f12" text-anchor="middle">WS</text>
 </svg></div>
-<div><h1>Правила разработки ядра (адаптация AI Agent Engineering Pack v2.0)</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.274 · <code>docs/engineering-rules.md</code></p></div>
+<div><h1>Правила разработки ядра (адаптация AI Agent Engineering Pack v2.0)</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.283 · <code>docs/engineering-rules.md</code></p></div>
 </header>
 <main class="page">
 <h1 id="правила-разработки-ядра-адаптация-ai-agent-engineering-pack-v2-0">Правила разработки ядра (адаптация AI Agent Engineering Pack v2.0)</h1>
@@ -68,6 +68,8 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
 <p>Крупные архитектурные решения записываются как ADR в <code>docs/adr/</code> по шаблону: Контекст, Решение, Альтернативы, Последствия, Безопасность и эксплуатация, Выкатка и откат.</p>
 <h2 id="завершение">Завершение</h2>
 <p>Задача закончена, когда критерии приёмки выполнены, проверки запущены и описаны, диф просмотрен, остаточные риски названы.</p>
+<h2 id="проверка-правки-перед-выдачей">Проверка правки перед выдачей</h2>
+<p><code>node --check</code> проверяет только синтаксис. После правки файла модуль нужно реально импортировать (и прогнать затронутые тесты хотя бы в урезанном запуске); иначе неверный относительный путь доезжает до пользователя (0.1.272 → 0.1.275). Страхует и <code>test/imports-resolve.test.js</code>.</p>
 <p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/docs/engineering-rules.md">docs/engineering-rules.md на GitHub</a></p>
 </main>
 </body>

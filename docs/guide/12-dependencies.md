@@ -75,7 +75,7 @@
 | Пакет | Версия | Где |
 |---|---|---|
 | `eslint` | `^10.14.0` | корень |
-| `vitest` | `^5.0.5` | packages/core |
+| `vitest` | `^5.1.0` | packages/core |
 | `pino-pretty` | `^13.2.0` | packages/core |
 | `jsqr` | `^1.4.0` | packages/core |
 | `supertest` | `^7.3.1` | examples/workshop |

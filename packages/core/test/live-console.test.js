@@ -33,6 +33,22 @@ describe('live console (terminal only)', () => {
     c.stop();
   });
 
+  it('the fixed part: "=", one empty line, the lettering, one empty line, "=", the answer lines, the prompt', () => {
+    const t = fakeTerm({ rows: 40 });
+    const c = startLiveConsole({ ...t });
+    const rowsText = new Map();
+    for (const m of t.text().matchAll(/\x1b\[(\d+);1H\x1b\[2K([^\x1b]*)/g)) rowsText.set(Number(m[1]), m[2]);
+    const top = 40 - FOOTER_HEIGHT + 1;
+    expect(rowsText.get(top)).toMatch(/^ {2}=+$/);
+    expect(rowsText.get(top + 1)).toBe('');
+    expect(rowsText.get(top + 2)).toContain(':.'); // first row of the lettering
+    const last = [...rowsText.keys()].filter((r) => /^ {2}=+$/.test(rowsText.get(r)))[1];
+    expect(rowsText.get(last - 1)).toBe('');
+    expect(rowsText.get(last - 2)).toContain('..'); // last row of the lettering
+    expect(rowsText.get(last + 1)).toContain('/help');
+    c.stop();
+  });
+
   it('routes what the process prints above the fixed part, and stdout/stderr alike', () => {
     const t = fakeTerm({ rows: 40 });
     const realOut = t.stdout.write;

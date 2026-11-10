@@ -93,6 +93,8 @@ const catalog = new Map(Object.entries({
 
   'admin.mail.cancel': E('Письмо отменено', 'Mail cancelled', 'mail'),
   'admin.mail.purge': E('Очередь писем очищена', 'Mail queue purged', 'mail', 'notice'),
+  'cli.tasks.run': E('Задача запущена из консоли', 'Task run from the console', 'tasks'),
+  'admin.logs.test': E('Проверка приёмников логов', 'Log sink test', 'logs'),
   'admin.mail.test': E('Тестовое письмо', 'Test mail', 'mail'),
   'admin.broadcast.send': E('Рассылка отправлена', 'Broadcast sent', 'mail', 'notice'),
   'admin.broadcast.test': E('Тест рассылки', 'Broadcast test', 'mail'),

@@ -286,6 +286,9 @@ export const LoggingConfigSchema = z.strictObject({
 export const AuditConfigSchema = z.strictObject({
   // Rows older than this many days are deleted by the daily `audit-gc` job (0 = keep forever; then document the legal basis).
   retentionDays: z.number().int().nonnegative().default(365),
+  // Personal details (the real login/IP behind each pseudonym) are erased once they have not been seen for this many days; the row
+  // itself stays (who-what-when-result) and reads "[erased]" for those fields, the hash chain stays valid. 0 = keep as long as the row.
+  personalDataDays: z.number().int().nonnegative().default(0),
   // Deleted in batches of this size so one run never holds the write lock for long.
   purgeBatchSize: z.number().int().min(100).max(100_000).default(5000),
   // A folder for the archive: before `audit-gc` deletes old rows they are written there (audit-<from>-<to>.ndjson.gz + .sha256). Empty = no archive.

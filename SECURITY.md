@@ -9,7 +9,7 @@ DAS-Forge core is developed in small steps; only the **latest published release*
 Please **do not open a public issue** for a security problem.
 
 1. Preferred: use GitHub's private reporting: *Security → Report a vulnerability* in this repository.
-2. Otherwise write to **<SECURITY_CONTACT>** (replace with the maintainer's address before publishing) with the subject `DAS-Forge security`.
+2. Otherwise write to **thedasforgeproject@gmail.com** with the subject `DAS-Forge security`.
 
 Include: the affected version, what you did, what you expected and what happened, and a minimal way to reproduce it. A proof of concept is welcome; please do not test against systems you do not own.
 

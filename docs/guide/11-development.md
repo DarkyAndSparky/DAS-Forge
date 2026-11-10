@@ -22,7 +22,7 @@ npm run version:set -- 0.1.111    # package.json, package-lock.json, метки 
 npm run version:check             # всё согласовано?
 ```
 
-Метки `<!--core-version-->0.1.274<!--/core-version-->` в документации расставляет и обновляет `version:set` (команда `stamp`). Приложения берут версию из `CORE_VERSION`, а не копируют число.
+Метки `<!--core-version-->0.1.283<!--/core-version-->` в документации расставляет и обновляет `version:set` (команда `stamp`). Приложения берут версию из `CORE_VERSION`, а не копируют число.
 
 ## Документация
 

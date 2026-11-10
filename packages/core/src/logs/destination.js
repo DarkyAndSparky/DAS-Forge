@@ -23,6 +23,21 @@ export function streamOfLine(line) {
 
 export const STREAMS = ['app', 'access', 'audit', 'security'];
 
+/** Where a sink writes, for people to read: never a header, a password or a query string. */
+function describeTarget(type, conf) {
+  try {
+    if (type === 'file') return String(conf.path ?? '');
+    if (type === 'syslog') return `${conf.protocol ?? conf.transport ?? 'udp'}://${conf.host ?? 'localhost'}:${conf.port ?? 514}`;
+    if (type === 'http') {
+      const u = new URL(String(conf.url));
+      return `${u.origin}${u.pathname}`;
+    }
+  } catch {
+    /* an unparsable address is reported by the sink itself */
+  }
+  return type === 'stdout' ? 'stdout' : '';
+}
+
 const FACTORIES = {
   stdout: () => createStdoutSink(),
   file: (c, b) => createFileSink({ file: c.path, maxBytes: c.maxBytes, keep: c.keep, ...b }),
@@ -77,8 +92,9 @@ export function createLogDestination({ sinks = [], buffer = {}, localFallback, a
       delete driver.caFile;
     }
     if (type === 'http' && appName && !driver.labels) driver.labels = { app: appName };
+    const target = describeTarget(type, conf);
     const sink = make(driver, { ...buffer, spill, warn });
-    return { type, streams: streams ? new Set(streams) : null, min: minLevel ? LEVEL_RANK[minLevel] : 0, sink };
+    return { type, target, minLevel: minLevel ?? null, streams: streams ? new Set(streams) : null, min: minLevel ? LEVEL_RANK[minLevel] : 0, sink };
   });
 
   return {
@@ -97,6 +113,32 @@ export function createLogDestination({ sinks = [], buffer = {}, localFallback, a
     },
     /** Delivery counters per sink: sent, dropped, spilled, queued, failures, lastError. */
     stats: () => built.map((s) => ({ type: s.type, ...s.sink.stats() })),
+    /** What each sink is: type, where it writes (no credentials, no query string), the streams and minimum level it takes. */
+    describe: () => built.map((s) => ({ type: s.type, target: s.target, streams: s.streams ? [...s.streams] : null, minLevel: s.minLevel })),
+    /**
+     * Sends one test line straight into every sink (filters bypassed) and waits for delivery, at most `timeoutMs` each.
+     * @returns {Promise<Array<{type: string, target: string, ok: boolean, error?: string}>>}
+     */
+    async test({ timeoutMs = 10_000 } = {}) {
+      const line = JSON.stringify({ level: 30, time: Date.now(), msg: 'das-forge log sink test', stream: 'app', test: true });
+      return Promise.all(built.map(async (s) => {
+        const base = { type: s.type, target: s.target };
+        try {
+          const before = s.sink.stats();
+          s.sink.write(line);
+          let timer;
+          const timeout = new Promise((r) => { timer = setTimeout(() => r('timeout'), timeoutMs); timer.unref?.(); });
+          const outcome = await Promise.race([s.sink.flush().then(() => 'done'), timeout]);
+          clearTimeout(timer);
+          const after = s.sink.stats();
+          if (typeof after.sent !== 'number') return { ...base, ok: true }; // stdout: nothing to count
+          if (after.sent > before.sent) return { ...base, ok: true };
+          return { ...base, ok: false, error: outcome === 'timeout' ? 'timeout' : String(after.lastError ?? 'not delivered') };
+        } catch (err) {
+          return { ...base, ok: false, error: String(err?.message ?? err) };
+        }
+      }));
+    },
     flush: () => Promise.all(built.map((s) => s.sink.flush())),
     /** Last-chance delivery, then closes every sink. Call on shutdown. */
     close: (opts) => Promise.all(built.map((s) => s.sink.close(opts))),

@@ -214,7 +214,7 @@
 **Внимание.** Восстановление из копии делается только через CLI и при остановленном сервере.
 
 
-**Стандартная уборка.** `registerStandardJobs(scheduler, { db, logger, sessionStore, bans, metrics, emailQueue, auditRetentionDays, auditPurgeBatchSize, mailKeepFinishedDays })` подключает задачи `sessions-gc`, `audit-gc` (только при `auditRetentionDays > 0`), `bans-gc`, `metrics-gc`, `password-resets-gc` (токены и неподтверждённые регистрации), `email-queue-gc`; задача появляется, только если передан её источник. Вызывать один раз до `scheduler.start()`. `standardJobsChecks(scheduler)` для doctor предупреждает, если вызова не было.
+**Стандартная уборка.** `registerStandardJobs(scheduler, { db, logger, sessionStore, bans, metrics, emailQueue, auditRetentionDays, auditPersonalDataDays, auditPurgeBatchSize, mailKeepFinishedDays })` подключает задачи `sessions-gc`, `audit-gc` (только при `auditRetentionDays > 0`), `bans-gc`, `metrics-gc`, `password-resets-gc` (токены и неподтверждённые регистрации), `email-queue-gc`; задача появляется, только если передан её источник. Вызывать один раз до `scheduler.start()`. `standardJobsChecks(scheduler)` для doctor предупреждает, если вызова не было.
 ---
 
 ## csv

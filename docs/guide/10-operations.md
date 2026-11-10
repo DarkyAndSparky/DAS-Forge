@@ -261,7 +261,7 @@ node bin/app.js alerts list                                            # пос�
 
 **Шаги вне репозитория (делаются в настройках GitHub и npm):**
 
-1. В `SECURITY.md` замените `<SECURITY_CONTACT>` адресом для сообщений; в настройках репозитория включите *Security → Private vulnerability reporting*.
+1. В `SECURITY.md` ядра контакт уже указан (thedasforgeproject@gmail.com); в `SECURITY.md` вашего приложения (шаблон `templates/app/SECURITY.md`) замените `<SECURITY_CONTACT>` адресом автора приложения; в настройках репозитория включите *Security → Private vulnerability reporting*.
 2. *Settings → Advanced Security*: включите Dependabot alerts и Dependabot security updates, secret scanning и push protection, code scanning.
 3. *Settings → Branches*: правило для `main` и `dev` (обязательные проверки `test`, `audit`, `lockfile`, `codeql`; запрет force-push; для `main` pull request).
 4. Двухфакторная аутентификация на аккаунте GitHub и npm; для организации — обязательная.
@@ -278,7 +278,7 @@ node bin/app.js alerts list                                            # пос�
 В репозитории уже лежат: [README](../../README.md), [LICENSE](../../LICENSE), [SECURITY.md](../../SECURITY.md), [CONTRIBUTING.md](../../CONTRIBUTING.md), [CODE_OF_CONDUCT.md](../../CODE_OF_CONDUCT.md), [SUPPORT.md](../../SUPPORT.md), шаблоны issue (ошибка, предложение; обычные issue без шаблона выключены, уязвимости ведут на приватную форму), шаблон pull request, `.github/CODEOWNERS` (строки закомментированы). Команда `npm run release:check` не выпустит релиз, пока в `SECURITY.md` и `CODE_OF_CONDUCT.md` остаются заглушки `<SECURITY_CONTACT>` и `<CONDUCT_CONTACT>` или нет перечисленных файлов.
 
 **Что остаётся сделать вам (в самом GitHub и в файлах):**
-
+1. Контакты ядра уже подставлены (thedasforgeproject@gmail.com — адрес проекта DAS-Forge). Для приложения на ядре: заменить `<SECURITY_CONTACT>` в `SECURITY.md` шаблона приложения адресом его автора; личные адреса в репозиторий ядра не вносятся.
 1. Подставить адрес проекта вместо `<SECURITY_CONTACT>` и `<CONDUCT_CONTACT>`; никакие личные адреса в репозиторий не вносятся.
 2. В `LICENSE` заменить «DAS-Forge contributors» на правообладателя, если нужно имя или организация.
 3. В `.github/CODEOWNERS` раскомментировать строки и указать владельца.
