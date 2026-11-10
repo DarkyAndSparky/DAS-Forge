@@ -73,7 +73,7 @@
     "cors": "^2.8.6",
     "compression": "^1.8.2",
     "nodemailer": "^10.4.0",
-    "@prometheus-io/client": "0.16.0",
+    "@prometheus-io/client": "0.16.1",
     "otplib": "^13.6.0",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
