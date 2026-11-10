@@ -70,7 +70,7 @@ jobs:
         with:
           fetch-depth: 0     # the whole history: a secret removed later is still a leaked secret
       # Free for personal accounts; an organisation needs a licence key (secret GITLEAKS_LICENSE).
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
