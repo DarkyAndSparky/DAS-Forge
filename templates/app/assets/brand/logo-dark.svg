@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Placeholder mark for dark themes: replace it with your own logo. -->
+  <rect width="64" height="64" rx="10" fill="#2b6f7d"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700" fill="#e8f4f6" text-anchor="middle">APP</text>
+</svg>

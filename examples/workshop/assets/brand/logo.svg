@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Placeholder vendor mark for the workshop example app - was a
+       leftover "AE" monogram from this folder's pre-rename name
+       (app-example); updated to reflect the actual name. Distinct
+       color (--spark) from core's own ember/steel palette on purpose -
+       vendor identity is meant to be per-app, not core's palette reused. -->
+  <rect width="64" height="64" rx="10" fill="#5fb8c9"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
+        fill="#0d0f12" text-anchor="middle">WS</text>
+</svg>

@@ -1,0 +1,46 @@
+name: Ошибка / Bug
+description: Что-то работает не так, как описано
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Уязвимости не сюда: см. SECURITY.md. Не вставляйте пароли, ключи и персональные данные.
+  - type: input
+    id: version
+    attributes:
+      label: Версия ядра (`app version`)
+      placeholder: "0.2.0"
+    validations: { required: true }
+  - type: input
+    id: env
+    attributes:
+      label: Node.js и система
+      placeholder: "Node 26.0.0, Windows 11 / Ubuntu 24.04 / Docker"
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Минимальная последовательность действий
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидали
+    validations: { required: true }
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что получили
+      description: Текст ошибки, вывод `app doctor`, фрагмент журнала (без секретов)
+    validations: { required: true }
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверено
+      options:
+        - label: Это не уязвимость безопасности
+          required: true
+        - label: Я искал(а) похожие issue
+          required: true

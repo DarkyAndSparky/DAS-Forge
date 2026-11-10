@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+data
+*.db
+*.db-wal
+*.db-shm
+.git
+.github
+coverage
+*.zip
+docs
+.env
+.env.*
+Dockerfile
+docker-compose.yml
+secrets/

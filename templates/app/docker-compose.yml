@@ -1,0 +1,24 @@
+# Runs the application behind a TLS-terminating reverse proxy YOU provide (https.mode=reverse-proxy: this container
+# speaks plain HTTP on a private network; the proxy must set X-Forwarded-Proto and X-Forwarded-For).
+# To open it to the local network without a proxy see docs/guide/10-operations.md, "Доступ из локальной сети".
+services:
+  my-app:
+    build: .
+    init: false            # tini is already the entrypoint
+    restart: unless-stopped
+    environment:
+      DAS_SESSION_SECRET_FILE: /run/secrets/session_secret
+    secrets:
+      - session_secret
+    volumes:
+      - app-data:/app/data
+    ports:
+      - "127.0.0.1:9902:9902"   # only the local reverse proxy reaches it
+    stop_grace_period: 15s
+
+secrets:
+  session_secret:
+    file: ./secrets/session_secret.txt   # create it: 32+ random characters, NOT committed
+
+volumes:
+  app-data:

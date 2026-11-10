@@ -1,0 +1,42 @@
+{
+  "name": "das-forge",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "DAS-Forge monorepo: core platform packages + reference example app(s).",
+  "type": "module",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "overrides": {
+    "proxy-addr": "^2.0.8",
+    "body-parser": "^2.4.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "start": "npm start --workspace=workshop",
+    "test": "npm test --workspaces --if-present",
+    "test:core": "npm test --workspace=@das-forge/core",
+    "lint": "eslint .",
+    "example:start": "npm start --workspace=workshop",
+    "example:cli": "npm run cli --workspace=workshop --",
+    "version:get": "node scripts/version.mjs get",
+    "version:set": "node scripts/version.mjs set",
+    "version:check": "node scripts/version.mjs check",
+    "docs": "node scripts/build-docs.mjs",
+    "lock:check": "node scripts/check-lock.mjs",
+    "release:check": "node scripts/release-check.mjs",
+    "docker:test": "node scripts/docker-test.mjs",
+    "docker:start": "node scripts/docker-start.mjs start",
+    "docker:stop": "node scripts/docker-start.mjs stop",
+    "docker:logs": "node scripts/docker-start.mjs logs",
+    "test:e2e": "npm run test:e2e --workspace=workshop",
+    "test:template": "node scripts/test-template.mjs"
+  },
+  "devDependencies": {
+    "eslint": "^10.14.0"
+  }
+}

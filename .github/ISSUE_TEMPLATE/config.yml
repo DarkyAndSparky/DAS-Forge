@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Уязвимость (не публично) / Security vulnerability (private)
+    url: https://github.com/DarkyAndSparky/DAS-Forge/security/advisories/new
+    about: Сообщите приватно, не создавая issue. Report privately, do not open an issue.
+  - name: Вопрос по использованию / Usage question
+    url: https://github.com/DarkyAndSparky/DAS-Forge/blob/main/SUPPORT.md
+    about: Сначала прочитайте руководство и SUPPORT.md.

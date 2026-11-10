@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Аудит зрелости ядра перед первым релизом — DAS-Forge 0.1.274</title>
+<style>
+:root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
+@media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.7 var(--ui)}
+a{color:var(--accent)}code,pre{font-family:var(--mono)}
+header.top{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:22px 32px;border-bottom:1px solid var(--line);background:var(--bg1)}
+header.top .logo{width:56px;height:56px;flex:none}header.top .logo svg{width:100%;height:100%}
+header.top h1{margin:0;font-size:24px;color:var(--accent)}header.top p{margin:2px 0 0;color:var(--dim);font-size:13px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}.badges img{height:20px}
+.wrap{display:grid;grid-template-columns:250px 1fr;max-width:1240px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line)}
+nav.toc a{display:block;padding:6px 10px;border-radius:4px;color:var(--dim);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--bg2);color:var(--accent)}
+main{padding:36px 48px 90px;min-width:0}
+section{margin-bottom:64px;scroll-margin-top:16px}
+section>h2{font-size:26px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px;margin:0 0 16px}
+section h3{font-size:19px;margin:30px 0 10px}section h4{font-size:16px;margin:22px 0 8px}
+p,li{max-width:90ch}
+code{background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.88em}
+pre{background:var(--bg1);border:1px solid var(--line);border-radius:6px;padding:14px 16px;overflow:auto}pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;font-size:14px;width:100%}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:var(--bg2)}
+blockquote{margin:12px 0;padding:8px 16px;border-left:3px solid var(--accent);background:var(--bg1)}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}nav.toc{position:static;height:auto;border:0}main{padding:24px 16px 60px}header.top{padding:16px}}
+nav.toc .grp{margin:16px 10px 4px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.back{display:inline-block;margin:0 0 18px;font-size:13px}
+main.page{max-width:960px;margin:0 auto}
+main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;margin:34px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}main.page h3{font-size:18px;margin:26px 0 8px}main.page h4{font-size:15.5px}
+
+</style>
+</head>
+<body>
+<header class="top">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  
+  <rect width="64" height="64" rx="10" fill="#5fb8c9"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
+        fill="#0d0f12" text-anchor="middle">WS</text>
+</svg></div>
+<div><h1>Аудит зрелости ядра перед первым релизом</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.274 · <code>docs/maturity-audit.md</code></p></div>
+</header>
+<main class="page">
+<h1 id="аудит-зрелости-ядра-перед-первым-релизом">Аудит зрелости ядра перед первым релизом</h1>
+<p>Версия ядра на момент аудита: <strong>0.1.163</strong>; таблица «Что есть» приведена в соответствие с версией <strong>0.1.180</strong> (пункты списка «Что закрыть до 0.2.0» закрыты, кроме онлайн-проверки паролей). Дата: 31.10.2026. Аудит по коду и документации; сервер для этого не запускался, сеть из среды разработки недоступна.</p>
+<h2 id="вывод">Вывод</h2>
+<p>Ядро готово к первому релизу (0.2.0) как <strong>основа для внутренних приложений за обратным прокси</strong>. Для приложений, открытых в интернет без прокси и без дополнительных мер, не хватает нескольких недорогих вещей (раздел «Что закрыть до 0.2.0»). Крупные пробелы (пароль-ключи, строгий CSP без <code>unsafe-inline</code> для стилей) на безопасность первого релиза не влияют и записаны как работа после него.</p>
+<p>Серьёзных дыр класса «обойти вход», «чужая сессия», «выполнить код» при чтении кода не найдено. Это не доказательство их отсутствия: независимый разбор и проверку на живом сервере ничто не заменяет.</p>
+<h2 id="границы-аудита">Границы аудита</h2>
+<ul><li>Состояние зависимостей (уязвимости) из среды разработки проверить нельзя: реестр npm недоступен. Эту часть закрывает ядро само: категория «Dependencies» диагностики и задача <code>audit</code> в CI; <strong>перед релизом выполните <code>npm audit --omit=dev</code> и <code>npm audit signatures</code> у себя</strong> и приложите результат к решению о выпуске.</li><li>Записи о версиях Node (Current и LTS) берутся с <code>nodejs.org</code> диагностикой; расписание проекта Node: чётный выпуск становится LTS в октябре года выхода, то есть 26-я ветка переходит в LTS в октябре 2026. Статус на сегодня сверьте на <code>nodejs.org</code> до релиза.</li><li>«Есть» значит: код и тест существуют. «Частично» — работает, но с оговоркой. «Нет» — не реализовано.</li></ul>
+<h2 id="что-есть-по-областям">Что есть (по областям)</h2>
+<div class="tbl"><table><thead><tr><th>Область</th><th>Состояние</th></tr></thead><tbody><tr><td>Пароли</td><td>argon2id; сброс по одноразовой ссылке, ответ одинаков для существующей и несуществующей почты; смена при первом входе</td></tr><tr><td>Парольная политика</td><td>раздел админки: профили «NIST» и «ФСТЭК», длина (12 по умолчанию, отдельная для администраторов), классы символов, срок действия (по умолчанию без ограничения), запрет повторов, запрет логина, части e-mail и названия приложения, список типовых и локальный файл утёкших паролей; массовое «потребовать смену»</td></tr><tr><td>Вход</td><td>перебор ограничен (трекер неудач, баны по адресу и учётной записи, лимит запросов); блокировка не раскрывает, существует ли учётная запись; время ответа выровнено фиктивным хешем</td></tr><tr><td>Второй фактор</td><td>TOTP, коды восстановления, ключи TOTP шифруются и ротируются; шаг «подтвердите заново» для опасных действий</td></tr><tr><td>Сессии</td><td>подписанная cookie <code>HttpOnly</code>, <code>SameSite=Lax</code>, <code>Secure</code> по протоколу; ключ подписи выводится из секрета; пересоздание сессии при входе; абсолютный и по простою срок; серверное хранилище, отзыв и принудительный выход</td></tr><tr><td>CSRF</td><td>по заголовкам <code>Origin</code>, <code>Sec-Fetch-Site</code>, <code>Referer</code>; строгие пути (вход); внешние источники только по списку</td></tr><tr><td>Заголовки</td><td>CSP в режиме отчёта (<code>security.csp.reportOnly</code>) и приёмник нарушений в аудит; <code>Clear-Site-Data</code> при выходе (<code>auth.clearSiteDataOnLogout</code>); CSP с nonce для скриптов, <code>frame-ancestors 'none'</code>, <code>object-src 'none'</code>, <code>base-uri</code>, <code>form-action</code>; COOP/CORP; <code>nosniff</code>; Referrer-Policy; Permissions-Policy; HSTS только по HTTPS (с проверкой условий preload)</td></tr><tr><td>Вход и вывод</td><td>строгие схемы Zod, экранирование, <code>innerHTML</code> один раз и для собственного SVG; загрузки перекодируются, SVG очищается, архивы проверяются, имена не берутся от клиента</td></tr><tr><td>Cookie сессии</td><td>опционально <code>__Host-das_session</code> (<code>auth.hostCookiePrefix</code>)</td></tr><tr><td>Сообщения об уязвимостях</td><td><code>/.well-known/security.txt</code> (<code>security.securityTxt</code>)</td></tr><tr><td>Кража пароля</td><td>письмо о входе с нового устройства (<code>auth.newDeviceNotice</code>)</td></tr><tr><td>Подмена адресов</td><td><code>Host</code> принимается только из списка (<code>allowedHosts</code>), редирект с HTTP не открытый; <code>X-Forwarded-*</code> только от доверенных прокси; диагностика предупреждает о <code>trustProxy: true</code> и о рассогласовании с <code>https.mode</code></td></tr><tr><td>Данные</td><td>база SQLite в режиме WAL, снимок <code>VACUUM INTO</code> с параметром, копии шифруются AES-256-GCM, проверка копий в админке, восстановление только из CLI; цепочка хешей аудита с якорем в журнал</td></tr><tr><td>Приватность</td><td>псевдонимы в аудите, удаление персональных данных, повторное применение удалений после восстановления; реестр обработки (<code>privacy registry</code>); реестр инцидентов со сроками уведомления (раздел «Инциденты», <code>privacy incident</code>)</td></tr><tr><td>Письма</td><td>очередь, DKIM, проверка DNS-записей SPF и DMARC в диагностике</td></tr><tr><td>Наблюдаемость</td><td>метрики Prometheus (<code>/metrics</code>, закрыты по умолчанию); массовая рассылка пользователям (раздел «Рассылка»); списки админки постраничные с кнопкой «развернуть»; отдельный порт админки (<code>server.admin</code>)</td></tr><tr><td>Эксплуатация</td><td>диагностика (в том числе категории «Dependencies» и «Hardening»), алерты, режим обслуживания, плавное завершение, права файлов и запуск не от root проверяются</td></tr><tr><td>Цепочка поставок</td><td>lock-файл проверяется (<code>lock:check</code>, <code>lockfile-lint</code>), <code>npm audit</code> и подписи в CI, CodeQL, gitleaks, Trivy, SBOM при релизе, SECURITY.md, Dependabot; публикация с provenance</td></tr></tbody></table></div>
+<h2 id="что-закрыть-до-0-2-0">Что закрыть до 0.2.0</h2>
+<p>Пункты 1–3 (<code>__Host-</code>, <code>security.txt</code>, письмо о новом устройстве), 5 (CSP в режиме отчёта) и 6 (<code>Clear-Site-Data</code>) сделаны и перенесены в «Что есть». Пункт 4 закрыт частично: проверка по локальному файлу есть, онлайн-вариант нет.</p>
+<ol><li><strong>Проверка пароля по базе утёкших через сеть</strong> (k-анонимность, отправляется только 5 символов хеша): опциональная, выключена по умолчанию; при недоступной сети не блокирует. Требует решения владельца: это исходящий запрос к внешнему сервису. Локальный файл (<code>auth.passwordBlocklistFile</code>) уже работает и ничего не отправляет.</li></ol>
+<h2 id="после-0-2-0">После 0.2.0</h2>
+<div class="tbl"><table><thead><tr><th>Что</th><th>Зачем</th><th>Заметка</th></tr></thead><tbody><tr><td>Пароль-ключи (WebAuthn/passkeys)</td><td>единственный вход, устойчивый к фишингу</td><td>схема базы упоминает тип; код не написан; крупная работа, нужна зависимость (SimpleWebAuthn), решение по <a href="dependencies-target.html"><code>docs/dependencies-target.md</code></a> за владельцем</td></tr><tr><td>Убрать <code>style-src 'unsafe-inline'</code></td><td>CSP целиком без inline</td><td>стили в страницах ядра встроены; нужен вынос в файл или nonce для стилей</td></tr><tr><td>Trusted Types</td><td>защита от DOM-XSS</td><td>страницы ядра почти не пишут в DOM; низкий риск, низкая срочность</td></tr><tr><td>Привязка сессии к устройству</td><td>кража cookie</td><td>отпечаток агента пользователя ненадёжен; полезнее уведомление (п. 3)</td></tr><tr><td>Каналы KEV и EPSS, собственная база советов</td><td>приоритизация уязвимостей</td><td>отложено решением владельца; <code>npm audit</code> достаточно</td></tr><tr><td>SRI</td><td>внешние скрипты</td><td>внешних скриптов у ядра нет, не требуется</td></tr></tbody></table></div>
+<h2 id="защита-пользователя-от-подделки">Защита пользователя от подделки</h2>
+<div class="tbl"><table><thead><tr><th>Угроза</th><th>Защита</th><th>Остаток риска</th></tr></thead><tbody><tr><td>Поддельный запрос от чужого сайта (CSRF)</td><td>заголовки браузера, <code>SameSite=Lax</code></td><td>запросы без браузерных заголовков допускаются только без cookie сессии</td></tr><tr><td>Подмена <code>Host</code> и <code>X-Forwarded-*</code></td><td>список <code>allowedHosts</code>, доверие только перечисленным прокси</td><td>неверная настройка прокси на стороне оператора; диагностика предупреждает</td></tr><tr><td>Открытый редирект</td><td>редирект HTTP→HTTPS только на известные хосты</td><td>—</td></tr><tr><td>Кликджекинг</td><td><code>frame-ancestors 'none'</code>, <code>X-Frame-Options: deny</code></td><td>—</td></tr><tr><td>Фишинговая ссылка в письме</td><td>адрес в письмах берётся из <code>email.baseUrl</code>, а не из запроса</td><td>неверный <code>baseUrl</code></td></tr><tr><td>Подделка отправителя</td><td>DKIM-подпись, диагностика SPF/DMARC</td><td>записи DNS создаёт оператор</td></tr><tr><td>Подмена загружаемого файла</td><td>тип определяется по содержимому, перекодирование, очистка SVG</td><td>—</td></tr><tr><td>Подмена записей аудита</td><td>цепочка хешей, якорь в журнал, проверка по расписанию</td><td>запись в журнал за пределами приложения</td></tr><tr><td>Подмена зависимостей</td><td>lock-файл, <code>lockfile-lint</code>, подписи, SBOM</td><td>компрометация самого реестра до выхода советов</td></tr><tr><td>Перехват при самоподписанном сертификате</td><td>диагностика предупреждает; режим <code>reverse-proxy</code> для настоящего сертификата</td><td>внутренние сети без доверенного центра сертификации</td></tr></tbody></table></div>
+<h2 id="сверка-с-планом">Сверка с планом</h2>
+<ul><li>Этап F (портирование IT Assets) приостановлен решением владельца; на готовность ядра не влияет.</li><li>Первый релиз (0.2.0) по-прежнему выпускает владелец, когда будут готовы учётная запись npm, организация и токен (или Trusted Publisher) и закрыты шаги вне репозитория из <a href="../index.html#operations">раздела о безопасности репозитория</a>.</li><li>Третий язык интерфейса отложен.</li><li>Из дорожной карты остаётся командная утилита обновления ядра и совместимости версий; разумна после первой публикации.</li><li>Список зависимостей соответствует <a href="dependencies-target.html"><code>docs/dependencies-target.md</code></a>; собственный код вместо готового пакета появился только там, где пакета нет (расшифровка cron, планировщик на таймерах) и это записано в соответствующих разделах.</li></ul>
+<h2 id="как-использовать-этот-документ">Как использовать этот документ</h2>
+<p>Пункт «Что закрыть до 0.2.0» — предложение очереди работ, а не обязательство: каждый берётся в работу отдельной поставкой по решению владельца. После каждого закрытого пункта строка переносится в раздел «Что есть».</p>
+<p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/docs/maturity-audit.md">docs/maturity-audit.md на GitHub</a></p>
+</main>
+</body>
+</html>

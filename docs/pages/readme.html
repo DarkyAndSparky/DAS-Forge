@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>README репозитория — DAS-Forge 0.1.274</title>
+<style>
+:root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
+@media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.7 var(--ui)}
+a{color:var(--accent)}code,pre{font-family:var(--mono)}
+header.top{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:22px 32px;border-bottom:1px solid var(--line);background:var(--bg1)}
+header.top .logo{width:56px;height:56px;flex:none}header.top .logo svg{width:100%;height:100%}
+header.top h1{margin:0;font-size:24px;color:var(--accent)}header.top p{margin:2px 0 0;color:var(--dim);font-size:13px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}.badges img{height:20px}
+.wrap{display:grid;grid-template-columns:250px 1fr;max-width:1240px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line)}
+nav.toc a{display:block;padding:6px 10px;border-radius:4px;color:var(--dim);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--bg2);color:var(--accent)}
+main{padding:36px 48px 90px;min-width:0}
+section{margin-bottom:64px;scroll-margin-top:16px}
+section>h2{font-size:26px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px;margin:0 0 16px}
+section h3{font-size:19px;margin:30px 0 10px}section h4{font-size:16px;margin:22px 0 8px}
+p,li{max-width:90ch}
+code{background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.88em}
+pre{background:var(--bg1);border:1px solid var(--line);border-radius:6px;padding:14px 16px;overflow:auto}pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;font-size:14px;width:100%}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:var(--bg2)}
+blockquote{margin:12px 0;padding:8px 16px;border-left:3px solid var(--accent);background:var(--bg1)}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}nav.toc{position:static;height:auto;border:0}main{padding:24px 16px 60px}header.top{padding:16px}}
+nav.toc .grp{margin:16px 10px 4px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.back{display:inline-block;margin:0 0 18px;font-size:13px}
+main.page{max-width:960px;margin:0 auto}
+main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;margin:34px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}main.page h3{font-size:18px;margin:26px 0 8px}main.page h4{font-size:15.5px}
+
+</style>
+</head>
+<body>
+<header class="top">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  
+  <rect width="64" height="64" rx="10" fill="#5fb8c9"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
+        fill="#0d0f12" text-anchor="middle">WS</text>
+</svg></div>
+<div><h1>README репозитория</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.274 · <code>README.md</code></p></div>
+</header>
+<main class="page">
+<p align="center">
+  <img src="../../examples/workshop/assets/brand/logo.svg" width="96" alt="DAS-Forge">
+</p>
+<h1 align="center">DAS-Forge</h1>
+<p align="center">
+  Общая платформа для внутренних приложений: безопасность, администрирование, переводы и оформление — один раз, в ядре.<br>
+  Документация для версии ядра <b><!--core-version-->0.1.274<!--/core-version--></b>
+</p>
+<p align="center">
+  <img alt="node" src="https://img.shields.io/badge/node-%3E%3D26-5fa06a?style=flat-square">
+  <img alt="express" src="https://img.shields.io/badge/express-5-444?style=flat-square">
+  <img alt="zod" src="https://img.shields.io/badge/zod-4-3068b7?style=flat-square">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+</p>
+<p align="center">
+  <img alt="stack" src="https://skillicons.dev/icons?i=nodejs,express,sqlite,docker,vitest&perline=5">
+</p>
+<h2 id="что-это">Что это</h2>
+<p>Монорепозиторий: ядро <code>@das-forge/core</code> (<code>packages/core</code>), эталонное приложение <code>examples/workshop</code> и приложения платформы в <code>apps/</code>. Ядро даёт рабочее поведение по умолчанию; приложения настраивают его через опции и коннекторы (темы, переводы, роли, проверки).</p>
+<h2 id="быстрый-старт">Быстрый старт</h2>
+<pre><code class="lang-bash">npm install
+npm install-scripts approve argon2 cpu-features ssh2
+cd examples/workshop
+npm run cli -- user create-admin
+npm start            # https://127.0.0.1:9002 (HTTP на 9001 перенаправляет)</code></pre>
+<p>Требуется Node.js ≥ 26. Тесты: <code>npm test</code> из корня.</p>
+<h2 id="документация">Документация</h2>
+<p>Источник — <code>docs/guide/</code>, страница с навигацией — <code>docs/index.html</code> (<code>npm run docs</code>).</p>
+<div class="tbl"><table><thead><tr><th>Раздел</th><th>О чём</th></tr></thead><tbody><tr><td><a href="../index.html#quick-start">Быстрый старт</a></td><td>запуск, минимальное приложение</td></tr><tr><td><a href="../index.html#modules">Модули ядра</a></td><td>что даёт каждый модуль, API, примеры</td></tr><tr><td><a href="../index.html#configuration">Конфигурация</a></td><td>все ключи, переменные окружения</td></tr><tr><td><a href="../index.html#security">Безопасность</a></td><td>модель угроз, защиты, ограничения</td></tr><tr><td><a href="../index.html#administration">Администрирование</a></td><td>разделы админки, требования, функции по умолчанию</td></tr><tr><td><a href="../index.html#translations">Переводы</a></td><td>i18next, словари, добавление языка</td></tr><tr><td><a href="../index.html#themes-and-branding">Темы и оформление</a></td><td>тема, логотип, акценты</td></tr><tr><td><a href="../index.html#cli">Командная строка</a></td><td>все команды</td></tr><tr><td><a href="../index.html#workshop">Workshop</a></td><td>эталонное приложение</td></tr><tr><td><a href="../index.html#operations">Эксплуатация</a></td><td>Docker, копии, журналы, обновление</td></tr><tr><td><a href="../index.html#development">Разработка ядра</a></td><td>версия, документация, тесты</td></tr></tbody></table></div>
+<p>Прочее: <a href="changelog.html">CHANGELOG</a> · <a href="audit-findings.html">находки аудита</a> · <a href="audit-core-external.html">внешний аудит ядра</a> · <a href="doc-audit.html">пробелы документации</a> · <a href="roadmap-gaps.html">сверка с планом</a> · <a href="dependencies-target.html">целевые зависимости</a> · <a href="roadmap.html">roadmap</a> (исторический).</p>
+<h2 id="участие-и-поддержка">Участие и поддержка</h2>
+<p><a href="contributing.html">Как участвовать</a> · <a href="code-of-conduct.html">кодекс поведения</a> · <a href="support.html">поддержка</a> · <a href="security.html">сообщить об уязвимости</a>.</p>
+<h2 id="версия">Версия</h2>
+<p>Единственный источник — <code>packages/core/package.json</code>; в коде — <code>CORE_VERSION</code>. Смена: <code>npm run version:set -- X.Y.Z</code>, проверка: <code>npm run version:check</code>.</p>
+<h2 id="лицензия">Лицензия</h2>
+<p><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/LICENSE">MIT</a>.</p>
+<p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/README.md">README.md на GitHub</a></p>
+</main>
+</body>
+</html>

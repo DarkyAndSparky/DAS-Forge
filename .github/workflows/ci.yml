@@ -1,0 +1,52 @@
+# Not executed by its author (no network/CI in the dev sandbox). If the first
+# run fails, the likeliest causes are the Node 26 setup-node availability and
+# the argon2 install-script approval - see the comments.
+name: CI
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+# Least privilege: the workflow only reads the repository (audit J04).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # A lock file that does not match the package.json files makes `npm ci` fail: say so first (audit I11).
+      - run: npm run lock:check
+      # npm >= 11 blocks dependency install scripts until approved.
+      - run: npm ci
+      - run: npm install-scripts approve argon2 cpu-features ssh2
+      - run: npm run version:check
+      # Static check (ESLint): undefined names, dead code, duplicate keys. Warnings do not fail the build (G-01).
+      - run: npm run lint
+      # Licenses of the production dependencies (our own `deps licenses`, offline, reads the lock file and node_modules). The two LGPL
+      # entries are the reviewed ones: sharp's prebuilt libvips and libheif-js, both used unmodified and loaded as libraries (G-07).
+      - run: npm run cli --workspace=workshop -- deps licenses --allow LGPL-3.0,LGPL-3.0-or-later
+      - run: npm test
+      # The application template must keep working against the current core (copied, installed, its own tests run).
+      - run: npm run test:template
+      # Browser scenarios of the reference app (sign-in, admin sections, maintenance mode); Linux only, one browser.
+      - name: Install the browser for the end-to-end tests
+        if: matrix.os == 'ubuntu-latest'
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end tests
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:e2e --workspace=workshop

@@ -1,117 +1,69 @@
-# DAS-Forge
+<p align="center">
+  <img src="examples/workshop/assets/brand/logo.svg" width="96" alt="DAS-Forge">
+</p>
 
-DAS-Forge is a modular application platform for building internal web applications on a shared backend foundation — administration UI, security, database infrastructure, operational tooling, and reusable services.
+<h1 align="center">DAS-Forge</h1>
 
-It eliminates duplicated infrastructure across independent Node.js applications while keeping business logic inside each application.
+<p align="center">
+  Общая платформа для внутренних приложений: безопасность, администрирование, переводы и оформление — один раз, в ядре.<br>
+  Документация для версии ядра <b><!--core-version-->0.1.274<!--/core-version--></b>
+</p>
 
-## What it provides
+<p align="center">
+  <img alt="node" src="https://img.shields.io/badge/node-%3E%3D26-5fa06a?style=flat-square">
+  <img alt="express" src="https://img.shields.io/badge/express-5-444?style=flat-square">
+  <img alt="zod" src="https://img.shields.io/badge/zod-4-3068b7?style=flat-square">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+</p>
 
-- HTTP and application infrastructure
-- Configuration and environment management
-- Logging and error handling
-- Validation
-- Authentication and sessions
-- Authorization and permissions
-- SQLite database infrastructure, transactions, and migrations
-- Audit logging
-- Database backup and restore
-- Health checks and diagnostics
-- Realtime events
-- Unified CLI and operational commands
-- Shared administration UI
+<p align="center">
+  <img alt="stack" src="https://skillicons.dev/icons?i=nodejs,express,sqlite,docker,vitest&perline=5">
+</p>
 
-Optional packages: email, image processing, HEIC/HEIF support, LDAP integration, file storage, document generation, data exports, QR codes, network integrations.
+## Что это
 
-## UI Platform
+Монорепозиторий: ядро `@das-forge/core` (`packages/core`), эталонное приложение `examples/workshop` и приложения платформы в `apps/`. Ядро даёт рабочее поведение по умолчанию; приложения настраивают его через опции и коннекторы (темы, переводы, роли, проверки).
 
-- Shared admin application shell (vanilla JS, no frontend framework)
-- Responsive admin layout with light/dark themes and system detection
-- Russian and English localization, extensible i18n
-- Shared, permissions-aware navigation
-- Dialogs, drawers, forms, validation UI, data tables
-- Notifications and command palette
-- User/account UI
-- Reusable design tokens and components
-- Branding and customization
-- Realtime notification support
+## Быстрый старт
 
-Applications build their own business screens on top of this shared UI infrastructure.
-
-## Architecture
-
-```mermaid
-flowchart TB
-    subgraph DF["DAS-Forge"]
-        direction TB
-
-        subgraph CORE["@das-forge/core"]
-            direction LR
-            Auth["Auth"]
-            DB["Database"]
-            Audit["Audit"]
-        end
-
-        subgraph UI["@das-forge/ui"]
-            direction LR
-            Shell["Shell"]
-            I18N["i18n"]
-            Theme["Theme"]
-        end
-
-        subgraph CLI["@das-forge/cli"]
-            direction LR
-            Ops["Ops"]
-        end
-    end
-
-    APP(["Application"])
-
-    CORE --> APP
-    UI --> APP
-    CLI --> APP
+```bash
+npm install
+npm install-scripts approve argon2 cpu-features ssh2
+cd examples/workshop
+npm run cli -- user create-admin
+npm start            # https://127.0.0.1:9002 (HTTP на 9001 перенаправляет)
 ```
 
-Applications own: business logic, domain models, application-specific schema and migrations, business permissions, business UI, and application-specific integrations. DAS-Forge provides the shared infrastructure without turning applications into a single monolithic framework.
+Требуется Node.js ≥ 26. Тесты: `npm test` из корня.
 
-## Packages
+## Документация
 
-| Package | Purpose |
+Источник — `docs/guide/`, страница с навигацией — `docs/index.html` (`npm run docs`).
+
+| Раздел | О чём |
 |---|---|
-| `@das-forge/core` | Backend foundation |
-| `@das-forge/ui` | Shared administration UI |
-| `@das-forge/cli` | Development and operational CLI |
-| `@das-forge/email` | Email delivery |
-| `@das-forge/images` | Image processing and conversion |
-| `@das-forge/ldap` | LDAP integration |
-| `@das-forge/files` | File management |
-| `@das-forge/documents` | Document generation |
-| `@das-forge/exports` | Data export |
-| `@das-forge/qr` | QR code generation |
-| `@das-forge/network` | Network integrations |
+| [Быстрый старт](docs/guide/01-quick-start.md) | запуск, минимальное приложение |
+| [Модули ядра](docs/guide/02-modules.md) | что даёт каждый модуль, API, примеры |
+| [Конфигурация](docs/guide/03-configuration.md) | все ключи, переменные окружения |
+| [Безопасность](docs/guide/04-security.md) | модель угроз, защиты, ограничения |
+| [Администрирование](docs/guide/05-administration.md) | разделы админки, требования, функции по умолчанию |
+| [Переводы](docs/guide/06-translations.md) | i18next, словари, добавление языка |
+| [Темы и оформление](docs/guide/07-themes-and-branding.md) | тема, логотип, акценты |
+| [Командная строка](docs/guide/08-cli.md) | все команды |
+| [Workshop](docs/guide/09-workshop.md) | эталонное приложение |
+| [Эксплуатация](docs/guide/10-operations.md) | Docker, копии, журналы, обновление |
+| [Разработка ядра](docs/guide/11-development.md) | версия, документация, тесты |
 
-## Design goals
+Прочее: [CHANGELOG](packages/core/CHANGELOG.md) · [находки аудита](docs/audit-findings.md) · [внешний аудит ядра](docs/audit-core-external.md) · [пробелы документации](docs/doc-audit.md) · [сверка с планом](docs/roadmap-gaps.md) · [целевые зависимости](docs/dependencies-target.md) · [roadmap](docs/roadmap.md) (исторический).
 
-- Shared infrastructure, independent applications
-- Modularity over a monolithic framework
-- Explicit contracts between infrastructure and applications
-- Secure defaults
-- Reusable UI instead of duplicated admin interfaces
-- Application-owned business logic
-- Configuration over hard-coded infrastructure
-- Operational tooling as a first-class concern
+## Участие и поддержка
 
-## Technology
+[Как участвовать](CONTRIBUTING.md) · [кодекс поведения](CODE_OF_CONDUCT.md) · [поддержка](SUPPORT.md) · [сообщить об уязвимости](SECURITY.md).
 
-**Backend:** Node.js (latest LTS), Express, JavaScript / ESM, Zod, SQLite, Argon2
+## Версия
 
-**Frontend:** Vanilla JavaScript admin UI (no framework), i18n
+Единственный источник — `packages/core/package.json`; в коде — `CORE_VERSION`. Смена: `npm run version:set -- X.Y.Z`, проверка: `npm run version:check`.
 
-**Testing:** Playwright
+## Лицензия
 
-## Status
-
-DAS-Forge is an actively developed internal platform. The API and package boundaries may evolve until the first stable release.
-
-## License
-
-MIT License. Copyright (c) 2026
+[MIT](LICENSE).

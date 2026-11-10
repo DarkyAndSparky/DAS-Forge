@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Placeholder mark of the application: replace it with your own logo (core/branding vendor identity). -->
+  <rect width="64" height="64" rx="10" fill="#5fb8c9"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700" fill="#0d0f12" text-anchor="middle">APP</text>
+</svg>

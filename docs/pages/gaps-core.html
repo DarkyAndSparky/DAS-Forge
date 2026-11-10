@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Упущения при разработке ядра (на 0.1.261) — DAS-Forge 0.1.274</title>
+<style>
+:root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
+@media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.7 var(--ui)}
+a{color:var(--accent)}code,pre{font-family:var(--mono)}
+header.top{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:22px 32px;border-bottom:1px solid var(--line);background:var(--bg1)}
+header.top .logo{width:56px;height:56px;flex:none}header.top .logo svg{width:100%;height:100%}
+header.top h1{margin:0;font-size:24px;color:var(--accent)}header.top p{margin:2px 0 0;color:var(--dim);font-size:13px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}.badges img{height:20px}
+.wrap{display:grid;grid-template-columns:250px 1fr;max-width:1240px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line)}
+nav.toc a{display:block;padding:6px 10px;border-radius:4px;color:var(--dim);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--bg2);color:var(--accent)}
+main{padding:36px 48px 90px;min-width:0}
+section{margin-bottom:64px;scroll-margin-top:16px}
+section>h2{font-size:26px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px;margin:0 0 16px}
+section h3{font-size:19px;margin:30px 0 10px}section h4{font-size:16px;margin:22px 0 8px}
+p,li{max-width:90ch}
+code{background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.88em}
+pre{background:var(--bg1);border:1px solid var(--line);border-radius:6px;padding:14px 16px;overflow:auto}pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;font-size:14px;width:100%}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:var(--bg2)}
+blockquote{margin:12px 0;padding:8px 16px;border-left:3px solid var(--accent);background:var(--bg1)}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}nav.toc{position:static;height:auto;border:0}main{padding:24px 16px 60px}header.top{padding:16px}}
+nav.toc .grp{margin:16px 10px 4px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.back{display:inline-block;margin:0 0 18px;font-size:13px}
+main.page{max-width:960px;margin:0 auto}
+main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;margin:34px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}main.page h3{font-size:18px;margin:26px 0 8px}main.page h4{font-size:15.5px}
+
+</style>
+</head>
+<body>
+<header class="top">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  
+  <rect width="64" height="64" rx="10" fill="#5fb8c9"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
+        fill="#0d0f12" text-anchor="middle">WS</text>
+</svg></div>
+<div><h1>Упущения при разработке ядра (на 0.1.261)</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.274 · <code>docs/gaps-core.md</code></p></div>
+</header>
+<main class="page">
+<h1 id="упущения-при-разработке-ядра-на-0-1-261">Упущения при разработке ядра (на 0.1.261)</h1>
+<p>Метод: статический просмотр кода и конфигурации по правилам из <code>engineering-rules.md</code> (grep и чтение выбранных файлов). Тесты и браузер в этой проверке <strong>не запускались</strong>; всё ниже получено чтением кода и помечено <strong>PARTIALLY VERIFIED</strong>. Ничего не исправлено, это только список.</p>
+<h2 id="что-уже-в-порядке-подтверждено-чтением">Что уже в порядке (подтверждено чтением)</h2>
+<ul><li>Таймауты: SMTP (connection/socket), LDAP, SFTP-бэкап, syslog-приёмник, проверка версий пакетов.</li><li>TLS по умолчанию проверяется (<code>rejectUnauthorized: true</code>), отключение даёт предупреждение в health.</li><li>Очередь писем захватывает строку атомарно (<code>UPDATE … WHERE status=… AND locked_at=…</code>), есть повторы с <code>retryBaseMs/retryMaxMs</code>.</li><li>Редакция чувствительных ключей в журнале аудита и логах; нет <code>eval</code>/<code>new Function</code>/<code>child_process</code>.</li><li>CI: тесты, e2e, <code>npm audit</code>, подписи пакетов, lockfile-lint, CodeQL, gitleaks, Trivy; CODEOWNERS и dependabot есть.</li></ul>
+<h2 id="упущения">Упущения</h2>
+<div class="tbl"><table><thead><tr><th>№</th><th>Приоритет</th><th>Что не так</th><th>Где</th><th>Что сделать</th></tr></thead><tbody><tr><td>G-01 ✓ 0.1.263 (линтер)</td><td>высокий</td><td>Нет линтера и проверки типов вообще: <code>package.json</code> без <code>lint</code>/<code>typecheck</code>, нет eslint/tsconfig/jsconfig. Ошибки вроде неиспользуемых переменных, неверных импортов ловятся только тестами</td><td>корень, CI</td><td>ESLint (flat config) + <code>// @ts-check</code>/<code>tsc --noEmit --allowJs</code> как отдельный шаг CI</td></tr><tr><td>G-02 ✓ 0.1.262</td><td>высокий</td><td>Повторы при сбоях без джиттера: в синках журнала и SMTP-очереди пауза экспоненциальная, но случайной добавки нет; при массовом сбое все повторят одновременно</td><td><code>email/queue.js</code>, <code>logs/sinks.js</code></td><td>добавить джиттер и общий предел по времени</td></tr><tr><td>G-03 ✓ 0.1.267</td><td>средний</td><td>Нет оптимистичных блокировок (версий строк) для правок из админки: две вкладки администратора перезаписывают друг друга молча (grep <code>version=</code>/<code>expected_version</code> пуст)</td><td><code>admin/sections-*</code> (пользователи, настройки, роли)</td><td>колонка <code>version</code>, 0 изменённых строк = «изменено другим»</td></tr><tr><td>G-04 ✓ 0.1.269</td><td>средний</td><td>77 вызовов <code>db.get</code> и только 26 <code>transaction</code>: часть пар «прочитать, потом записать» вне транзакции; не разбирал каждую</td><td><code>src/**</code></td><td>пройти пары get→run, обернуть или сделать атомарным SQL</td></tr><tr><td>G-05 ✓ 0.1.269</td><td>средний</td><td>Нет ключей идемпотентности для создающих операций (письма, регистрация, заявки в примере): двойной клик = два действия</td><td><code>email</code>, <code>accounts</code>, <code>examples/workshop</code></td><td>ключ + сохранённый результат</td></tr><tr><td>G-06 ✓ 0.1.270</td><td>средний</td><td>Нет ADR: решения (опрос вместо SSE, псевдонимизация, отказ от Redis и т. д.) записаны только в CHANGELOG/аудит-документах</td><td><code>docs/</code></td><td>каталог <code>docs/adr/</code> и шаблон, задним числом 5–8 ключевых</td></tr><tr><td>G-07 ✓ 0.1.271</td><td>средний</td><td>Проверка лицензий зависимостей (<code>deps licenses</code>, есть в CLI ядра) не входила в CI (раньше в этом списке было написано «нет проверки», это неверно); для копилефта риск не контролируется</td><td><code>scripts/release-check.mjs</code></td><td><code>license-checker</code>/аналог со списком разрешённых</td></tr><tr><td>G-08 ✓ 0.1.272</td><td>средний</td><td>Защита от SSRF не найдена (grep пуст): <code>checkLatest</code>, webhooks/алерты, если принимают URL из настроек, не запрещают внутренние адреса</td><td><code>admin/sections-ops.js</code>, <code>alerts</code></td><td>запретить приватные диапазоны для URL из конфигурации, тест</td></tr><tr><td>G-09 ✓ 0.1.270</td><td>низкий</td><td>Нет файла <a href="claude.html"><code>CLAUDE.md</code></a>/правил для ИИ-агента в репозитории: правила живут только в памяти сессии</td><td>корень</td><td>положить краткие правила из этого документа</td></tr><tr><td>G-10 ✓ 0.1.273</td><td>низкий</td><td>Нет нагрузочных и property-based тестов; инварианты цепочки аудита проверяются только примерами</td><td><code>test/</code></td><td>property-тест <code>verifyChain</code> на случайных вставках</td></tr><tr><td>G-11 ✓ 0.1.274</td><td>низкий</td><td>Пустые <code>catch(e){}</code> в клиентских скриптах (localStorage — допустимо, <code>/logout</code> в <code>ui/shell.js</code> — молча глотает сбой)</td><td><code>ui/shell.js:130</code></td><td>показывать ошибку или хотя бы редиректить осознанно</td></tr><tr><td>G-12</td><td>низкий</td><td>Нет бюджета производительности: запросы без <code>EXPLAIN</code>-проверки, индексы на фильтрах аудита не подтверждены замером</td><td><code>audit/</code>, <code>admin/sections.js</code></td><td>замер на 1 млн строк, запись в docs</td></tr><tr><td>G-13</td><td>инфо</td><td>Известные хвосты из прежних решений: журнал приёмников (UI), отдельное право на IP/meta, раздельные сроки хранения, <code>tasks list/run</code>, пустые <code>&lt;SECURITY_CONTACT&gt;</code>, держатель LICENSE</td><td>см. <code>audit-core-external.md</code></td><td>по очереди</td></tr></tbody></table></div>
+<h2 id="не-проверено">Не проверено</h2>
+<p>Работа в браузере, <code>npm test</code> для 0.1.257–0.1.261, поведение express/zod в песочнице, содержимое каждого вызова <code>db.get</code>. Приоритеты — моя оценка, не измерение.</p>
+<h2 id="g-04-разбор-мест-прочитать-потом-записать-0-1-268">G-04: разбор мест «прочитать, потом записать» (0.1.268)</h2>
+<p>Автоматический поиск нашёл 25 функций, где есть чтение и запись без транзакции. Что с ними:</p>
+<p><strong>Исправлено (транзакция с блокировкой записи):</strong> <code>setUserRole</code>, <code>changeUserRole</code>, <code>setUserDisabled</code>, <code>removeUser</code>, <code>requirePasswordChangeForAll</code>, <code>removeAuthenticator</code>, <code>registration.add</code>, <code>bans.ban</code>, <code>bans.lift</code>; в <code>pseudonymize</code> вставка стала <code>ON CONFLICT DO NOTHING</code>.</p>
+<p><strong>Уже безопасно (сама запись проверяет условие):</strong> <code>consumePasswordResetToken</code>, <code>verifyAndConsumeRecoveryCode</code>, <code>verifyTotpLogin</code>, <code>registration.consume</code>, <code>enqueue</code>/<code>processDue</code> почтовой очереди, <code>recognizeDevice</code> (<code>INSERT OR IGNORE</code>), <code>createDbLastRunStore</code> (upsert).</p>
+<p><strong>Разобрано во втором проходе (0.1.269):</strong> <code>privacy/incidents.update</code> читал запись и писал её целиком, теперь в транзакции. Безопасны и оставлены: <code>directory.link</code> (<code>INSERT OR REPLACE</code>), <code>verifyTotpEnrollment</code> (повторная активация ничего не портит), <code>passwordExpired</code> (однократная запись, если пусто), <code>session-store</code> (каждая операция одиночная или идемпотентная), <code>notifications</code> (вставка и подрезка независимы, частичная запись безвредна), <code>alerts</code> (память процесса для паузы между повторами, повтор по ключу из двух процессов допустим по замыслу), <code>sessionRows</code> (только чтение, поиск дал ложное срабатывание). Миграции <code>migrateLegacyTotpSecrets</code>/<code>sealExistingTotpSecrets</code> идут при старте до приёма запросов, не разбирал глубже.</p>
+<p>Оговорка: SQLite в одном процессе выполняет запросы последовательно, так что гонка возможна только между процессами (сервер и CLI) или через <code>await</code> между чтением и записью.</p>
+<h2 id="g-05-двойной-клик-и-ключи-идемпотентности-0-1-269">G-05: двойной клик и ключи идемпотентности (0.1.269)</h2>
+<p>Решение: серверный механизм ключей идемпотентности не строю. Там, где двойное действие настоящее, оно уже закрыто ограничением в базе (логин уникален, адрес в заявке на регистрацию один живой токен, запуск резервной копии под межпроцессной блокировкой), а общий «склад результатов» без потребителя был бы фасадом. Вместо этого одна защита на клиенте: форма с методом POST отправляется один раз (повтор в течение 8 секунд гасится). Это закрывает неприятный случай «второй клик показал ошибку, хотя первый всё сделал». Если появится внешний вызывающий (API, вебхук) с повторами, ключ делается для него отдельно.</p>
+<p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/docs/gaps-core.md">docs/gaps-core.md на GitHub</a></p>
+</main>
+</body>
+</html>

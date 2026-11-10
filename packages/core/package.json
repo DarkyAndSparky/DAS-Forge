@@ -1,0 +1,113 @@
+{
+  "name": "@das-forge/core",
+  "version": "0.1.274",
+  "description": "DAS-Forge shared platform core",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DarkyAndSparky/DAS-Forge.git",
+    "directory": "packages/core"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./config": "./src/config/index.js",
+    "./database": "./src/database/index.js",
+    "./branding": "./src/branding/index.js",
+    "./auth": "./src/auth/index.js",
+    "./audit": "./src/audit/index.js",
+    "./health": "./src/health/index.js",
+    "./modules": "./src/modules/index.js",
+    "./privacy": "./src/privacy/index.js",
+    "./observability": "./src/observability/index.js",
+    "./certs": "./src/certs/index.js",
+    "./ui": "./src/ui/index.js",
+    "./admin": "./src/admin/index.js",
+    "./security": "./src/security/index.js",
+    "./ldap": "./src/ldap/index.js",
+    "./policy": "./src/policy/index.js",
+    "./http": "./src/http/index.js",
+    "./logs": "./src/logs/index.js",
+    "./realtime": "./src/realtime/index.js",
+    "./files": "./src/files/index.js",
+    "./xlsx": "./src/xlsx/index.js",
+    "./csv": "./src/csv/index.js",
+    "./scheduler": "./src/scheduler/index.js",
+    "./cli": "./src/cli/index.js",
+    "./qr": "./src/qr/index.js",
+    "./email": "./src/email/index.js",
+    "./alerts": "./src/alerts/index.js",
+    "./i18n": "./src/i18n/index.js",
+    "./maintenance": "./src/maintenance/index.js",
+    "./announcement": "./src/announcement/index.js",
+    "./accounts": "./src/accounts/index.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.6.7",
+    "argon2": "^0.45.2",
+    "sharp": "^0.35.5",
+    "dompurify": "^3.4.17",
+    "jsdom": "^31.0.0",
+    "selfsigned": "^5.5.0",
+    "semver": "^7.8.5",
+    "ssh2": "^1.17.0",
+    "ldapts": "^9.2.0",
+    "qrcode": "^1.5.4",
+    "helmet": "^8.3.0",
+    "express-rate-limit": "^8.7.1",
+    "cors": "^2.8.6",
+    "compression": "^1.8.2",
+    "nodemailer": "^10.4.0",
+    "@prometheus-io/client": "0.16.0",
+    "otplib": "^13.6.0",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1",
+    "multer": "^2.5.0",
+    "uuid": "^14.0.3",
+    "libheif-js": "^1.23.5",
+    "docx": "^9.15.3",
+    "i18next": "^27.0.1"
+  },
+  "peerDependencies": {
+    "express": "^5.3.0",
+    "cookie-parser": "^1.4.7",
+    "express-session": "^1.19.0",
+    "pino-pretty": "^13.2.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "cookie-parser": {
+      "optional": true
+    },
+    "express-session": {
+      "optional": true
+    },
+    "pino-pretty": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5",
+    "pino-pretty": "^13.2.0",
+    "jsqr": "^1.4.0"
+  }
+}

@@ -1,0 +1,24 @@
+name: Предложение / Feature request
+description: Идея или недостающая возможность
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу нужно решить
+      description: Опишите задачу, а не только решение
+    validations: { required: true }
+  - type: textarea
+    id: idea
+    attributes:
+      label: Как это могло бы работать
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Какие обходные пути пробовали
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options: [Ядро, Админка, Безопасность, CLI, Документация, Переводы, Шаблон приложения, Другое]
+    validations: { required: true }

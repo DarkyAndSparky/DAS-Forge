@@ -1,0 +1,58 @@
+# Publishes @das-forge/core to npm when a release tag is pushed:  git tag v0.2.0 && git push origin v0.2.0
+# Development builds (every delivery bumps the patch number) are never published - only tagged releases are.
+#
+# One-time setup (see docs/guide/10-operations.md, "Релизы и обновление ядра"):
+#   1. an npm account with two-factor authentication and the organization @das-forge;
+#   2. an npm access token (granular, "Read and write", only for @das-forge/core, bypass 2FA allowed for
+#      automation) saved in the repository as the secret NPM_TOKEN.
+# Not executed by its author (no network in the dev sandbox): the first release is the first run.
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write      # to create the GitHub Release
+  id-token: write      # provenance (only recorded when the repository is public)
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm run lock:check
+      - run: npm ci
+      - run: npm install-scripts approve argon2 cpu-features ssh2
+      # Version, tag, changelog entry, licence: everything a release must have.
+      - run: node scripts/release-check.mjs "$GITHUB_REF_NAME"
+      - run: npm run version:check
+      - run: npm test
+      - name: Show what will be published
+        run: npm pack --workspace=@das-forge/core --dry-run
+      - name: Publish to npm
+        run: npm publish --workspace=@das-forge/core --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # A provenance statement needs a public repository; a private one would make the publish fail.
+          NPM_CONFIG_PROVENANCE: ${{ github.event.repository.private == false }}
+      # Software bill of materials (CycloneDX) of what the package pulls in; attached to the GitHub Release.
+      # The tool is fetched by npx at a major version: pin an exact version once it has run (see the guide).
+      - name: SBOM
+        run: npx --yes @cyclonedx/cyclonedx-npm@4 --omit dev --package-lock-only --workspace @das-forge/core --output-format JSON --output-file sbom.cdx.json
+      - name: GitHub Release with the changelog entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## \\["v"\\]" {p=1; next} /^## \[/ {p=0} p' packages/core/CHANGELOG.md > release-notes.md
+          gh release create "$GITHUB_REF_NAME" --title "@das-forge/core $v" --notes-file release-notes.md sbom.cdx.json

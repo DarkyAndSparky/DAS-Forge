@@ -1,0 +1,7 @@
+# One line ending everywhere: a Windows checkout must not turn shell
+# scripts / migrations (whose sha256 checksums are tracked) into CRLF.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary

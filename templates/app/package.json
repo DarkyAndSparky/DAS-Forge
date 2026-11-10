@@ -1,0 +1,30 @@
+{
+  "name": "my-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Application on the DAS-Forge core (copy of templates/app).",
+  "type": "module",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "bin": {
+    "my-app": "./bin/app.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "cli": "node bin/app.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@das-forge/core": "^0.2.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.3.0",
+    "express-session": "^1.19.0",
+    "i18next": "^27.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "supertest": "^7.3.1",
+    "vitest": "^5.0.5"
+  }
+}

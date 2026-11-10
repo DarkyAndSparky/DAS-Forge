@@ -1,0 +1,16 @@
+node_modules/
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+Thumbs.db
+# Delivery archives are build output, not source (audit D09)
+*.zip
+*.tmp
+secrets/

@@ -1,0 +1,24 @@
+# Runs the workshop behind a TLS-terminating reverse proxy YOU provide
+# (https.mode=reverse-proxy: this container speaks plain HTTP on a private
+# network; the proxy must set X-Forwarded-Proto/-For). Not run by its author.
+services:
+  workshop:
+    build: .
+    init: false            # tini is already the entrypoint
+    restart: unless-stopped
+    environment:
+      DAS_SESSION_SECRET_FILE: /run/secrets/session_secret
+    secrets:
+      - session_secret
+    volumes:
+      - workshop-data:/app/examples/workshop/data
+    ports:
+      - "127.0.0.1:9002:9002"   # expose only to the local reverse proxy
+    stop_grace_period: 15s
+
+secrets:
+  session_secret:
+    file: ./secrets/session_secret.txt   # create it: 32+ random chars, NOT committed
+
+volumes:
+  workshop-data:

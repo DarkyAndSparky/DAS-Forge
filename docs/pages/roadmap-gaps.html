@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Сверка с первоначальным планом (`docs/roadmap.md`) — DAS-Forge 0.1.274</title>
+<style>
+:root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
+@media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.7 var(--ui)}
+a{color:var(--accent)}code,pre{font-family:var(--mono)}
+header.top{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:22px 32px;border-bottom:1px solid var(--line);background:var(--bg1)}
+header.top .logo{width:56px;height:56px;flex:none}header.top .logo svg{width:100%;height:100%}
+header.top h1{margin:0;font-size:24px;color:var(--accent)}header.top p{margin:2px 0 0;color:var(--dim);font-size:13px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}.badges img{height:20px}
+.wrap{display:grid;grid-template-columns:250px 1fr;max-width:1240px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line)}
+nav.toc a{display:block;padding:6px 10px;border-radius:4px;color:var(--dim);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--bg2);color:var(--accent)}
+main{padding:36px 48px 90px;min-width:0}
+section{margin-bottom:64px;scroll-margin-top:16px}
+section>h2{font-size:26px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px;margin:0 0 16px}
+section h3{font-size:19px;margin:30px 0 10px}section h4{font-size:16px;margin:22px 0 8px}
+p,li{max-width:90ch}
+code{background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.88em}
+pre{background:var(--bg1);border:1px solid var(--line);border-radius:6px;padding:14px 16px;overflow:auto}pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;font-size:14px;width:100%}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:var(--bg2)}
+blockquote{margin:12px 0;padding:8px 16px;border-left:3px solid var(--accent);background:var(--bg1)}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}nav.toc{position:static;height:auto;border:0}main{padding:24px 16px 60px}header.top{padding:16px}}
+nav.toc .grp{margin:16px 10px 4px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.back{display:inline-block;margin:0 0 18px;font-size:13px}
+main.page{max-width:960px;margin:0 auto}
+main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;margin:34px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}main.page h3{font-size:18px;margin:26px 0 8px}main.page h4{font-size:15.5px}
+
+</style>
+</head>
+<body>
+<header class="top">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  
+  <rect width="64" height="64" rx="10" fill="#5fb8c9"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
+        fill="#0d0f12" text-anchor="middle">WS</text>
+</svg></div>
+<div><h1>Сверка с первоначальным планом (`docs/roadmap.md`)</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.274 · <code>docs/roadmap-gaps.md</code></p></div>
+</header>
+<main class="page">
+<h1 id="сверка-с-первоначальным-планом-docs-roadmap-md">Сверка с первоначальным планом (<a href="roadmap.html"><code>docs/roadmap.md</code></a>)</h1>
+<p>Версия ядра: &lt;!--core-version--&gt;0.1.274&lt;!--/core-version--&gt;. Дата: 31.10.2026. Сверялись разделы <a href="roadmap.html">roadmap.md</a> о составе ядра (§3), командах (§4.1), эксплуатационных инструментах (§4.5g), безопасности (§4.5h, §4.5i), приватности (§4.5k), пакетах (§6, §6.5, §6.6) с кодом <code>packages/core/src</code> и командами CLI. Это чтение и поиск по коду, не запуск: пункт «нет» значит, что в коде нет ни реализации, ни упоминания. Дорожная карта остаётся историческим документом; всё, что здесь перечислено, не потеряется, когда её удалят.</p>
+<h2 id="сделано-часто-лучше-плана">Сделано, часто лучше плана</h2>
+<p>Журнал аудита с цепочкой хешей и псевдонимами; резервные копии (локально, смонтированный путь, SFTP, шифрование, проверка, расписание); диагностика и проверка здоровья с разделом в админке и расписанием; блокировки; реестр задач (раздел «Задачи» с расписанием); письма (очередь, DKIM, шаблоны на двух языках); сертификаты; LDAP; приватность (выгрузка, стирание, повторное применение стираний после восстановления); режим обслуживания и объявление; страница «О системе»; фирменные страницы ошибок; вторые факторы и коды восстановления; переводы на i18next; безопасность заголовков, CSRF, загрузок (проверка содержимого, защита от архивов-бомб, перекодирование изображений, очистка SVG, HEIC через <code>libheif-js</code>); парольная политика; уведомление о новом устройстве; <code>deps</code> в CLI. Подробно по областям — <a href="maturity-audit.html">аудит зрелости</a>.</p>
+<p>Закрыто после сверки: отдельный слушатель администрирования (<code>server.admin.port</code>, «уровень 1» плана) и подпись действий CLI именем пользователя ОС (<code>cli/&lt;user&gt;</code>).</p>
+<h2 id="сделано-иначе-чем-в-плане">Сделано иначе, чем в плане</h2>
+<div class="tbl"><table><thead><tr><th>В плане</th><th>Как сделано</th></tr></thead><tbody><tr><td>Метрики только в Grafana через <code>/metrics</code>, без своих графиков</td><td>в админке свои графики запросов и ошибок на «Обзоре»; <code>/metrics</code> в формате Prometheus нет (см. ниже)</td></tr><tr><td>Отдельные пакеты <code>@das-forge/email</code>, <code>ldap</code>, <code>images</code>, <code>files</code></td><td>внутри одного пакета ядра как модули (<code>email</code>, <code>ldap</code>, <code>files</code>); изображения — <code>sharp</code> и <code>libheif-js</code> (загружается по требованию)</td></tr><tr><td><code>@das-forge/ui</code> — отдельная платформа на чистом JS</td><td>серверная оболочка и разделы админки в ядре (<code>ui</code>, <code>admin</code>); клиентского каркаса нет</td></tr><tr><td><code>app cron {list,history,run}</code></td><td>раздел «Задачи» в админке (запуск, расписание, описание cron); команд CLI нет</td></tr><tr><td><code>app backup create</code></td><td><code>backup run</code></td></tr><tr><td>Права «своя роль поверх трёх базовых» (матрица прав)</td><td>роли и права задаёт приложение (<code>permissionsForRole</code>); таблиц ролей в ядре нет</td></tr></tbody></table></div>
+<h2 id="не-сделано-стоит-решить">Не сделано: стоит решить</h2>
+<div class="tbl"><table><thead><tr><th>Что</th><th>Откуда в плане</th><th>Замечание</th></tr></thead><tbody><tr><td>Эндпоинт <code>/metrics</code> (Prometheus), флаг <code>observability</code></td><td>§4.5g п.6</td><td>сделано: <code>observability.metrics</code>, пакет <code>@prometheus-io/client</code> закреплён точной версией</td></tr><tr><td>Раздел «Секреты» и <code>secrets {rotate,list}</code></td><td>§4.5g п.5</td><td>ротация ключей сессии и почты есть в конфигурации (предыдущие ключи), удобного управления и даты последней смены нет</td></tr><tr><td><code>user unlock</code></td><td>§4.5g п.2</td><td>блокировки входа хранятся в памяти процесса; снимаются баном или перезапуском; сделано иначе: действие «Снять блокировку входа» в админке (команда в CLI невозможна: счётчики живут в памяти работающего процесса)</td></tr><tr><td>Команды <code>logs {tail,export,config}</code></td><td>§4.5g п.1</td><td>есть раздел «Логи» в админке и выходы журнала (<code>logs sinks</code>); консольных команд нет</td></tr><tr><td><code>security incident declare</code>, уведомление об утечке</td><td>§4.5k</td><td>сделано как <code>privacy incident ...</code> и раздел «Инциденты»: реестр и контроль сроков; отправка уведомлений остаётся ручной</td></tr><tr><td>Реестр обработки персональных данных из кода, очередь ревью (<code>privacy registry</code>, <code>review-queue</code>)</td><td>§4.5k</td><td>сделано <code>privacy registry</code> (реестр из кода и настроек); очередь ревью не сделана</td></tr><tr><td>Политика хранения по сущностям (не только журнал аудита)</td><td>§4.5k</td><td>срок хранения есть только у аудита, метрик и сессий</td></tr><tr><td>Проверка PDF на активное содержимое, необязательный антивирус (ClamAV)</td><td>§4.5h</td><td>для приложений с загрузкой документов; сейчас PDF проверяется по сигнатуре</td></tr><tr><td>Команды <code>start/stop/restart/status</code>, <code>service install</code>, <code>install</code>, <code>update</code></td><td>§4.1</td><td>запуск и сервис обеспечивают Docker и менеджер процессов оператора; команда обновления ядра — после первой публикации</td></tr><tr><td><code>db rollback</code>, <code>db seed</code>, <code>migrate --to</code></td><td>§4.1</td><td>миграции только вперёд, откат — из резервной копии; осознанно ли — стоит решить</td></tr><tr><td><code>app test:perf</code> (autocannon, бюджеты)</td><td>§4.5c</td><td>нагрузочных сценариев нет</td></tr><tr><td>Кнопка «Перезапуск приложения» в админке</td><td>§4.5g п.7</td><td>плавное завершение есть, кнопки нет</td></tr><tr><td>Окна обслуживания по расписанию, подавление алертов</td><td>§6.6 п.1</td><td>есть ручной режим обслуживания с ожидаемым концом; расписания и подавления алертов нет</td></tr></tbody></table></div>
+<h2 id="не-сделано-ждёт-приложений-платформы">Не сделано: ждёт приложений платформы</h2>
+<p>Эти пакеты в плане нужны конкретным приложениям; пока этап портирования приостановлен, делать их рано.</p>
+<div class="tbl"><table><thead><tr><th>Пакет</th><th>Кому</th><th>Содержимое</th></tr></thead><tbody><tr><td><code>@das-forge/network</code></td><td>net-monitor</td><td>SNMP, RouterOS, SSH-обвязка, DNS-over-HTTPS</td></tr><tr><td><code>@das-forge/documents</code></td><td>procure-it</td><td>генерация <code>docx</code></td></tr><tr><td><code>@das-forge/exports</code></td><td>it-assets, procure-it</td><td>выгрузка в xlsx</td></tr><tr><td><code>@das-forge/integrations</code></td><td>все</td><td>ключи API, веб-хуки наружу, журнал доставки, <code>sourceRef</code></td></tr><tr><td>Адаптеры Bitrix24 и 1С</td><td>по необходимости</td><td>§6.5a, необязательные</td></tr><tr><td>Глобальный поиск и печатные виды в контракте модуля</td><td>приложения</td><td>поиск есть (<code>ui.searchModules</code>), печатных видов нет</td></tr></tbody></table></div>
+<h2 id="убрано-при-сверке">Убрано при сверке</h2>
+<ul><li>Параметр конфигурации <code>security.adminMtls</code> существовал в схеме и в документации, но ничего не делал. Убран вместе со строкой документации: параметр без поведения создаёт ложное чувство защиты. Клиентские сертификаты для администрирования в плане («уровень 3») были помечены «задел, не проектируем сейчас».</li></ul>
+<h2 id="открытые-находки-старого-аудита">Открытые находки старого аудита</h2>
+<p>Остаются в <a href="audit-findings.html">audit-findings.md</a>: I03, I11, E01–E07, J03–J05, K03–K06, L05, B17, часть F05/F07/F09/F10, D07, D08. Какие из них ещё актуальны после десятков поставок, показала бы отдельная сверка.</p>
+<h2 id="очередь-работ">Очередь работ</h2>
+<p>Что запланировано и не доведено; обновляется при каждой сборке.</p>
+<div class="tbl"><table><thead><tr><th>Что</th><th>Состояние</th></tr></thead><tbody><tr><td>Управление сертификатами: встроенное подключаемое (ACME / Let's Encrypt), горячая перезагрузка, делегирование Caddy и nginx</td><td>не начато, проект согласуется</td></tr><tr><td>Сообщения команд CLI на русском (результаты, ошибки)</td><td>не сделано; справка готова</td></tr><tr><td>Проверка почты: кнопка «Отправить тестовое письмо»</td><td>сделано</td></tr><tr><td>e2e для постраничных списков</td><td>написан (<code>admin-paging.e2e.js</code>), не запускался</td></tr><tr><td>e2e для рассылки</td><td>не сделано: в e2e-сервере почта выключена; логика покрыта тестом ядра</td></tr><tr><td>Раздел админки «Реестр обработки»</td><td>сделано</td></tr><tr><td>Workshop: содержательная главная-витрина</td><td>сделана</td></tr><tr><td>Графики «Обзора» админки: период, время ответа, входы, сессии, база</td><td>сделаны</td></tr><tr><td>Модуль <code>xlsx</code> в ядре</td><td>сделан (0.1.187), по решению «своё на yauzl/yazl»; позже свои читатели <code>.xlsb</code>, <code>.ods</code>, <code>.xls</code>, изолированное чтение, значение «как показано», таблицы Excel как подсказки заголовков (0.1.195–0.1.200)</td></tr><tr><td>Workshop: заявки по образцу procure-it с выгрузкой и загрузкой Excel, импорт активов, история, QR-метки по образцу it-assets</td><td>запрошено, следующий шаг</td></tr><tr><td>Очередь ревью реестра обработки</td><td>не сделано</td></tr><tr><td><code>logs</code> и <code>secrets</code> в CLI и админке</td><td>не сделано</td></tr><tr><td>Политика хранения по сущностям</td><td>не сделано</td></tr><tr><td>Рассылка по расписанию</td><td>не запрошено</td></tr><tr><td>Онлайн-проверка утёкших паролей</td><td>решение не принято</td></tr></tbody></table></div>
+<p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/docs/roadmap-gaps.md">docs/roadmap-gaps.md на GitHub</a></p>
+</main>
+</body>
+</html>
