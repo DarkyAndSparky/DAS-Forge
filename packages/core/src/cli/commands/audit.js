@@ -11,16 +11,16 @@ import { EXIT } from '../exit-codes.js';
  *
  * @param {object} cli
  * @param {object} opts
- * @param {import('../../database/adapter.js')} opts.db
- * @param {(db, opts:object) => Array} opts.tailFn - core/audit's tail()
- * @param {(db, opts:object) => Array} opts.queryFn - core/audit's query()
+ * @param {object} opts.db
+ * @param {(db, opts:object) => Array|Promise<Array>} opts.tailFn - core/audit's tail()
+ * @param {(db, opts:object) => Array|Promise<Array>} opts.queryFn - core/audit's query()
  */
 export function registerAuditCommands(cli, { db, tailFn, queryFn, verifyFn, anchorFn }) {
   cli.command('audit tail', {
     description: 'Show the most recent audit log entries (app audit tail [--limit n])',
-    handler({ flags }) {
+    async handler({ flags }) {
       const limit = flagInt(flags, 'limit', { min: 1, max: 1000 }) ?? 50;
-      const entries = tailFn(db, { limit });
+      const entries = await tailFn(db, { limit });
 
       if (flags.json) {
         // eslint-disable-next-line no-console
@@ -45,7 +45,7 @@ export function registerAuditCommands(cli, { db, tailFn, queryFn, verifyFn, anch
 
   cli.command('audit export', {
     description: 'Export audit log entries to a file (app audit export <file> [--format json|csv] [--limit n])',
-    handler({ positionals, flags }) {
+    async handler({ positionals, flags }) {
       const file = positionals[0];
       if (!file) {
         // eslint-disable-next-line no-console
@@ -63,7 +63,7 @@ export function registerAuditCommands(cli, { db, tailFn, queryFn, verifyFn, anch
       let beforeId;
       while (entries.length < wanted) {
         const size = Math.min(1000, wanted - entries.length);
-        const batch = queryFn(db, { limit: size, since, until, beforeId });
+        const batch = await queryFn(db, { limit: size, since, until, beforeId });
         entries.push(...batch);
         if (batch.length < size) break;
         beforeId = batch[batch.length - 1].id;
@@ -85,7 +85,7 @@ export function registerAuditCommands(cli, { db, tailFn, queryFn, verifyFn, anch
   if (verifyFn) {
     cli.command('audit verify', {
       description: 'Check the audit hash chain (app audit verify [--anchor-id <n> --anchor-hash <hash>])',
-      handler({ flags }) {
+      async handler({ flags }) {
         const id = flagInt(flags, 'anchor-id', { min: 1 });
         const hash = flagString(flags, 'anchor-hash');
         if ((id === undefined) !== (hash === undefined)) {
@@ -93,7 +93,7 @@ export function registerAuditCommands(cli, { db, tailFn, queryFn, verifyFn, anch
           console.error('Pass --anchor-id and --anchor-hash together (copy them from the remote log line "audit anchor").');
           return EXIT.USAGE;
         }
-        const result = verifyFn(db, id === undefined ? {} : { anchor: { id, hash } });
+        const result = await verifyFn(db, id === undefined ? {} : { anchor: { id, hash } });
         if (flags.json) {
           // eslint-disable-next-line no-console
           console.log(JSON.stringify(result));
@@ -112,8 +112,8 @@ export function registerAuditCommands(cli, { db, tailFn, queryFn, verifyFn, anch
   if (anchorFn) {
     cli.command('audit anchor', {
       description: 'Print the current audit chain head (id, hash): keep it somewhere the server cannot reach (app audit anchor)',
-      handler({ flags }) {
-        const a = anchorFn(db);
+      async handler({ flags }) {
+        const a = await anchorFn(db);
         if (!a) {
           // eslint-disable-next-line no-console
           console.log('No hashed audit entries yet.');

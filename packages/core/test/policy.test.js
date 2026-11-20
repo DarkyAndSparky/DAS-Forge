@@ -162,7 +162,7 @@ describe('admin: policy editor', () => {
     expect(policy.getText('en', 'cookies').body).toBe('Custom cookies');
     r = await call(app.routes['POST /admin/policy/save'], { user: admin, body: { locale: 'xx', kind: 'cookies', body: 'x' } });
     expect(r.location).toBe('/admin/policy?textlang=ru&msg=bad');
-    r = await call(app.routes['POST /admin/policy/reset'], { user: admin, body: { locale: 'en', kind: 'cookies' } });
+    await call(app.routes['POST /admin/policy/reset'], { user: admin, body: { locale: 'en', kind: 'cookies' } });
     expect(policy.getText('en', 'cookies').custom).toBe(false);
     expect(query(db, { action: 'admin.policy.save' }).length).toBe(1);
     expect(query(db, { action: 'admin.policy.reset' }).length).toBe(1);

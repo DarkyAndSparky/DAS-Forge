@@ -44,7 +44,7 @@ export function onEntry(fn) {
   return () => listeners.delete(fn);
 }
 
-const HAS_LABEL = /^(username|login|user|target)$/i;
+export const HAS_LABEL = /^(username|login|user|target)$/i;
 
 /** Adds what the object is called right now to `meta`, unless the caller already said it. Never throws (no users table = no label). */
 function withTarget(tx, { entity, entityId, entityLabel }, meta) {
@@ -101,6 +101,12 @@ export function log(
 
   const inserted = typeof db.transaction === 'function' ? db.transaction(insert, { mode: 'immediate' }) : insert(db);
   const entry = rowToEntry(inserted, createResolver(db));
+  notifyListeners(inserted);
+  return entry;
+}
+
+/** Tells the subscribers (`onEntry`) about a row that was just written. Shared by log() and logAsync(). */
+export function notifyListeners(inserted) {
   const rawEntry = rowToEntry(inserted);
   for (const fn of listeners) {
     try {
@@ -109,5 +115,4 @@ export function log(
       /* a listener must never break the audit write */
     }
   }
-  return entry;
 }

@@ -5,7 +5,7 @@ export function loadMulter() {
   try {
     return createRequire(import.meta.url)('multer');
   } catch (err) {
-    throw new Error(`multer is not installed (npm install multer): ${err?.message ?? err}`);
+    throw new Error(`multer is not installed (npm install multer): ${err?.message ?? err}`, { cause: err });
   }
 }
 

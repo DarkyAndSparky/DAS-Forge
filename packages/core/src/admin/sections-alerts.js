@@ -33,17 +33,17 @@ export function mountAlertsSection({ app, guard, page: render, basePath, localeO
     return `${ack}${mute}`;
   };
 
-  app.get(p, ...guard, (req, res) => {
+  app.get(p, ...guard, async (req, res) => {
     const l = pickTexts(ALERT_TEXTS, texts['admin-alerts'], localeOf(req), 'admin-alerts');
     const pg = pageParams(req);
-    const list = alerts.list({ limit: pg.size, offset: pg.offset });
-    const alertTotal = alerts.count();
+    const list = await alerts.list({ limit: pg.size, offset: pg.offset });
+    const alertTotal = await alerts.count();
     const rows = list.map((a) => `<tr><td>${timeHtml(a.createdAt, localeOf(req))}</td><td><span class="adm-badge ${a.severity === 'critical' ? 'danger' : a.severity === 'warning' ? 'warn' : 'info'}">${esc(l[a.severity] ?? a.severity)}</span></td><td><strong>${esc(a.title)}</strong><div class="adm-muted">${esc(a.message)}</div></td><td>${a.repeats ? esc(a.repeats) : '<span class="adm-muted">—</span>'}</td><td>${esc(a.notified ? l.sent : l.notSent)}${a.notifyError ? ` <span class="adm-muted">(${esc(a.notifyError)})</span>` : ''}${a.muted ? ` <span class="adm-badge">${esc(l.muted)}</span>` : ''}${a.escalatedAt ? ` <span class="adm-badge warn">${esc(l.escalated)}</span>` : ''}</td><td>${actions(a, l)}</td></tr>`).join('');
-    const mutes = alerts.mutes();
-    const muteBox = mutes.length ? `<div class="adm-card"><h2>${esc(l.mutesTitle)}</h2><table class="adm-table"><tbody>${mutes.map((m) => `<tr><td><code>${esc(m.key)}</code></td><td>${esc(l.until)} ${timeHtml(m.until, localeOf(req))}</td><td><form method="post" action="${p}/unmute"><input type="hidden" name="key" value="${esc(m.key)}"><button class="adm-btn" type="submit">${esc(l.unmute)}</button></form></td></tr>`).join('')}</tbody></table></div>` : '';
+    const mutes = await alerts.mutes();
+    const muteBox = mutes.length ? `<div class="adm-card"><h2>${esc(l.mutesTitle)}</h2><table class="adm-table"><tbody>${mutes.map((m) => `<tr><td><code translate="no">${esc(m.key)}</code></td><td>${esc(l.until)} ${timeHtml(m.until, localeOf(req))}</td><td><form method="post" action="${p}/unmute"><input type="hidden" name="key" value="${esc(m.key)}"><button class="adm-btn" type="submit">${esc(l.unmute)}</button></form></td></tr>`).join('')}</tbody></table></div>` : '';
     const toast = req.query?.msg === 'ok' ? `<div class="adm-toast">${esc(l.done)}</div>` : '';
     const note = mailConfigured ? '' : `<p class="adm-muted">${esc(l.noContacts)}</p>`;
-    render(req, res, {
+    await render(req, res, {
       active: p, title: l.title,
       bodyHtml: `${toast}<p class="adm-muted">${esc(l.hint)}</p>${note}${muteBox}${rows ? `<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.time)}</th><th>${esc(l.severity)}</th><th>${esc(l.alert)}</th><th>${esc(l.repeats)}</th><th>${esc(l.mail)}</th><th>${esc(l.action)}</th></tr></thead><tbody data-paged="alerts">${rows}</tbody></table>${pagerFor({ req, res, path: p, name: 'alerts', ...pg, count: list.length, total: alertTotal, locale: localeOf(req) })}</div>` : `<p>${esc(l.empty)}</p>`}`,
     });
@@ -53,7 +53,7 @@ export function mountAlertsSection({ app, guard, page: render, basePath, localeO
   app.post(`${p}/ack`, ...guard, ...stepUp, async (req, res, next) => {
     try {
       const form = await readForm(req);
-      alerts.ack(Number(form.id), req.user?.username ?? null);
+      await alerts.ack(Number(form.id), req.user?.username ?? null);
       res.redirect(303, `${p}?msg=ok`);
     } catch (err) { next(err); }
   });
@@ -62,7 +62,7 @@ export function mountAlertsSection({ app, guard, page: render, basePath, localeO
     try {
       const form = await readForm(req);
       const hours = [1, 24, 168].includes(Number(form.hours)) ? Number(form.hours) : 1;
-      alerts.mute(String(form.key ?? '').slice(0, 120), hours * 3_600_000, req.user?.username ?? null);
+      await alerts.mute(String(form.key ?? '').slice(0, 120), hours * 3_600_000, req.user?.username ?? null);
       res.redirect(303, `${p}?msg=ok`);
     } catch (err) { next(err); }
   });
@@ -70,7 +70,7 @@ export function mountAlertsSection({ app, guard, page: render, basePath, localeO
   app.post(`${p}/unmute`, ...guard, ...stepUp, async (req, res, next) => {
     try {
       const form = await readForm(req);
-      alerts.unmute(String(form.key ?? '').slice(0, 120));
+      await alerts.unmute(String(form.key ?? '').slice(0, 120));
       res.redirect(303, `${p}?msg=ok`);
     } catch (err) { next(err); }
   });

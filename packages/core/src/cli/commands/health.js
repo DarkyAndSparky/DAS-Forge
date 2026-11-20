@@ -1,4 +1,4 @@
-import { checkHealth } from '../../health/check.js';
+import { checkHealthAsync } from '../../health/check.js';
 
 /**
  * `app health [--json]` - quick liveness check, safe to run often. Exit
@@ -13,8 +13,8 @@ import { checkHealth } from '../../health/check.js';
 export function registerHealthCommand(cli, { db, version = null }) {
   cli.command('health', {
     description: 'Quick liveness check (process + database)',
-    handler({ flags }) {
-      const result = checkHealth(db, { version });
+    async handler({ flags }) {
+      const result = await checkHealthAsync(db, { version });
 
       if (flags.json) {
         // eslint-disable-next-line no-console

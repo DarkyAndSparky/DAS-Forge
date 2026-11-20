@@ -47,7 +47,7 @@ describe('users section', () => {
     expect(db.get(`SELECT disabled FROM users WHERE id = ?`, [annId]).disabled).toBe(1);
     r = await call(routes['POST /admin/users/:id/disable'], { user: admin, params: { id: '1' } });
     expect(r.location).toBe('/admin/users?msg=bad&e=SELF');
-    r = await call(routes['POST /admin/users/:id/enable'], { user: admin, params: { id: String(annId) } });
+    await call(routes['POST /admin/users/:id/enable'], { user: admin, params: { id: String(annId) } });
     expect(db.get(`SELECT disabled FROM users WHERE id = ?`, [annId]).disabled).toBe(0);
     expect(query(db, { action: 'admin.user.disable' }).length).toBe(1);
   });
@@ -247,10 +247,10 @@ describe('users section: account administration', () => {
       enrol(db, ann);
       r = await call(routes['POST /admin/users/:id/recovery-codes'], { user: actor, params: { id: String(ann) }, body: {} });
       expect(r.code).toBe(200);
-      expect(r.body.match(/<li><code>/g).length).toBe(8);
+      expect(r.body.match(/<li><code[^>]*>/g).length).toBe(8);
       expect(db.get('SELECT COUNT(*) AS c FROM recovery_codes WHERE user_id = ?', [ann]).c).toBe(8);
       const audited = JSON.stringify(query(db, { action: 'admin.user.recovery_codes' }));
-      for (const code of r.body.match(/<code>([^<]+)<\/code>/g)) expect(audited).not.toContain(code.replace(/<\/?code>/g, ''));
+      for (const code of r.body.match(/<code[^>]*>([^<]+)<\/code>/g)) expect(audited).not.toContain(code.replace(/<\/?code[^>]*>/g, ''));
       expect(JSON.stringify(notices)).not.toMatch(/<code>/); // the letter carries no codes
       expect(notices.at(-1)[1].subject).toBe('Выпущены новые коды восстановления');
     });
@@ -287,7 +287,7 @@ describe('users section: account administration', () => {
     let r = await call(routes['POST /admin/users/:id/logout'], { user: actor, params: { id: String(ann) }, body: {} });
     expect(r.location).toBe('/admin/users?msg=ok');
     expect(byName(db, 'ann').must_change_password).toBe(0);
-    r = await call(routes['POST /admin/users/:id/logout'], { user: actor, params: { id: String(ann) }, body: { requireChange: '1' } });
+    await call(routes['POST /admin/users/:id/logout'], { user: actor, params: { id: String(ann) }, body: { requireChange: '1' } });
     expect(byName(db, 'ann').must_change_password).toBe(1);
     expect(query(db, { action: 'admin.user.force_logout' })).toHaveLength(2);
   });
@@ -471,7 +471,7 @@ describe('backups, logs, about sections', () => {
     let r = await call(routes['POST /admin/about/doctor-schedule'], { user: admin, body: { enabled: '1', time: '06:15' } });
     expect(r.location).toBe('/admin/about?msg=ok');
     expect(calls[0]).toEqual({ enabled: true, time: '06:15' });
-    r = await call(routes['POST /admin/about/doctor-schedule'], { user: admin, body: { time: '09:00' } });
+    await call(routes['POST /admin/about/doctor-schedule'], { user: admin, body: { time: '09:00' } });
     expect(calls[1].enabled).toBe(false); // the checkbox was not ticked
     r = await call(routes['POST /admin/about/doctor-schedule'], { user: admin, body: { enabled: '1', time: 'bad' } });
     expect(r.location).toBe('/admin/about?msg=bad&e=TIME_INVALID');

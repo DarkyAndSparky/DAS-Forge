@@ -1,3 +1,5 @@
+import { asyncView } from '../util/async-view.js';
+import { asyncDb } from '../database/async.js';
 import { bellHtml } from '../notifications/page.js';
 import { searchSections, configKeyMatches } from './search.js';
 import { flattenConfig as flattenCfg } from './sections-system.js';
@@ -9,17 +11,18 @@ import { renderAppShell } from '../ui/shell.js';
 import { svgBarChart, svgLineChart } from './charts.js';
 import { mountAuditSection, mountSecuritySection } from './sections.js';
 import { mountAppearanceSection } from './sections-appearance.js';
-import { themeWithBranding, brandingHtml, brandBlockHtml, mountLogoRoute } from '../branding/appearance.js';
+import { themeWithBrandingAsync, brandingHtmlAsync, brandBlockHtmlAsync, mountLogoRoute } from '../branding/appearance.js';
 import { mountAlertsSection } from './sections-alerts.js';
 import { mountUsersSection } from './sections-users.js';
 import { mountMaintenanceSection, mountAnnouncementSection } from './sections-maintenance.js';
 import { mountPasswordPolicySection } from './sections-password.js';
+import { createMfaRoleStore } from '../auth/mfa-roles.js';
 import { mountIncidentsSection } from './sections-incidents.js';
 import { mountRegistrySection } from './sections-registry.js';
 import { mountBroadcastSection } from './sections-broadcast.js';
 import { mountTasksSection, mountMailSection, mountConfigSection, failedTasks, mailProblems, SYSTEM_TEXTS } from './sections-system.js';
 import { mountBackupsSection, mountLogsSection, mountAboutSection } from './sections-ops.js';
-export { createMetrics, ensureMetricsTable, hourBucket } from './metrics.js';
+export { createMetrics, ensureMetricsTable, ensureMetricsTableAsync, hourBucket } from './metrics.js';
 export { svgBarChart, svgLineChart } from './charts.js';
 export { readForm } from './sections.js';
 export { createStepUp, safeNext } from './step-up.js';
@@ -79,6 +82,7 @@ function duration(sec) {
  * @param {object} [o.vendorIdentity] - the app's `branding.defineVendorIdentity()`: the menu header shows the administrator's name and logo, else this identity's own
  * @param {string} [o.basePath='/admin']
  * @param {object} [o.bans] - createBans() instance; enables the "Security" section (bans + sessions)
+ * @param {object} [o.ipBan] - `security.createIpBanPolicy()`; adds the "Automatic address ban" block to the Security section
  * @param {boolean} [o.users=true] - "Users" section (list, disable/enable)
  * @param {object} [o.userManagement] - turns the section into full account administration: `{ authProvider, roles, adminRole?, email?, allowDelete?, onPasswordReset? }` (see mountUsersSection)
  * @param {{list:Function, run?:Function}} [o.backups] - "Backups" section: list() -> rows, run() -> starts a backup
@@ -107,7 +111,18 @@ function duration(sec) {
  * @param {(req, res, locale) => string} [o.bodyEnd] - trusted markup at the end of every admin page (default: policy.pageEnd)
  * @param {Function[]} [o.stepUp] - extra middleware for dangerous POST actions (e.g. a fresh-MFA check)
  */
-export function createAdmin({ texts = {}, incidents = null, processingRegistry = null, db, metrics, dbFilePath, theme = {}, brandHtml = '', permission = 'admin.access', sections = [], basePath = '/admin', startedAt = Date.now(), bans = null, stepUp = [], vendorIdentity = null, users = true, userManagement = null, maintenance = null, announcement = null, scheduler = null, mail = null, config = null, configSources = null, auditAccess = null, backups = null, logDestination = null, alerts = null, alertsMail = false, about = null, appearance = null, policy = null, bodyEnd = null, appUrl = '/ui', taskSchedules = null, managedTasks = {}, migrations = null, accountUrl = '/ui/account', passwordPolicy = null, controlPath = null, limits = null, notifications = null, notificationsUrl = '/ui/notifications' } = {}) {
+export function createAdmin({ sessionWarnMs = 120_000, ipBan = null, texts = {}, incidents = null, processingRegistry = null, db, metrics, dbFilePath, theme = {}, brandHtml = '', permission = 'admin.access', sections = [], basePath = '/admin', startedAt = Date.now(), bans = null, stepUp = [], vendorIdentity = null, users = true, userManagement = null, maintenance = null, announcement = null, scheduler = null, mail = null, config = null, configSources = null, auditAccess = null, backups = null, logDestination = null, alerts = null, alertsMail = false, about = null, appearance = null, policy = null, bodyEnd = null, appUrl = '/ui', taskSchedules = null, managedTasks = {}, migrations = null, accountUrl = '/ui/account', passwordPolicy = null, controlPath = null, limits = null, notifications = null, notificationsUrl = '/ui/notifications' } = {}) {
+  // The sections below `await` these: each may be synchronous or work over an asynchronous database.
+  ipBan = asyncView(ipBan);
+  bans = asyncView(bans);
+  incidents = asyncView(incidents);
+  alerts = asyncView(alerts);
+  maintenance = asyncView(maintenance);
+  announcement = asyncView(announcement);
+  notifications = asyncView(notifications);
+  metrics = asyncView(metrics);
+  const adb = asyncDb(db);
+  if (passwordPolicy) passwordPolicy = asyncView(Object.assign(Object.create(passwordPolicy), { dictionary: asyncView(passwordPolicy.dictionary) }));
   const tt = (locale) => pickTexts(T, texts['admin-overview'], locale, 'admin-overview');
   const localeOf = (req) => (req.query?.lang === 'en' ? 'en' : req.query?.lang === 'ru' ? 'ru' : (req.locale === 'en' ? 'en' : 'ru'));
 
@@ -151,8 +166,8 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
     };
   }
 
-  function count(sql) {
-    try { return db.get(sql).n; } catch { return null; }
+  async function count(sql) {
+    try { return (await adb.get(sql)).n; } catch { return null; }
   }
 
   /**
@@ -166,7 +181,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
     return { max, text: fmt(max), ratio, level: ratio >= 1 ? 'over' : ratio >= 0.8 ? 'near' : 'ok' };
   }
 
-  function tiles(t) {
+  async function tiles(t) {
     const out = [];
     out.push([t.uptime, duration((Date.now() - startedAt) / 1000)]);
     out.push([t.memory, human(process.memoryUsage().rss), limitOfTile('memory', process.memoryUsage().rss, human)]);
@@ -174,7 +189,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
       try { const sz = statSync(dbFilePath).size; out.push([t.db, human(sz), limitOfTile('db', sz, human)]); } catch { out.push([t.db, t.na]); }
     }
     for (const [label, sql] of [[t.users, 'SELECT COUNT(*) AS n FROM users'], [t.sessions, 'SELECT COUNT(*) AS n FROM sessions'], [t.audit, 'SELECT COUNT(*) AS n FROM audit_log']]) {
-      const n = count(sql);
+      const n = await count(sql);
       out.push([label, n === null ? t.na : String(n), n === null ? null : limitOfTile(sql.includes('users') ? 'users' : sql.includes('sessions') ? 'sessions' : 'audit', n, String)]);
     }
     out.push([t.node, process.version]);
@@ -197,12 +212,12 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
   }
 
   /** Levels for the charts (sessions, database size, mail queue), sampled every few minutes and once at start. */
-  function sampleGauges() {
+  async function sampleGauges() {
     try {
-      const sessions = count('SELECT COUNT(*) AS n FROM sessions');
+      const sessions = await count('SELECT COUNT(*) AS n FROM sessions');
       if (sessions !== null) metrics.set('sessions.active', sessions);
       if (dbFilePath) metrics.set('db.bytes', statSync(dbFilePath).size);
-      const pending = mail?.queue?.stats?.()?.pending;
+      const pending = (await asyncView(mail?.queue)?.stats?.())?.pending;
       if (Number.isFinite(pending)) metrics.set('mail.pending', pending);
     } catch { /* a missing table or file just leaves a gap */ }
   }
@@ -216,7 +231,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
   const pointsOf = (series, period, f = (v) => v) => series.map((p) => ({ label: labelOf(p.bucket, period), value: p.value === null ? null : f(p.value) }));
 
   /** Sign-ins per point from the audit log (no extra counters): success or failure of `auth.login`. */
-  function loginSeries(period, result) {
+  async function loginSeries(period, result) {
     const hours = { '24h': 24, '7d': 168, '30d': 720 }[period];
     const step = { '24h': 1, '7d': 6, '30d': 24 }[period];
     const end = new Date(); end.setUTCMinutes(0, 0, 0);
@@ -224,7 +239,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
     for (let i = hours - 1; i >= 0; i--) buckets.push(new Date(end.getTime() - i * 3600_000).toISOString().slice(0, 13));
     let rows = [];
     try {
-      rows = db.all(`SELECT substr(replace(created_at, ' ', 'T'), 1, 13) AS b, COUNT(*) AS n FROM audit_log WHERE action = 'auth.login' AND result = ? AND replace(created_at, ' ', 'T') >= ? GROUP BY b`, [result, buckets[0]]);
+      rows = await adb.all(`SELECT substr(replace(created_at, ' ', 'T'), 1, 13) AS b, COUNT(*) AS n FROM audit_log WHERE action = 'auth.login' AND result = ? AND replace(created_at, ' ', 'T') >= ? GROUP BY b`, [result, buckets[0]]);
     } catch { /* no audit table */ }
     const by = new Map(rows.map((r) => [r.b, r.n]));
     const out = [];
@@ -233,23 +248,23 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
   }
 
   /** Alerts about the running application (maintenance mode, failed tasks, stuck mail): on the overview and on the control page. */
-  function opsAlerts(locale) {
+  async function opsAlerts(locale) {
     const t = tt(locale);
-    const mState = maintenance?.get();
+    const mState = await maintenance?.get();
     let html = mState?.enabled ? `<a class="adm-card" href="${ctl}/maintenance" style="display:block;margin-bottom:1rem;border-left:4px solid var(--adm-danger);text-decoration:none;color:inherit"><strong>${esc(t.maintenanceOn)}</strong></a>` : '';
     const sys = pickTexts(SYSTEM_TEXTS, texts['admin-system'], locale, 'admin-system');
     const warn = (href, text) => `<a class="adm-card" href="${href}" style="display:block;margin-bottom:1rem;border-left:4px solid var(--adm-warn);text-decoration:none;color:inherit"><strong>${esc(text)}</strong></a>`;
     if (scheduler) { const bad = failedTasks(scheduler); if (bad.length) html += warn(`${ctl}/tasks`, `${sys.alertTasks}: ${bad.map((j) => j.name).join(', ')}`); }
-    if (mail?.queue && mailProblems(mail.queue)) html += warn(`${ctl}/mail`, sys.alertMail);
+    if (mail?.queue && await mailProblems(mail.queue)) html += warn(`${ctl}/mail`, sys.alertMail);
     return html;
   }
 
-  function overviewHtml(locale, periodRaw) {
+  async function overviewHtml(locale, periodRaw) {
     const t = tt(locale);
-    let html = opsAlerts(locale);
+    let html = await opsAlerts(locale);
     if (incidents) {
       // open incidents: red when one is of high severity or has a notice deadline passed, amber otherwise
-      const open = incidents.list({ limit: 1000 }).filter((i) => i.status !== 'closed');
+      const open = (await incidents.list({ limit: 1000 })).filter((i) => i.status !== 'closed');
       const high = open.filter((i) => i.severity === 'high').length;
       const late = open.filter((i) => i.firstNoticeDue?.overdue || i.detailsDue?.overdue).length;
       if (open.length) {
@@ -258,7 +273,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
         html += `<a class="adm-card" href="${basePath}/incidents" style="display:block;margin-bottom:1rem;border-left:4px solid ${colour};text-decoration:none;color:inherit"><strong>${esc(t.alertIncidents)}: ${open.length}</strong>${detail ? `<div class="adm-muted">${esc(detail)}</div>` : ''}</a>`;
       }
     }
-    const tileList = tiles(t);
+    const tileList = await tiles(t);
     const hot = tileList.filter((x) => x[2] && x[2].level !== 'ok');
     if (hot.length) {
       const over = hot.some((x) => x[2].level === 'over');
@@ -272,15 +287,15 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
       const bar = (title, series, o = {}) => card(title, svgBarChart(pointsOf(series, period), { title, ...o }));
       const line = (title, series, o = {}) => card(title, svgLineChart(pointsOf(series, period, o.map), { title, ...o }));
       const charts = [
-        bar(t.cRequests, metrics.periodSeries('http.requests', period)),
-        bar(t.cClient, metrics.periodSeries('http.4xx', period), { color: 'var(--adm-warn)' }),
-        bar(t.cServer, metrics.periodSeries('http.5xx', period), { color: 'var(--adm-danger)' }),
-        line(t.cLatency, metrics.periodAverage('http.ms', 'http.requests', period), { unit: t.msUnit, map: (v) => Math.round(v * 10) / 10 }),
-        bar(t.cLoginOk, loginSeries(period, 'success')),
-        bar(t.cLoginFail, loginSeries(period, 'failure'), { color: 'var(--adm-danger)' }),
+        bar(t.cRequests, await metrics.periodSeries('http.requests', period)),
+        bar(t.cClient, await metrics.periodSeries('http.4xx', period), { color: 'var(--adm-warn)' }),
+        bar(t.cServer, await metrics.periodSeries('http.5xx', period), { color: 'var(--adm-danger)' }),
+        line(t.cLatency, await metrics.periodAverage('http.ms', 'http.requests', period), { unit: t.msUnit, map: (v) => Math.round(v * 10) / 10 }),
+        bar(t.cLoginOk, await loginSeries(period, 'success')),
+        bar(t.cLoginFail, await loginSeries(period, 'failure'), { color: 'var(--adm-danger)' }),
       ];
       for (const [name, title, o] of [['sessions.active', t.cSessions, {}], ['db.bytes', t.cDb, { unit: t.mbUnit, map: (v) => Math.round((v / 1048576) * 10) / 10 }], ['mail.pending', t.cMail, {}]]) {
-        const s = metrics.periodSeries(name, period, { mode: 'last' });
+        const s = await metrics.periodSeries(name, period, { mode: 'last' });
         if (s.some((p) => p.value !== null)) charts.push(line(title, s, o));
       }
       html += `<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:1rem"><strong>${esc(t.period)}:</strong> ${tabs} <span class="adm-muted">${esc(t.utc)}</span></div><div class="adm-grid" style="margin-top:1rem">${charts.join('')}</div>`;
@@ -299,20 +314,20 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
     return { ...reg, getNavigation: () => keep };
   };
 
-  function page(req, res, { active, title, bodyHtml }, area = 'admin') {
+  async function page(req, res, { active, title, bodyHtml }, area = 'admin') {
     const locale = localeOf(req);
     // Wide tables scroll inside their card on a narrow screen instead of stretching the page.
     bodyHtml = String(bodyHtml ?? '').replace(/<table class="adm-table"/g, '<div class="adm-scroll"><table class="adm-table"').replace(/<\/table>/g, '</table></div>');
     res.set('Cache-Control', 'no-store');
     res.type('html').send(renderAppShell({
       moduleRegistry: navFor(req, locale, area), viewerPermissions: req.user?.permissions ?? [], locale, activePath: active,
-      title, bodyHtml, theme: appearance ? themeWithBranding(db, theme) : theme, user: req.user, brandHtml: vendorIdentity ? brandBlockHtml(db, vendorIdentity) : appearance ? brandingHtml(db, { fallbackName: appearance.fallbackName ?? '' }) || brandHtml : brandHtml, nonce: res.locals?.cspNonce,
-      bellHtml: notifications && req.user?.id ? bellHtml({ url: notificationsUrl, count: notifications.unreadCount(req.user.id), locale }) : '',
+      title, bodyHtml, theme: appearance ? await themeWithBrandingAsync(db, theme) : theme, user: req.user, brandHtml: vendorIdentity ? await brandBlockHtmlAsync(db, vendorIdentity) : appearance ? await brandingHtmlAsync(db, { fallbackName: appearance.fallbackName ?? '' }) || brandHtml : brandHtml, nonce: res.locals?.cspNonce,
+      bellHtml: notifications && req.user?.id ? bellHtml({ url: notificationsUrl, count: await notifications.unreadCount(req.user.id), locale }) : '',
       userBadge: req.user?.role ?? '',
-      homeUrl: appUrl, accountUrl, showLogout: true, badge: area === 'control' ? tt(locale).controlTitle : tt(locale).title,
+      homeUrl: appUrl, accountUrl, showLogout: true, sessionWarnMs, badge: area === 'control' ? tt(locale).controlTitle : tt(locale).title,
       bodyEndHtml: (bodyEnd ?? policy?.pageEnd)?.(req, res, locale) ?? '',
-      bannerHtml: announcement?.bannerHtml(locale, { nonce: res.locals?.cspNonce }) ?? '',
-      navTopHtml: `<form class="adm-search" role="search" action="${basePath}/search" method="get"><input type="search" name="q" maxlength="80" placeholder="${esc(tt(locale).searchPlaceholder)}" aria-label="${esc(tt(locale).searchLabel)}"></form>`,
+      bannerHtml: await announcement?.bannerHtml(locale, { nonce: res.locals?.cspNonce }) ?? '',
+      navTopHtml: `<form class="adm-search" role="search" action="${basePath}/search" method="get"><input type="search" name="q" maxlength="80" enterkeyhint="search" placeholder="${esc(tt(locale).searchPlaceholder)}" aria-label="${esc(tt(locale).searchLabel)}"></form>`,
     }));
   }
 
@@ -324,7 +339,7 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
   function mount(app, { requireAuth, requirePermission }) {
     const g = guard({ requireAuth, requirePermission });
     // search over the sections of both areas (by name and by the words a person would look for)
-    app.get(`${basePath}/search`, ...g, (req, res) => {
+    app.get(`${basePath}/search`, ...g, async (req, res) => {
       const locale = localeOf(req);
       const t = tt(locale);
       const q = String(req.query?.q ?? '').slice(0, 80);
@@ -352,35 +367,35 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
           if (configKeyMatches(k, q)) found.push({ key: null, label: k, group: t.configGroup ?? 'Configuration', path: `${cfgPath}?q=${encodeURIComponent(k)}` });
         }
       }
-      const body = `<form action="${basePath}/search" method="get" style="margin-bottom:1rem"><input type="search" name="q" value="${esc(q)}" maxlength="80" autofocus placeholder="${esc(t.searchPlaceholder)}" aria-label="${esc(t.searchLabel)}" style="width:min(28rem,100%);padding:.5rem .7rem"> <button class="adm-btn primary" type="submit">${esc(t.searchGo)}</button></form>`
+      const body = `<form action="${basePath}/search" method="get" style="margin-bottom:1rem"><input type="search" name="q" value="${esc(q)}" maxlength="80" enterkeyhint="search" autofocus placeholder="${esc(t.searchPlaceholder)}" aria-label="${esc(t.searchLabel)}" style="width:min(28rem,100%);padding:.5rem .7rem"> <button class="adm-btn primary" type="submit">${esc(t.searchGo)}</button></form>`
         + (found.length
           ? `<div class="adm-grid">${found.map((e) => `<a class="adm-card" href="${esc(e.path)}" style="display:block;text-decoration:none;color:inherit"><h2>${esc(e.label)}</h2>${e.group ? `<div class="adm-muted">${esc(e.group)}</div>` : ''}</a>`).join('')}</div>`
           : `<p class="adm-muted">${esc(q ? t.searchNone : t.searchHint)}</p>`);
-      page(req, res, { active: `${basePath}/search`, title: t.searchTitle, bodyHtml: body });
+      await page(req, res, { active: `${basePath}/search`, title: t.searchTitle, bodyHtml: body });
     });
-    app.get(basePath, ...g, (req, res) => {
+    app.get(basePath, ...g, async (req, res) => {
       const locale = localeOf(req);
-      page(req, res, { active: basePath, title: tt(locale).overview, bodyHtml: overviewHtml(locale, req.query?.period) });
+      await page(req, res, { active: basePath, title: tt(locale).overview, bodyHtml: await overviewHtml(locale, req.query?.period) });
     });
     const ctx = { app, db, guard: g, page, basePath, localeOf, stepUp, texts };
     // the operation sections live under controlPath when it is set (own menu, own badge), else next to the rest
-    const ctxOps = split ? { ...ctx, basePath: controlPath, page: (req, res, o) => page(req, res, o, 'control') } : ctx;
+    const ctxOps = split ? { ...ctx, basePath: controlPath, page: async (req, res, o) => await page(req, res, o, 'control') } : ctx;
     if (split) {
-      app.get(controlPath, ...g, (req, res) => {
+      app.get(controlPath, ...g, async (req, res) => {
         const locale = localeOf(req);
         const t = tt(locale);
         const cards = nav(locale, 'control').getNavigation().filter((i) => i.path && i.path.startsWith(`${controlPath}/`) && typeof i.label === 'string');
         const names = nav(locale, 'control').getTranslations()[locale] ?? {};
         const links = cards.map((i) => `<a class="adm-card" href="${esc(i.path)}" style="display:block;text-decoration:none;color:inherit"><h2>${esc(names[i.label] ?? i.label)}</h2></a>`).join('');
-        page(req, res, { active: controlPath, title: t.controlTitle, bodyHtml: `${opsAlerts(locale)}<p class="adm-muted">${esc(t.controlHint)}</p><div class="adm-grid">${links}</div>` }, 'control');
+        await page(req, res, { active: controlPath, title: t.controlTitle, bodyHtml: `${await opsAlerts(locale)}<p class="adm-muted">${esc(t.controlHint)}</p><div class="adm-grid">${links}</div>` }, 'control');
       });
     }
     mountAuditSection(auditAccess
       ? { ...ctx, guard: [requireAuth(), anyOf(requirePermission, [permission, auditAccess.read])], exportGuard: [requireAuth(), anyOf(requirePermission, [permission, auditAccess.export])], canExport: (req) => has(req.user, permission) || has(req.user, auditAccess.export), canSeeSensitive: (req) => !auditAccess.sensitive || has(req.user, permission) || has(req.user, auditAccess.sensitive) }
       : ctx);
-    if (bans) mountSecuritySection({ ...ctx, bans });
+    if (bans) mountSecuritySection({ ...ctx, bans, ipBan });
     if (users) mountUsersSection({ ...ctx, manage: userManagement });
-    if (passwordPolicy) mountPasswordPolicySection({ ...ctx, passwordPolicy, adminRoles: userManagement?.adminRole ? [userManagement.adminRole] : [] });
+    if (passwordPolicy) mountPasswordPolicySection({ ...ctx, passwordPolicy, adminRoles: userManagement?.adminRole ? [userManagement.adminRole] : [], roles: userManagement?.roles ?? [], mfaRoles: createMfaRoleStore({ db }), emailService: mail?.service ?? null });
     if (incidents) mountIncidentsSection({ ...ctx, incidents });
     if (processingRegistry) mountRegistrySection({ ...ctx, build: processingRegistry });
     if (backups) mountBackupsSection({ ...ctxOps, backups });
@@ -405,3 +420,4 @@ export function createAdmin({ texts = {}, incidents = null, processingRegistry =
 }
 
 export { T as OVERVIEW_TEXTS };
+export { lastActivityByUser, lastActivityByUserAsync, inactiveUsers, inactiveUsersAsync, userCard, userCardAsync } from './user-activity.js';

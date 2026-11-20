@@ -39,6 +39,9 @@ const openStreams = new Set();
  * Call it from registerGracefulShutdown's `onDrainStart`.
  * @returns {number} how many streams were closed
  */
+/** Last-Event-ID comes from the client: the app's replay callback gets at most this many characters of it. */
+const MAX_LAST_EVENT_ID = 128;
+
 export function closeAllSseStreams() {
   let n = 0;
   for (const res of [...openStreams]) {
@@ -82,7 +85,7 @@ export function createSseHandler({
     // Channel authorization (audit C06): runs BEFORE headers go out so a
     // refusal is a real 403 and a throwing hook is a 500, never a hung stream.
     if (authorize) {
-      let allowed = false;
+      let allowed;
       try {
         allowed = (await authorize(req, channel)) === true;
       } catch (err) {
@@ -161,7 +164,7 @@ export function createSseHandler({
       // event N missed (it owns the history); core only delivers it.
       const lastId = req.headers?.['last-event-id'];
       if (getReplay && lastId !== undefined) {
-        for (const missed of getReplay(req, String(lastId)) ?? []) send(missed); // synchronous on purpose: no gap before subscribe
+        for (const missed of getReplay(req, String(lastId).slice(0, MAX_LAST_EVENT_ID)) ?? []) send(missed); // synchronous on purpose: no gap before subscribe
       }
       if (initialEvent) {
         const snapshot = initialEvent(req);
@@ -183,7 +186,7 @@ export function createSseHandler({
     // not keep receiving events (audit I10). `reauthorize(req, channel)` must re-read the truth (database), not req.user.
     if (reauthorize && reauthorizeMs > 0) {
       recheck = setInterval(async () => {
-        let ok = false;
+        let ok;
         try { ok = (await reauthorize(req, channel)) === true; } catch { ok = false; }
         if (ok || cleaned) return;
         try { res.write('event: unauthorized\ndata: {}\n\n'); } catch { /* gone */ }

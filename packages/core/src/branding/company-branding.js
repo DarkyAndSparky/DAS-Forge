@@ -1,5 +1,6 @@
 import { CompanyBrandingSchema } from './schema.js';
 import { ConfigValidationError } from '../config/errors.js';
+import { asyncDb } from '../database/async.js';
 
 const SETTINGS_TABLE = 'app_settings';
 const BRANDING_KEY = 'company_branding';
@@ -11,6 +12,16 @@ const BRANDING_KEY = 'company_branding';
  * singletons (e.g. future settings) can reuse it instead of each getting
  * a bespoke one-row table.
  */
+/** The same table for code that works over `asyncDb`. */
+export async function ensureSettingsTableAsync(db) {
+  await asyncDb(db).exec(`
+    CREATE TABLE IF NOT EXISTS ${SETTINGS_TABLE} (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+}
+
 export function ensureSettingsTable(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS ${SETTINGS_TABLE} (
@@ -27,45 +38,68 @@ export function ensureSettingsTable(db) {
  */
 export function getCompanyBranding(db) {
   ensureSettingsTable(db);
-  const row = db.get(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`, [BRANDING_KEY]);
-  if (!row) {
-    return CompanyBrandingSchema.parse({});
-  }
-  return CompanyBrandingSchema.parse(JSON.parse(row.value));
+  return parseBranding(db.get(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`, [BRANDING_KEY]));
 }
 
-/**
- * Sets company branding. `patch` is shallow-merged onto the current
- * value so callers can update just `name` without resupplying `logoUrl`.
- * Validates with the same Zod schema used for reads, so bad data can
- * never get written in the first place (zero-trust §4.5j applied to
- * this admin-only write path too).
- *
- * Caller is responsible for authorization (admin-only) - this function
- * has no opinion on who's allowed to call it.
- */
-export function setCompanyBranding(db, patch, { actor } = {}) {
-  ensureSettingsTable(db);
-  const current = getCompanyBranding(db);
+/** The stored row (or undefined) as validated branding; nothing stored gives the schema defaults. */
+export function parseBranding(row) {
+  return row ? CompanyBrandingSchema.parse(JSON.parse(row.value)) : CompanyBrandingSchema.parse({});
+}
 
+/** The validated branding a `set` would save: `current` with `patch` on top. Throws ConfigValidationError. */
+export function mergeBranding(current, patch, actor) {
   const result = CompanyBrandingSchema.safeParse({
     ...current,
     ...patch,
     updatedAt: new Date().toISOString(),
     updatedBy: actor ?? current.updatedBy ?? null,
   });
+  if (!result.success) throw new ConfigValidationError(result.error, { sourcePath: 'company_branding' });
+  return result.data;
+}
 
-  if (!result.success) {
-    throw new ConfigValidationError(result.error, { sourcePath: 'company_branding' });
-  }
+/** `getCompanyBranding` over `asyncDb`. */
+export async function getCompanyBrandingAsync(db) {
+  const a = asyncDb(db);
+  await ensureSettingsTableAsync(a);
+  return parseBranding(await a.get(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`, [BRANDING_KEY]));
+}
+
+/** `setCompanyBranding` over `asyncDb`; the read and the write are one transaction, so two edits cannot overwrite each other. */
+export async function setCompanyBrandingAsync(db, patch, { actor } = {}) {
+  const a = asyncDb(db);
+  await ensureSettingsTableAsync(a);
+  return a.transaction(async (tx) => {
+    const next = mergeBranding(parseBranding(await tx.get(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`, [BRANDING_KEY])), patch, actor);
+    await tx.run(`INSERT INTO ${SETTINGS_TABLE} (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [BRANDING_KEY, JSON.stringify(next)]);
+    return next;
+  }, { mode: 'immediate' });
+}
+
+/** `getEffectiveBranding` over `asyncDb`. */
+export async function getEffectiveBrandingAsync(db, vendorIdentity, { theme = 'light' } = {}) {
+  return effectiveFrom(await getCompanyBrandingAsync(db), vendorIdentity, theme);
+}
+
+/**
+ * Sets company branding. `patch` is shallow-merged onto the current
+ * value so callers can update just `name` without resupplying `logoUrl`.
+ * Validates with the same Zod schema used for reads, so bad data can
+ * never get written in the first place. Caller is responsible for
+ * authorization (admin-only).
+ */
+export function setCompanyBranding(db, patch, { actor } = {}) {
+  ensureSettingsTable(db);
+  const current = getCompanyBranding(db);
+  const next = mergeBranding(current, patch, actor);
 
   db.run(
     `INSERT INTO ${SETTINGS_TABLE} (key, value) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [BRANDING_KEY, JSON.stringify(result.data)]
+    [BRANDING_KEY, JSON.stringify(next)]
   );
 
-  return result.data;
+  return next;
 }
 
 /**
@@ -76,7 +110,10 @@ export function setCompanyBranding(db, patch, { actor } = {}) {
  * customized name in place of the real product name.
  */
 export function getEffectiveBranding(db, vendorIdentity, { theme = 'light' } = {}) {
-  const company = getCompanyBranding(db);
+  return effectiveFrom(getCompanyBranding(db), vendorIdentity, theme);
+}
+
+function effectiveFrom(company, vendorIdentity, theme) {
   const companyLogoUrl = theme === 'dark' ? company.logoUrlDark ?? company.logoUrl : company.logoUrl;
 
   return {

@@ -66,6 +66,7 @@ function loadSharp() {
 let heifPromise;
 /** libheif-js (WASM, no native binary) is loaded on first HEIC upload only. */
 function loadHeif() {
+  // @ts-ignore: the package ships no type declarations for this entry point
   heifPromise ??= import('libheif-js/wasm-bundle').then((m) => m.default ?? m);
   return heifPromise;
 }

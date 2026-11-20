@@ -150,7 +150,7 @@ async function loadSsh2() {
     const mod = await import('ssh2');
     return mod.Client ? mod : mod.default;
   } catch (err) {
-    if (err?.code === 'ERR_MODULE_NOT_FOUND') throw new Error('SFTP backups need the "ssh2" package (npm install ssh2)');
+    if (err?.code === 'ERR_MODULE_NOT_FOUND') throw new Error('SFTP backups need the "ssh2" package (npm install ssh2)', { cause: err });
     throw err;
   }
 }

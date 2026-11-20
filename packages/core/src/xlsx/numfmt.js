@@ -200,11 +200,9 @@ function renderNumber(tokens, value, L, hasSign) {
   if (slashAt >= 0) { // fractions: "# ?/?" "?/8"
     const numPlaceholders = tokens.slice(0, slashAt).filter((t) => t.t === 'digit');
     const denTokens = tokens.slice(slashAt + 1);
-    const denDigits = denTokens.filter((t) => t.t === 'digit' && t.v !== '#' || false);
     const fixedDen = (() => { const lits = []; for (const t of denTokens) { if (t.t === 'lit' && /^\d+$/.test(t.v)) lits.push(t.v); else if (t.t === 'digit') break; } return lits.length ? Number(lits.join('')) : null; })();
     const denWidth = denTokens.filter((t) => t.t === 'digit').length;
     const hasWhole = tokens.slice(0, slashAt).some((t) => t.t === 'lit' && t.v === ' ') && numPlaceholders.length > 1;
-    const numWidth = hasWhole ? numPlaceholders.length - 0 : numPlaceholders.length;
     const whole = hasWhole ? Math.floor(x) : 0; const rest = hasWhole ? x - whole : x;
     const maxDen = fixedDen ?? 10 ** Math.max(1, denWidth) - 1;
     let { n, d } = fixedDen ? { n: Math.round(rest * fixedDen), d: fixedDen } : bestFraction(rest, maxDen);

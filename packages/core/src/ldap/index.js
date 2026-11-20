@@ -47,7 +47,7 @@ async function loadLdapts() {
   try {
     return await import('ldapts');
   } catch (err) {
-    if (err?.code === 'ERR_MODULE_NOT_FOUND') throw new Error('LDAP sign-in needs the "ldapts" package (npm install ldapts)');
+    if (err?.code === 'ERR_MODULE_NOT_FOUND') throw new Error('LDAP sign-in needs the "ldapts" package (npm install ldapts)', { cause: err });
     throw err;
   }
 }

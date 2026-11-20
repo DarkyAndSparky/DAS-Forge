@@ -58,8 +58,7 @@ describe('createCli', () => {
 
   it('matches the longest registered prefix and passes remaining positionals through', async () => {
     const cli = createCli();
-    let received;
-    cli.command('migrate', { description: 'x', handler: (ctx) => { received = ctx.positionals; return 0; } });
+    cli.command('migrate', { description: 'x', handler: () => 0 });
     cli.command('migrate status', { description: 'x', handler: () => 1 });
     const code = await cli.run(['migrate', 'status']);
     expect(code).toBe(1); // matched "migrate status", not "migrate" + leftover "status"
@@ -95,7 +94,7 @@ describe('createCli', () => {
     expect(() => cli.command('dup', { description: 'd', handler: () => 0 })).toThrow(/already registered/);
   });
 
-  // "man для CLI" - docs/roadmap.md's long-open backlog item, closed as
+  // "man для CLI" - docs/internal/roadmap.md's long-open backlog item, closed as
   // a mechanism in 0.1.18 (filling in usage/flags/examples per existing
   // command is left as follow-up, see the roadmap note).
   describe('per-command help ("man"-style, 0.1.18)', () => {

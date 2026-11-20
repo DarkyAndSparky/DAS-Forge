@@ -3,7 +3,7 @@ import { ensureAuthTables } from './schema.js';
 import { sealSecret, openSecret } from './secret-box.js';
 import { generateTotpSecret, verifyTotp, matchTotpStep, buildTotpUri } from './totp.js';
 
-function rowToAuthenticator(row) {
+export function rowToAuthenticator(row) {
   if (!row) return null;
   return {
     id: row.id,

@@ -14,15 +14,14 @@ import { randomBytes } from 'node:crypto';
  * would break the chain) - they age out through audit.retentionDays.
  */
 const PSEUDONYM = /^~([ai]):[0-9a-f]{16}$/;
-const PLAIN_ACTORS = new Set(['system', 'cli']);
+export const PLAIN_ACTORS = new Set(['system', 'cli']);
 export const ERASED = '[erased]';
 
 /** keys in `meta` whose values are personal data and get pseudonymized like actor/ip */
-const META_PERSON_KEYS = /^(username|login|user|email|actor)$/i;
-const META_IP_KEYS = /^(ip|ipAddress|remoteAddress)$/i;
+export const META_PERSON_KEYS = /^(username|login|user|email|actor)$/i;
+export const META_IP_KEYS = /^(ip|ipAddress|remoteAddress)$/i;
 
-export function ensureSubjectsTable(db) {
-  db.exec(`
+export const SUBJECTS_DDL = `
     CREATE TABLE IF NOT EXISTS audit_subjects (
       pseudonym TEXT PRIMARY KEY,
       kind TEXT NOT NULL CHECK (kind IN ('actor', 'ip')),
@@ -31,7 +30,15 @@ export function ensureSubjectsTable(db) {
       last_seen_day TEXT NOT NULL,
       UNIQUE (kind, value)
     );
-  `);
+  `;
+
+export function ensureSubjectsTable(db) {
+  db.exec(SUBJECTS_DDL);
+}
+
+/** A fresh random pseudonym: `~a:` + 16 hex for a person, `~i:` for an address. */
+export function newPseudonym(kind) {
+  return `~${kind === 'actor' ? 'a' : 'i'}:${randomBytes(8).toString('hex')}`;
 }
 
 export function isPseudonym(value) {
@@ -50,7 +57,7 @@ export function pseudonymize(db, kind, value) {
     if (found.day !== today) db.run('UPDATE audit_subjects SET last_seen_day = ? WHERE pseudonym = ?', [today, found.pseudonym]);
     return found.pseudonym;
   }
-  const pseudonym = `~${kind === 'actor' ? 'a' : 'i'}:${randomBytes(8).toString('hex')}`;
+  const pseudonym = newPseudonym(kind);
   // UNIQUE (kind, value): if another process added this value between our SELECT and now, the INSERT does nothing and we
   // use ITS pseudonym, instead of failing the audit write with a constraint error (G-04).
   const added = db.run('INSERT INTO audit_subjects (pseudonym, kind, value, created_at, last_seen_day) VALUES (?, ?, ?, ?, ?) ON CONFLICT (kind, value) DO NOTHING', [
@@ -129,8 +136,10 @@ export function eraseSubjects(db, { usernames = [], ips = [], exclusiveIps = tru
   return { actors, ips: ipCount };
 }
 
+export const purgeStaleSubjectsSql = 'DELETE FROM audit_subjects WHERE last_seen_day < ?';
+
 /** Drops mappings not used since `beforeIso`'s day (called by retention together with the row purge). */
 export function purgeStaleSubjects(db, beforeIso) {
   ensureSubjectsTable(db);
-  return Number(db.run('DELETE FROM audit_subjects WHERE last_seen_day < ?', [String(beforeIso).slice(0, 10)]).changes);
+  return Number(db.run(purgeStaleSubjectsSql, [String(beforeIso).slice(0, 10)]).changes);
 }

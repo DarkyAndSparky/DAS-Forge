@@ -4,10 +4,10 @@
 
 ## 1. Распаковать и перейти в папку
 
-Распакуйте архив в новую пустую папку, например `C:\Users\<имя>\Downloads\das-forge-core-0.1.264`. Внутри будет папка `das-forge-core`.
+Распакуйте архив в новую пустую папку, например `C:\Users\<имя>\Downloads\das-forge-core-<версия>`. Внутри будет папка `das-forge-core`.
 
 ```
-cd C:\Users\<имя>\Downloads\das-forge-core-0.1.264\das-forge-core
+cd C:\Users\<имя>\Downloads\das-forge-core-<версия>\das-forge-core
 ```
 
 ## 2. Поставить зависимости
@@ -18,13 +18,11 @@ cd C:\Users\<имя>\Downloads\das-forge-core-0.1.264\das-forge-core
 npm install
 ```
 
-npm напишет, что установочные скрипты трёх пакетов заблокированы. В новой папке это бывает каждый раз: разрешение из прошлой папки сюда не переносится.
+Разрешение на установочные скрипты `argon2`, `ssh2` и `cpu-features` записано в `package.json` (`allowScripts`), отдельного шага не нужно. Если npm всё же напишет, что скрипты заблокированы, выполните команду ниже (называется `install-scripts`, во множественном числе, через дефис) и повторите `npm install`: без неё не соберётся `argon2`, а с ним вход в систему.
 
 ```
 npm install-scripts approve cpu-features ssh2 argon2
 ```
-
-Команда называется `install-scripts` (во множественном числе, через дефис). Без этого шага не соберётся `argon2`, а с ним вход в систему.
 
 ## 3. Проверить lock-файл и поставить по нему
 
@@ -39,10 +37,12 @@ npm ci
 
 ```
 npm run lint
+npm run typecheck
 npm test
 ```
 
 - **`npm run lint`** (ESLint). Ошибок (`error`) должно быть 0. Предупреждения (`warning`) сборку не ломают, но их число не должно расти от версии к версии.
+- **`npm run typecheck`** (TypeScript, только проверка). Ищет настоящие баги в JS-коде: неизвестное имя, несуществующий экспорт, битый импорт. Должно закончиться словами `typecheck: ok`. Прочие замечания по типам не считаются ошибкой.
 - **`npm test`** запускает все тесты ядра и примера. В конце смотрите строки `Test Files` и `Tests`: должно быть `failed` отсутствует или 0. Пропущенные (`skipped`) допустимы.
 
 Если что-то упало, сохраните вывод целиком (в CMD: `npm test > test.log 2>&1`) и передайте файл `test.log`.
@@ -103,6 +103,7 @@ npm start
 | 2 | `npm install`, затем `npm install-scripts approve cpu-features ssh2 argon2` | без ошибок |
 | 3 | `npm run lock:check`, `npm ci` | «in step», без ошибок |
 | 4 | `npm run lint` | 0 errors |
+| 4 | `npm run typecheck` | `typecheck: ok` |
 | 4 | `npm test` | 0 failed |
 | 5 | `npx playwright install chromium` (один раз), `npm run test:e2e` | все сценарии passed |
 | 6 | `npm start` | сервер отвечает на `https://127.0.0.1:9002` |

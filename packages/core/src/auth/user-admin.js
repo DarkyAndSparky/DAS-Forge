@@ -42,7 +42,7 @@ export function validateUsername(username) {
   return username;
 }
 
-function normalizeEmail(email) {
+export function normalizeEmail(email) {
   if (email === null || email === undefined || email === '') return null;
   if (typeof email !== 'string' || email.length > 320 || !EMAIL_RE.test(email)) throw new UserAdminError('EMAIL_INVALID', 'not a valid e-mail address');
   return email.trim();
@@ -74,7 +74,7 @@ function assertEmailFree(db, email, exceptId = null) {
   if (clash) throw new UserAdminError('EMAIL_TAKEN', 'that e-mail belongs to another account');
 }
 
-function assertRole(role, allowedRoles) {
+export function assertRole(role, allowedRoles) {
   if (typeof role !== 'string' || role === '' || (allowedRoles && !allowedRoles.includes(role))) {
     throw new UserAdminError('ROLE_INVALID', `role must be one of: ${(allowedRoles ?? []).join(', ') || '(any non-empty string)'}`);
   }
@@ -93,7 +93,7 @@ function assertNotLastAdmin(db, user, adminRole) {
   }
 }
 
-const publicShape = (row) => ({
+export const publicShape = (row) => ({
   id: row.id,
   username: row.username,
   email: row.email,

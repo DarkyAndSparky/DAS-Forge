@@ -218,11 +218,13 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
 // Documents of the repository that always get a page (the guides link to them by path or by link).
 const DOCS = [
   ['packages/core/CHANGELOG.md', 'История изменений'],
-  ['docs/dependencies-target.md', 'Целевые зависимости'],
-  ['docs/audit-findings.md', 'Находки аудита'],
-  ['docs/doc-audit.md', 'Пробелы документации'],
-  ['docs/spreadsheet-audit.md', 'Аудит: Excel и CSV'],
-  ['docs/roadmap.md', 'Roadmap (исторический)'],
+  ['docs/internal/README.md', 'Внутренние материалы'],
+  ['docs/internal/dependencies-target.md', 'Целевые зависимости'],
+  ['docs/internal/audit-findings.md', 'Находки аудита'],
+  ['docs/internal/doc-audit.md', 'Пробелы документации'],
+  ['docs/internal/spreadsheet-audit.md', 'Аудит: Excel и CSV'],
+  ['docs/internal/it-assets-port-analysis.md', 'IT Assets как первый потребитель'],
+  ['docs/internal/roadmap.md', 'Roadmap (исторический)'],
   ['templates/app/README.md', 'Шаблон приложения'],
   ['templates/README.md', 'Шаблоны'],
   ['examples/workshop/README.md', 'Workshop: README'],

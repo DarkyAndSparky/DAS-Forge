@@ -13,11 +13,13 @@
  * (`ignore: [{ id, reason, until? }]`, id = GHSA id) are left out until `until` passes.
  */
 import { assertOutboundUrl } from '../../http/outbound.js';
+import { safeFetch } from '../../http/safe-fetch.js';
 import { existsSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import semver from 'semver';
-import { ensureSettingsTable } from '../../branding/company-branding.js';
+import { ensureSettingsTableAsync } from '../../branding/company-branding.js';
+import { asyncDb } from '../../database/async.js';
 
 const CACHE_KEY = 'dependency_audit';
 const SEVERITY_RANK = { critical: 4, high: 3, moderate: 2, low: 1 };
@@ -44,26 +46,29 @@ export function lockPackages(lockText, { omitDev = true } = {}) {
 
 const ghsaOf = (adv) => /GHSA-[\w-]+/i.exec(String(adv?.url ?? ''))?.[0]?.toLowerCase() ?? (adv?.id != null ? String(adv.id) : 'unknown');
 
-function readCache(db) {
+/** The advisory cache kept in `app_settings` (works over a synchronous or an asynchronous database). */
+async function readCache(db) {
   if (!db) return null;
   try {
-    ensureSettingsTable(db);
-    const row = db.get('SELECT value FROM app_settings WHERE key = ?', [CACHE_KEY]);
+    const a = asyncDb(db);
+    await ensureSettingsTableAsync(a);
+    const row = await a.get('SELECT value FROM app_settings WHERE key = ?', [CACHE_KEY]);
     const v = row ? JSON.parse(row.value) : null;
     return v && typeof v.at === 'string' && Array.isArray(v.findings) ? v : null;
   } catch { return null; }
 }
 
-function writeCache(db, value) {
+async function writeCache(db, value) {
   if (!db) return;
   try {
-    ensureSettingsTable(db);
-    db.run('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [CACHE_KEY, JSON.stringify(value)]);
+    const a = asyncDb(db);
+    await ensureSettingsTableAsync(a);
+    await a.run('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [CACHE_KEY, JSON.stringify(value)]);
   } catch { /* the cache is a convenience */ }
 }
 
 /** Advisories that apply to the given packages: `[{ id, name, version, severity, title, url }]`. */
-export async function findVulnerabilities(packages, { fetchFn = globalThis.fetch, registry = 'https://registry.npmjs.org', timeoutMs = 20_000 } = {}) {
+export async function findVulnerabilities(packages, { fetchFn = safeFetch, registry = 'https://registry.npmjs.org', timeoutMs = 20_000 } = {}) {
   const body = {};
   for (const p of packages) (body[p.name] ??= []).push(p.version);
   assertOutboundUrl(registry, { label: 'registry', protocols: ['https:', 'http:'] });
@@ -79,7 +84,7 @@ export async function findVulnerabilities(packages, { fetchFn = globalThis.fetch
   for (const [name, advisories] of Object.entries(data ?? {})) {
     for (const adv of Array.isArray(advisories) ? advisories : []) {
       for (const version of body[name] ?? []) {
-        let hit = false;
+        let hit;
         try { hit = semver.satisfies(version, String(adv.vulnerable_versions ?? ''), { includePrerelease: true }); } catch { hit = false; }
         if (hit) findings.push({ id: ghsaOf(adv), name, version, severity: SEVERITY_RANK[adv.severity] ? adv.severity : 'moderate', title: String(adv.title ?? ''), url: String(adv.url ?? '') });
       }
@@ -149,7 +154,7 @@ export function findLockFile(file) {
   return file;
 }
 
-export async function dependencyChecks({ lockFile, db = null, fetchFn = globalThis.fetch, registry, timeoutMs, ignore = [], omitDev = true, logger = null, now = () => Date.now() } = {}) {
+export async function dependencyChecks({ lockFile, db = null, fetchFn = safeFetch, registry, timeoutMs, ignore = [], omitDev = true, logger = null, now = () => Date.now() } = {}) {
   let packages;
   try {
     packages = lockPackages(readFileSync(findLockFile(lockFile), 'utf8'), { omitDev });
@@ -161,12 +166,12 @@ export async function dependencyChecks({ lockFile, db = null, fetchFn = globalTh
   try {
     const findings = await findVulnerabilities(packages, { fetchFn, registry, timeoutMs });
     const at = new Date(now()).toISOString();
-    writeCache(db, { at, checked: packages.length, findings });
+    await writeCache(db, { at, checked: packages.length, findings });
     return resultChecks(summarise(findings, ignore, now()), { checked: packages.length, at });
   } catch (err) {
     const reason = fetchErrorText(err);
     logger?.warn?.(`dependency check could not reach the advisory source: ${reason}`);
-    const cached = readCache(db);
+    const cached = await readCache(db);
     if (!cached) return [{ name: NAME, status: 'warn', message: `not checked: the advisory source is unreachable (${reason}) and there is no earlier result` }];
     return resultChecks(summarise(cached.findings, ignore, now()), { checked: cached.checked ?? packages.length, at: cached.at, stale: `could not refresh: ${reason}` });
   }
@@ -176,7 +181,7 @@ export async function dependencyChecks({ lockFile, db = null, fetchFn = globalTh
  * Is there a newer release of this Node line that carries security fixes? Compares `process.version` with
  * nodejs.org's release index. Offline: a warning that says so, never a failure.
  */
-export async function nodeVersionChecks({ version = process.version, fetchFn = globalThis.fetch, url = 'https://nodejs.org/dist/index.json', timeoutMs = 10_000, logger = null } = {}) {
+export async function nodeVersionChecks({ version = process.version, fetchFn = safeFetch, url = 'https://nodejs.org/dist/index.json', timeoutMs = 10_000, logger = null } = {}) {
   const name = 'Node.js security releases';
   try {
     const res = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json' } });

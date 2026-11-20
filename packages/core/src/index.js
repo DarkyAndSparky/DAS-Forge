@@ -18,6 +18,7 @@ export * as logs from './logs/index.js';
 export * as http from './http/index.js';
 export * as realtime from './realtime/index.js';
 export * as files from './files/index.js';
+export * as media from './media/index.js';
 export * as xlsx from './xlsx/index.js';
 export * as csv from './csv/index.js';
 export * as scheduler from './scheduler/index.js';

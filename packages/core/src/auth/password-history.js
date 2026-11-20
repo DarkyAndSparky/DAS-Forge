@@ -2,7 +2,7 @@
  * Password age and the list of previous password hashes (only hashes, never plain text).
  * The age clock of an account without a stamp starts the first time it is looked at.
  */
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 export const PASSWORD_HISTORY_MAX = 24;
 
 /** Notes that the account just chose `passwordHash`: stamps the time and keeps the last PASSWORD_HISTORY_MAX hashes. */

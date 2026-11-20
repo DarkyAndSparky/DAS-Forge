@@ -1,19 +1,25 @@
 import { writeCsv } from '../csv/index.js';
 import { pageParams, pagerFor, pagerHtml } from './paging.js';
-import { query, page, count } from '../audit/query.js';
+import { queryAsync, pageAsync, countAsync, verifyChainAsync, logAsync } from '../audit/async.js';
 import { pickTexts } from '../i18n/overrides.js';
 import { describeEvent } from '../audit/catalog.js';
-import { summarize } from '../audit/summary.js';
+import { summarizeAsync } from '../audit/summary.js';
 import { svgBarChart } from './charts.js';
 import { timeHtml } from '../ui/time.js';
-import { verifyChain } from '../audit/chain.js';
-import { log } from '../audit/log.js';
 import { contextFromRequest } from '../audit/context.js';
-import { parseDuration } from '../security/bans.js';
+import { parseDuration, normalizeBanValue } from '../security/bans.js';
+import { mountIpBan } from './sections-ipban.js';
 import { createDbLastRunStore } from '../scheduler/state.js';
+import { asyncDb } from '../database/async.js';
+import { parseId } from '../util/parse-id.js';
 
 /** One full-width row with a hint for an empty table. */
 export const emptyRow = (cols, text) => `<tr><td colspan="${cols}" class="adm-empty">${String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}</td></tr>`;
+
+/** True when both texts are the same IP address (IPv4-mapped IPv6 counts as the plain IPv4). */
+function sameAddress(a, b) {
+  try { return normalizeBanValue('ip', a) === normalizeBanValue('ip', b); } catch { return false; }
+}
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -38,9 +44,19 @@ const L = {
   },
 };
 
+/**
+ * A form field is always text. A JSON body (express.json runs before this) may carry numbers, lists and objects; they are
+ * turned into text here (numbers, booleans) or dropped to an empty string (lists, objects), so handlers meet one type only.
+ */
+function onlyStrings(body) {
+  const out = {};
+  for (const [k, v] of Object.entries(body)) out[k] = typeof v === 'string' ? v : (typeof v === 'number' || typeof v === 'boolean') ? String(v) : '';
+  return out;
+}
+
 /** Reads a urlencoded form body without needing a body-parser (16 KB cap); uses req.body if a parser already ran. */
 export function readForm(req, limit = 16384) {
-  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length) return Promise.resolve(req.body);
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length) return Promise.resolve(onlyStrings(req.body));
   return new Promise((resolve) => {
     let size = 0;
     const chunks = [];
@@ -96,24 +112,25 @@ const targetOf = (e) => {
 const targetHtml = (e) => (targetOf(e) ? ` <span class="adm-muted">(${esc(targetOf(e))})</span>` : '');
 
 export function mountAuditSection({ app, db, guard, exportGuard = guard, canExport = () => true, canSeeSensitive = () => true, page: render, basePath, localeOf, texts = {}, stepUp = [] }) {
+  const adb = asyncDb(db);
   const path = `${basePath}/audit`;
 
   const rowHtml = (e, l, locale, sens = true) => `<tr><td><a href="${path}/event/${esc(e.id)}">${esc(e.id)}</a></td><td>${timeHtml(e.createdAt, locale)}</td><td>${esc(e.actor ?? '—')}</td><td>${actionCell(e, locale)}</td><td>${esc(e.entity ?? '')}${e.entityId != null ? `#${esc(e.entityId)}` : ''}${targetHtml(e)}</td><td><span class="adm-badge ${e.result === 'success' ? 'ok' : 'danger'}">${esc(e.result === 'success' ? l.okTxt : e.result === 'failure' ? l.failTxt : e.result === 'denied' ? l.deniedTxt : e.result)}</span></td><td>${sens ? esc(e.ip ?? '') : ''}</td></tr>`;
 
-  app.get(path, ...guard, (req, res) => {
+  app.get(path, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-audit'], localeOf(req), 'admin-audit');
     const f = filtersFrom(req.query ?? {});
     const bad = !validDate(f.since) || !validDate(f.until);
     if (bad) { delete f.since; delete f.until; }
     const before = Number(req.query?.before) > 0 ? Number(req.query.before) : undefined;
-    const { items, nextBeforeId } = page(db, { ...toQuery(f), beforeId: before, limit: 50 });
-    const total = count(db, toQuery(f));
+    const { items, nextBeforeId } = await pageAsync(db, { ...toQuery(f), beforeId: before, limit: 50 });
+    const total = await countAsync(db, toQuery(f));
     const qs = new URLSearchParams(f);
     const input = (name, label, type = 'text') => `<label class="adm-field">${esc(label)}<input class="adm-input" type="${type}" name="${name}" value="${esc(f[name] ?? '')}"></label>`;
     let banner = '';
     if (req.query?.verify) {
-      const r = verifyChain(db);
-      if (r.ok) { try { createDbLastRunStore(db).set('alerts-audit-chain', new Date().toISOString()); } catch { /* the diagnostics just will not see this check */ } }
+      const r = await verifyChainAsync(db);
+      if (r.ok) { try { await createDbLastRunStore(db).setAsync('alerts-audit-chain', new Date().toISOString()); } catch { /* the diagnostics just will not see this check */ } }
       banner = `<div class="adm-card" style="margin-bottom:1rem"><span class="adm-badge ${r.ok ? 'ok' : 'danger'}">${r.ok ? esc(l.chainOk) : `${esc(l.chainBad)} #${esc(r.brokenAtId)}`}</span> <span class="adm-muted">${esc(l.checked)}: ${esc(r.checked)}</span></div>`;
     }
     const rows = items.map((e) => rowHtml(e, l, localeOf(req), canSeeSensitive(req))).join('') || emptyRow(7, l.emptyAudit);
@@ -133,7 +150,7 @@ ${canExport(req) ? `<a class="adm-btn" title="${esc(l.exportNote)}" href="${path
 <table class="adm-table"><thead><tr><th>#</th><th>${esc(l.when)}</th><th>${esc(l.actor)}</th><th>${esc(l.action)}</th><th>${esc(l.entity)}</th><th>${esc(l.result)}</th><th>${esc(l.ip)}</th></tr></thead><tbody data-paged="audit">${rows}</tbody></table>
 ${liveHtml({ path, qs, lastId: items.length ? items[0].id : 0, paged: before !== undefined, label: l.live, nonce: res.locals?.cspNonce })}
 ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ? `${path}?${new URLSearchParams({ ...f, before: String(nextBeforeId) })}` : '', locale: localeOf(req), nonce: res.locals?.cspNonce })}</div>`;
-    render(req, res, { active: path, title: l.audit, bodyHtml: body });
+    await render(req, res, { active: path, title: l.audit, bodyHtml: body });
   });
 
   function filtersOf(req) {
@@ -142,10 +159,10 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
     return f;
   }
 
-  const hashesOf = (ids) => {
+  const hashesOf = async (ids) => {
     const m = new Map();
     if (!ids.length) return m;
-    for (const r of db.all(`SELECT id, hash, prev_hash FROM audit_log WHERE id IN (${ids.map(() => '?').join(',')})`, ids)) m.set(r.id, r);
+    for (const r of await adb.all(`SELECT id, hash, prev_hash FROM audit_log WHERE id IN (${ids.map(() => '?').join(',')})`, ids)) m.set(r.id, r);
     return m;
   };
 
@@ -153,7 +170,7 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
    * Streams every entry matching the filter, batch by batch (nothing is cut off, memory stays flat), with the details
    * (`meta`) and the chain hashes. The export itself is written to the journal once it is finished, with the row count.
    */
-  function streamExport(req, res, { format }) {
+  async function streamExport(req, res, { format }) {
     const f = filtersOf(req);
     const sens = canSeeSensitive(req);
     // Without the sensitive right the export carries neither the address nor the details (G-13).
@@ -170,9 +187,9 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
     else res.write(writeCsv([COLS], { excel }));
     for (;;) {
       if (res.destroyed || res.writableEnded) return;
-      const batch = query(db, { ...toQuery(f), beforeId, limit: 1000 });
+      const batch = await queryAsync(db, { ...toQuery(f), beforeId, limit: 1000 });
       if (batch.length) {
-        const hashes = hashesOf(batch.map((e) => e.id));
+        const hashes = await hashesOf(batch.map((e) => e.id));
         const rows = batch.map((e) => {
           const h = hashes.get(e.id);
           return [e.id, e.createdAt, e.actor ?? null, e.action, e.entity ?? null, e.entityId ?? null, e.result, e.requestId ?? null, e.ip ?? null, e.meta ?? null, h?.hash ?? null, h?.prev_hash ?? null].filter((_, i) => keep[i]);
@@ -187,7 +204,7 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
       }
       if (batch.length < 1000) break;
     }
-    log(db, { ...contextFromRequest(req), action: 'admin.audit.export', entity: 'audit', meta: { rows: total, format, filters: f, ...(sens ? {} : { withoutSensitive: true }) } });
+    await logAsync(db, { ...contextFromRequest(req), action: 'admin.audit.export', entity: 'audit', meta: { rows: total, format, filters: f, ...(sens ? {} : { withoutSensitive: true }) } });
     res.end(format === 'json' ? '\n]\n' : '\r\n');
   }
 
@@ -195,26 +212,26 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
   app.get(`${path}.json`, ...exportGuard, (req, res) => streamExport(req, res, { format: 'json' }));
 
   // Live feed: the rows newer than `after`, for the current filter, ready to put on top of the table.
-  app.get(`${path}/live`, ...guard, (req, res) => {
+  app.get(`${path}/live`, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-audit'], localeOf(req), 'admin-audit');
     const f = filtersOf(req);
     const after = Math.max(0, Math.trunc(Number(req.query?.after)) || 0);
-    const items = query(db, { ...toQuery(f), afterId: after, limit: 50 }); // oldest first, at most 50 per poll
+    const items = await queryAsync(db, { ...toQuery(f), afterId: after, limit: 50 }); // oldest first, at most 50 per poll
     res.set('Cache-Control', 'no-store');
     res.json({ rows: items.map((e) => rowHtml(e, l, localeOf(req), canSeeSensitive(req))).reverse().join(''), lastId: items.length ? items[items.length - 1].id : after, count: items.length });
   });
 
   // Summary for a period: the numbers, a chart per day, and the noisiest sources of failed sign-ins.
-  app.get(`${path}/summary`, ...guard, (req, res) => {
+  app.get(`${path}/summary`, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-audit'], localeOf(req), 'admin-audit');
     const days = [1, 7, 30].includes(Number(req.query?.days)) ? Number(req.query.days) : 7;
-    const r = summarize(db, { since: new Date(Date.now() - days * 86_400_000).toISOString() });
+    const r = await summarizeAsync(db, { since: new Date(Date.now() - days * 86_400_000).toISOString() });
     const card = (label, value) => `<div class="adm-card" style="flex:1 1 9rem"><div class="adm-muted">${esc(label)}</div><div style="font-size:1.6rem;font-weight:600">${esc(value)}</div></div>`;
-    const list = (title, rows) => `<div class="adm-card" style="flex:1 1 18rem"><h3>${esc(title)}</h3>${rows.length ? `<table class="adm-table"><tbody>${rows.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.count)}</td></tr>`).join('')}</tbody></table>` : `<p class="adm-muted">${esc(l.sNone)}</p>`}</div>`;
+    const list = (title, rows) => `<div class="adm-card" style="flex:1 1 18rem"><h3>${esc(title)}</h3>${rows.length ? `<table class="adm-table"><tbody>${rows.map((x) => `<tr><td><code translate="no">${esc(x.key)}</code></td><td>${esc(x.count)}</td></tr>`).join('')}</tbody></table>` : `<p class="adm-muted">${esc(l.sNone)}</p>`}</div>`;
     const chart = r.perDay.length ? svgBarChart(r.perDay.map((d) => ({ label: d.day.slice(5), value: d.failures })), { title: l.sPerDay, unit: l.sFails }) : `<p class="adm-muted">${esc(l.sNone)}</p>`;
     const t = r.totals;
     const periods = [[1, l.last24], [7, l.last7], [30, l.last30]].map(([d, label]) => `<a class="adm-btn${d === days ? ' primary' : ''}" href="${path}/summary?days=${d}">${esc(label)}</a>`).join(' ');
-    render(req, res, { active: path, title: l.summaryTab, bodyHtml: `<p>${periods} <a class="adm-btn" href="${path}">${esc(l.back)}</a></p>
+    await render(req, res, { active: path, title: l.summaryTab, bodyHtml: `<p>${periods} <a class="adm-btn" href="${path}">${esc(l.back)}</a></p>
 <div style="display:flex;flex-wrap:wrap;gap:.75rem">${card(l.sEvents, t.events)}${card(l.sLogins, t.logins)}${card(l.sFails, t.loginFailures)}${card(l.sLocks, t.lockouts)}${card(l.sNewDev, t.newDevices)}${card(l.sAdmin, t.adminActions)}${card(l.sActive, t.activeUsers)}</div>
 <div class="adm-card" style="margin-top:.75rem"><h3>${esc(l.sPerDay)}</h3>${chart}</div>
 <div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-top:.75rem">${canSeeSensitive(req) ? list(l.sTopIps, r.topFailedIps) : ''}${list(l.sTopLogins, r.topFailedLogins)}${list(l.sTopActions, r.topActions.map((x) => ({ key: describeEvent({ action: x.key }, localeOf(req)).title, count: x.count })))}</div>
@@ -222,12 +239,12 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
   });
 
   // One event with everything it holds, and the ways to move on from it.
-  app.get(`${path}/event/:id`, ...guard, (req, res) => {
+  app.get(`${path}/event/:id`, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-audit'], localeOf(req), 'admin-audit');
-    const id = Number(req.params.id);
-    const e = Number.isInteger(id) && id > 0 ? query(db, { afterId: id - 1, limit: 1 })[0] : null;
+    const id = parseId(req.params.id);
+    const e = id !== null ? (await queryAsync(db, { afterId: id - 1, limit: 1 }))[0] : null;
     if (!e || e.id !== id) return res.status(404).type('html').send(`<!doctype html><title>404</title><p>404</p>`);
-    const h = hashesOf([id]).get(id);
+    const h = (await hashesOf([id])).get(id);
     const d = describeEvent(e, localeOf(req));
     const sens = canSeeSensitive(req);
     const changes = !sens ? [] : e.meta?.changes && typeof e.meta.changes === 'object' && !Array.isArray(e.meta.changes) ? Object.entries(e.meta.changes) : [];
@@ -243,44 +260,46 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
     ].join(' ');
     const body = `<p>${link(path, l.back)}</p><div class="adm-card"><table class="adm-table"><tbody>${line('#', e.id)}${line(l.when, e.createdAt)}${line(l.actor, e.actor ?? '—')}${line(l.action, d.known ? `${d.title} (${e.action})` : e.action)}${d.phrase ? line(l.summary, d.phrase) : ''}${d.known ? line(l.category, d.categoryTitle) : ''}${line(l.entity, `${e.entity ?? ''}${e.entityId != null ? `#${e.entityId}` : ''}${targetOf(e) ? ` (${targetOf(e)})` : ''}`)}${line(l.result, e.result)}${sens ? line(l.ip, e.ip ?? '') : ''}${line(l.request, e.requestId ?? '')}${line(l.hashLbl, h?.hash ?? '')}${line(l.prevHashLbl, h?.prev_hash ?? '')}</tbody></table></div>
 ${changes.length ? `<div class="adm-card"><h2>${esc(l.changed)}</h2><table class="adm-table"><thead><tr><th>${esc(l.fieldName)}</th><th>${esc(l.was)}</th><th>${esc(l.became)}</th></tr></thead><tbody>${changes.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(cell(v?.from))}</td><td>${esc(cell(v?.to))}</td></tr>`).join('')}</tbody></table></div>` : ''}<div class="adm-card"><h2>${esc(l.details)}</h2>${meta.length ? `<table class="adm-table"><thead><tr><th>${esc(l.fieldName)}</th><th>${esc(l.fieldValue)}</th></tr></thead><tbody>${meta.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(cell(v))}</td></tr>`).join('')}</tbody></table>` : `<p class="adm-muted">${esc(l.noDetails)}</p>`}</div><p>${links}</p>`;
-    render(req, res, { active: path, title: `${l.eventCard} #${e.id}`, bodyHtml: body });
+    await render(req, res, { active: path, title: `${l.eventCard} #${e.id}`, bodyHtml: body });
   });
   return path;
 }
 
-export function mountSecuritySection({ app, db, guard, page: render, basePath, localeOf, texts = {}, bans, stepUp = [] }) {
+export function mountSecuritySection({ app, db, guard, page: render, basePath, localeOf, texts = {}, bans, stepUp = [], ipBan = null }) {
+  const adb = asyncDb(db);
   const path = `${basePath}/security`;
+  const ipBanUi = ipBan ? mountIpBan({ app, db, guard, stepUp, path, ipBan, texts, localeOf }) : null;
 
-  function sessionRows({ limit, offset }) {
+  async function sessionRows({ limit, offset }) {
     try {
       return {
-        items: db.all(`SELECT s.id, s.created_at, s.last_seen_at, s.expires_at, u.username FROM sessions s LEFT JOIN users u ON u.id = s.user_id ORDER BY COALESCE(s.last_seen_at, s.created_at) DESC LIMIT ? OFFSET ?`, [limit, offset]),
-        total: db.get('SELECT COUNT(*) AS n FROM sessions').n,
+        items: await adb.all(`SELECT s.id, s.created_at, s.last_seen_at, s.expires_at, u.username FROM sessions s LEFT JOIN users u ON u.id = s.user_id ORDER BY COALESCE(s.last_seen_at, s.created_at) DESC LIMIT ? OFFSET ?`, [limit, offset]),
+        total: (await adb.get('SELECT COUNT(*) AS n FROM sessions')).n,
       };
     } catch { return { items: [], total: 0 }; }
   }
 
-  app.get(path, ...guard, (req, res) => {
+  app.get(path, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-audit'], localeOf(req), 'admin-audit');
     const notice = req.query?.msg === 'ok' ? `<div class="adm-toast">${esc(l.done)}</div>` : req.query?.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(l.bad)}</div>` : '';
     const action = (p, label, cls = '') => `<form method="post" action="${p}" style="display:inline"><button class="adm-btn ${cls}" type="submit" data-confirm="${esc(label)}?">${esc(label)}</button></form>`;
     const bp = pageParams(req, 'bans');
     const sp = pageParams(req, 'sessions');
-    const banItems = bans.list({ active: true, limit: bp.size, offset: bp.offset });
-    const banTotal = bans.count({ active: true });
-    const sessPage = sessionRows({ limit: sp.size, offset: sp.offset });
+    const banItems = await bans.list({ active: true, limit: bp.size, offset: bp.offset });
+    const banTotal = await bans.count({ active: true });
+    const sessPage = await sessionRows({ limit: sp.size, offset: sp.offset });
     const banRows = banItems.map((b) => `<tr><td>${esc(b.id)}</td><td>${esc(b.kind)}</td><td>${esc(b.value)}</td><td>${esc(b.reason ?? '')}</td><td>${b.expiresAt ? timeHtml(b.expiresAt, localeOf(req)) : esc(l.forever)}</td><td>${esc(b.createdBy ?? '')}</td><td>${action(`${path}/bans/${b.id}/lift`, l.lift)}</td></tr>`).join('') || emptyRow(7, l.emptyBans);
     const sess = sessPage.items.map((s) => `<tr><td>${esc(s.username ?? '—')}</td><td>${timeHtml(s.created_at, localeOf(req))}</td><td>${timeHtml(s.last_seen_at, localeOf(req))}</td><td>${timeHtml(s.expires_at, localeOf(req))}</td><td>${action(`${path}/sessions/${encodeURIComponent(s.id)}/revoke`, l.revoke, 'danger')}</td></tr>`).join('') || emptyRow(5, l.emptySessions);
     const body = `${notice}<div class="adm-card" style="margin-bottom:1rem"><h2>${esc(l.bans)}</h2>
 <form method="post" action="${path}/bans" style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem">
 <label class="adm-field">${esc(l.kind)}<select class="adm-input" name="kind"><option value="ip">ip</option><option value="user">user</option></select></label>
-<label class="adm-field">${esc(l.value)}<input class="adm-input" name="value" required maxlength="64"></label>
+<label class="adm-field">${esc(l.value)}<input class="adm-input" name="value" required maxlength="64" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" translate="no"></label>
 <label class="adm-field">${esc(l.reason)}<input class="adm-input" name="reason" maxlength="500"></label>
 <label class="adm-field">${esc(l.duration)}<input class="adm-input" name="duration" maxlength="8"></label>
 <button class="adm-btn danger" type="submit">${esc(l.ban)}</button></form>
 <table class="adm-table"><thead><tr><th>#</th><th>${esc(l.kind)}</th><th>${esc(l.value)}</th><th>${esc(l.reason)}</th><th>${esc(l.until2)}</th><th>${esc(l.by)}</th><th></th></tr></thead><tbody data-paged="bans">${banRows}</tbody></table>${pagerFor({ req, res, path, name: 'bans', param: 'bans', ...bp, count: banItems.length, total: banTotal, locale: localeOf(req) })}</div>
 <div class="adm-card"><h2>${esc(l.sessions)}</h2><table class="adm-table"><thead><tr><th>${esc(l.user)}</th><th>${esc(l.created)}</th><th>${esc(l.seen)}</th><th>${esc(l.expires)}</th><th></th></tr></thead><tbody data-paged="sessions">${sess}</tbody></table>${pagerFor({ req, res, path, name: 'sessions', param: 'sessions', ...sp, count: sessPage.items.length, total: sessPage.total, locale: localeOf(req), withScript: false })}</div>`;
-    render(req, res, { active: path, title: l.security, bodyHtml: body });
+    await render(req, res, { active: path, title: l.security, bodyHtml: `${body}${ipBanUi ? await ipBanUi.block(req) : ''}` });
   });
 
   const back = (res, ok) => res.redirect(303, `${path}?msg=${ok ? 'ok' : 'bad'}`);
@@ -290,22 +309,22 @@ export function mountSecuritySection({ app, db, guard, page: render, basePath, l
     try {
       const me = req.user?.username ?? null;
       if (form.kind === 'user' && me && String(form.value).trim() === me) return back(res, false); // no self-lockout
-      if (form.kind === 'ip' && req.ip && String(form.value).trim() === req.ip) return back(res, false);
-      bans.ban({ kind: form.kind, value: form.value, reason: form.reason || null, by: me, durationMs: parseDuration(form.duration || null), ctx: contextFromRequest(req) });
+      if (form.kind === 'ip' && req.ip && sameAddress(form.value, req.ip)) return back(res, false); // nor your own address, written in any of its forms
+      await bans.ban({ kind: form.kind, value: form.value, reason: form.reason || null, by: me, durationMs: parseDuration(form.duration || null), ctx: contextFromRequest(req) });
       return back(res, true);
     } catch { return back(res, false); }
   });
 
-  app.post(`${path}/bans/:id/lift`, ...guard, ...stepUp, (req, res) => {
-    const n = bans.lift({ id: req.params.id, by: req.user?.username ?? null, ctx: contextFromRequest(req) });
+  app.post(`${path}/bans/:id/lift`, ...guard, ...stepUp, async (req, res) => {
+    const n = await bans.lift({ id: req.params.id, by: req.user?.username ?? null, ctx: contextFromRequest(req) });
     back(res, n > 0);
   });
 
-  app.post(`${path}/sessions/:id/revoke`, ...guard, ...stepUp, (req, res) => {
-    const row = db.get(`SELECT s.id, u.username FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.id = ?`, [String(req.params.id)]);
+  app.post(`${path}/sessions/:id/revoke`, ...guard, ...stepUp, async (req, res) => {
+    const row = await adb.get(`SELECT s.id, u.username FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.id = ?`, [String(req.params.id)]);
     if (!row) return back(res, false);
-    db.run(`DELETE FROM sessions WHERE id = ?`, [row.id]);
-    log(db, { ...contextFromRequest(req), action: 'admin.session.revoke', entity: 'session', meta: { user: row.username ?? null } });
+    await adb.run(`DELETE FROM sessions WHERE id = ?`, [row.id]);
+    await logAsync(db, { ...contextFromRequest(req), action: 'admin.session.revoke', entity: 'session', meta: { user: row.username ?? null } });
     back(res, true);
   });
   return path;

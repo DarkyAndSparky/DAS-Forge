@@ -88,4 +88,37 @@ describe('last backup seen by the diagnostics', () => {
     expect((await find({ lastBackupAt: () => '2026-11-01T11:00:00Z' })).message).toBe('1 h ago'); // the file is newer than the job record
     expect((await find({ lastBackupAt: () => { throw new Error('unreadable'); } })).status).toBe('warn'); // the old record alone is stale
   });
+
+  describe('PostgreSQL TLS', () => {
+    const run = (database, env) => hardeningChecks({ appConfig: { database }, env }).then((r) => by(r, 'PostgreSQL TLS'));
+    it('warns about a remote database without TLS and never prints the connection string', async () => {
+      const c = await run({ driver: 'postgres', url: 'env:DB', ssl: false }, { DB: 'postgres://app:s3cret@db.example.org:5432/das' });
+      expect(c.status).toBe('warn');
+      expect(c.message).toContain('db.example.org');
+      expect(c.message).not.toContain('s3cret');
+    });
+    it('accepts ssl: true, sslmode in the string, a loopback host and a unix socket', async () => {
+      expect((await run({ driver: 'postgres', url: 'env:DB', ssl: true }, { DB: 'postgres://u:p@db.example.org/x' })).status).toBe('ok');
+      expect((await run({ driver: 'postgres', url: 'env:DB' }, { DB: 'postgres://u:p@db.example.org/x?sslmode=verify-full' })).status).toBe('ok');
+      expect((await run({ driver: 'postgres', url: 'env:DB' }, { DB: 'postgres://u:p@127.0.0.1/x' })).status).toBe('ok');
+      expect((await run({ driver: 'postgres', url: 'env:DB' }, { DB: 'postgres://u:p@[::1]/x' })).status).toBe('ok');
+    });
+    it('says so when the variable is missing, and says nothing for SQLite', async () => {
+      expect((await run({ driver: 'postgres', url: 'env:DB' }, {})).message).toContain('DB');
+      expect(await run({ driver: 'node:sqlite' }, {})).toBeUndefined();
+    });
+  });
+  it('A14: the internet profile turns TLS, proxy, administration and registration mistakes into failures', async () => {
+    const find = (r, n) => r.find((c) => c.name === n);
+    const bad = await hardeningChecks({ appConfig: { server: { exposure: 'internet', https: { mode: 'self-signed' }, trustProxy: false, admin: {} }, auth: { registration: { enabled: true, requireEmailConfirmation: false } } } });
+    expect(find(bad, 'Internet exposure: TLS').status).toBe('fail');
+    expect(find(bad, 'Internet exposure: administration').status).toBe('fail');
+    expect(find(bad, 'Internet exposure: registration').status).toBe('fail');
+    const proxyOff = await hardeningChecks({ appConfig: { server: { exposure: 'internet', https: { mode: 'reverse-proxy' }, trustProxy: false } } });
+    expect(find(proxyOff, 'Internet exposure: TLS').message).toMatch(/ban the proxy/);
+    const good = await hardeningChecks({ appConfig: { server: { exposure: 'internet', https: { mode: 'reverse-proxy' }, trustProxy: ['10.0.0.0/8'], admin: { allowedNets: ['10.0.5.0/24'] } }, auth: { registration: { enabled: true, requireEmailConfirmation: true } } } });
+    for (const n of ['TLS', 'administration', 'registration']) expect(find(good, `Internet exposure: ${n}`).status).toBe('ok');
+    const lan = await hardeningChecks({ appConfig: { server: { https: { mode: 'self-signed' } } } });
+    expect(lan.some((c) => c.name.startsWith('Internet exposure'))).toBe(false);
+  });
 });

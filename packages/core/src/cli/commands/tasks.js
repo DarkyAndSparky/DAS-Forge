@@ -43,11 +43,11 @@ export function registerTasksCommands(cli, { scheduler, auditLog }) {
       const started = Date.now();
       try {
         await scheduler.runNow(name);
-        auditLog?.({ actor: cliActor(), action: 'cli.tasks.run', entity: 'task', entityId: name, meta: { ms: Date.now() - started }, result: 'success' });
+        await auditLog?.({ actor: cliActor(), action: 'cli.tasks.run', entity: 'task', entityId: name, meta: { ms: Date.now() - started }, result: 'success' });
         console.log(`Task "${name}" finished in ${Date.now() - started} ms.`); // eslint-disable-line no-console
         return EXIT.OK;
       } catch (err) {
-        auditLog?.({ actor: cliActor(), action: 'cli.tasks.run', entity: 'task', entityId: name, meta: { ms: Date.now() - started }, result: 'failure' });
+        await auditLog?.({ actor: cliActor(), action: 'cli.tasks.run', entity: 'task', entityId: name, meta: { ms: Date.now() - started }, result: 'failure' });
         console.error(`Task "${name}" failed: ${err?.message ?? err}`); // eslint-disable-line no-console
         return EXIT.FAILURE;
       }

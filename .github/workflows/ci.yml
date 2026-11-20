@@ -37,6 +37,8 @@ jobs:
       - run: npm run version:check
       # Static check (ESLint): undefined names, dead code, duplicate keys. Warnings do not fail the build (G-01).
       - run: npm run lint
+      # Names and imports across the JS code (tsc, only the findings that are real bugs: unknown name, missing export, broken import).
+      - run: npm run typecheck
       # Licenses of the production dependencies (our own `deps licenses`, offline, reads the lock file and node_modules). The two LGPL
       # entries are the reviewed ones: sharp's prebuilt libvips and libheif-js, both used unmodified and loaded as libraries (G-07).
       - run: npm run cli --workspace=workshop -- deps licenses --allow LGPL-3.0,LGPL-3.0-or-later

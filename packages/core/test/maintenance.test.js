@@ -113,7 +113,7 @@ describe('admin: maintenance section', () => {
     r = await call('POST /admin/maintenance/enable', { body: { message: 'x'.repeat(501) } });
     expect(r.location).toBe('/admin/maintenance?msg=bad&e=MESSAGE_TOO_LONG');
     expect((await call('GET /admin', {})).body).toContain('/admin/maintenance');
-    r = await call('POST /admin/maintenance/disable', { body: { a: 1 } });
+    await call('POST /admin/maintenance/disable', { body: { a: 1 } });
     expect(m.get({ fresh: true }).enabled).toBe(false);
     expect(query(db, { action: 'admin.maintenance.enable' })).toHaveLength(1);
     expect(query(db, { action: 'admin.maintenance.disable' })).toHaveLength(1);

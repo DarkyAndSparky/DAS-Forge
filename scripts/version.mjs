@@ -69,6 +69,12 @@ if (cmd === 'get') {
   const pkg = readJson(pkgPath); pkg.version = arg; writeJson(pkgPath, pkg);
   const lock = readJson(lockPath);
   if (lock.packages?.['packages/core']) lock.packages['packages/core'].version = arg;
+  // the PostgreSQL driver is released together with the core
+  const pgPkgPath = path.join(root, 'packages/db-postgres/package.json');
+  if (existsSync(pgPkgPath)) {
+    const pgPkg = readJson(pgPkgPath); pgPkg.version = arg; writeJson(pgPkgPath, pgPkg);
+    if (lock.packages?.['packages/db-postgres']) lock.packages['packages/db-postgres'].version = arg;
+  }
   writeJson(lockPath, lock);
   console.log(`version ${arg}; documentation files updated: ${stamp(arg)}`);
 } else if (cmd === 'stamp') {

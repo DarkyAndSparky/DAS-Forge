@@ -17,7 +17,7 @@ async function loadI18next() {
     const mod = await import('i18next');
     return mod.default ?? mod;
   } catch (err) {
-    throw new Error(`i18next is not installed (npm install i18next): ${err?.message ?? err}`);
+    throw new Error(`i18next is not installed (npm install i18next): ${err?.message ?? err}`, { cause: err });
   }
 }
 

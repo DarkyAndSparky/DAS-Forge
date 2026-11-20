@@ -33,6 +33,13 @@ import { z } from 'zod';
  */
 
 export const ServerConfigSchema = z.strictObject({
+  // Who can reach the application: 'lan' (office network, default) or 'internet'. With 'internet' `doctor` turns the settings that
+  // matter on the open internet (TLS, trusted proxy, administration address, registration) from hints into failures.
+  exposure: z.enum(['lan', 'internet']).default('lan'),
+  // Outgoing requests of the core (alerts, log collectors, registry checks) go through `safeFetch`, which checks the address
+  // the connection really goes to. `allowPrivate` unset: allowed for 'lan', refused for 'internet'. `allowHosts`: names, addresses
+  // or CIDR of internal receivers that stay reachable when private networks are refused (link-local/metadata are never allowed).
+  outbound: z.strictObject({ allowPrivate: z.boolean().optional(), allowHosts: z.array(z.string().min(1)).default([]) }).default({ allowHosts: [] }),
   host: z.string().default('127.0.0.1'),
   port: z.number().int().min(1).max(65535).default(3000),
   // Plain-HTTP port that only redirects to HTTPS. Unset: `port - 1` when this process terminates TLS (convention: an app
@@ -66,20 +73,31 @@ export const ServerConfigSchema = z.strictObject({
     .strictObject({
       host: z.string().optional(),
       port: z.number().int().min(1).max(65535).optional(),
+      // The panel is served only to these networks (CIDR or single addresses); empty = to everyone who can reach it.
+      allowedNets: z.array(z.string().min(1)).default([]),
     })
     .prefault({}),
 });
 
-export const DatabaseConfigSchema = z.strictObject({
-  driver: z.literal('node:sqlite').default('node:sqlite'),
-  file: z.string().default('data/app.db'),
-  walMode: z.boolean().default(true),
-  // Opt-in: Date/boolean written as ISO string/1-0, BOOLEAN/DATE/DATETIME/TIMESTAMP columns read back as boolean/Date (see createSqliteAdapter).
-  normalizeValues: z.boolean().default(false),
-});
-
 // Secrets in a backup destination are never literals in the config file: `env:NAME` only.
 const EnvRef = z.string().regex(/^env:[A-Za-z_][A-Za-z0-9_]*$/, 'must be an env:NAME reference, not the secret itself');
+
+export const DatabaseConfigSchema = z
+  .strictObject({
+    driver: z.enum(['node:sqlite', 'postgres']).default('node:sqlite'),
+    file: z.string().default('data/app.db'),
+    walMode: z.boolean().default(true),
+    // Opt-in: Date/boolean written as ISO string/1-0, BOOLEAN/DATE/DATETIME/TIMESTAMP columns read back as boolean/Date (see createSqliteAdapter).
+    normalizeValues: z.boolean().default(false),
+    // driver "postgres" (package @das-forge/db-postgres): the connection string is never written here, only `env:NAME`.
+    url: EnvRef.optional(),
+    poolSize: z.number().int().min(1).max(200).default(10),
+    ssl: z.boolean().default(false),
+    statementTimeoutMs: z.number().int().min(0).optional(),
+  })
+  .refine((c) => c.driver !== 'postgres' || Boolean(c.url), { message: 'database.url (an env:NAME reference) is required when database.driver is "postgres"', path: ['url'] });
+
+// Secrets in a backup destination are never literals in the config file: `env:NAME` only.
 
 /** `type: 'sftp'` destination options (scheduler/backup-remote.js). Needs the `ssh2` package. */
 export const SftpDestinationConfigSchema = z
@@ -157,7 +175,7 @@ export const EmailConfigSchema = z
     enabled: z.boolean().default(false),
     from: z.string().optional(),
     // Public address of the app, used to build links in mails (https://app.example.com).
-    baseUrl: z.string().url().optional(),
+    baseUrl: z.url().optional(),
     replyTo: z.string().optional(),
     locale: z.enum(['ru', 'en']).default('ru'),
     smtp: z
@@ -245,7 +263,6 @@ export const LogSinkSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('http'),
     url: z
-      .string()
       .url()
       .refine((u) => u.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(u), {
         message: 'log sink url must be https:// (plain http only for localhost)',
@@ -364,14 +381,42 @@ export const SecurityConfigSchema = z.strictObject({
     })
     .prefault({}),
   dependencyAudit: DependencyAuditConfigSchema.prefault({}),
+  // Audio and video (media module): off unless enabled; the external program ffprobe is optional.
+  media: z
+    .strictObject({
+      enabled: z.boolean().default(false),
+      dir: z.string().min(1).optional(),
+      maxBytes: z.number().int().min(1).max(1024 ** 4).default(500 * 1024 * 1024),
+      allowedTypes: z.array(z.enum(['mp4', 'm4a', 'mov', 'webm', 'mkv', 'ogv', 'ogg', 'mp3', 'aac', 'wav', 'flac', 'avi'])).min(1).default(['mp4', 'webm', 'm4a', 'mp3', 'ogg', 'wav', 'flac', 'aac']),
+      maxDurationSec: z.number().int().min(1).optional(),
+      ffprobePath: z.string().min(1).optional(),
+      probeTimeoutMs: z.number().int().min(1000).max(120_000).default(15_000),
+    })
+    .prefault({}),
+  // Starting values of the automatic address ban (security.createIpBanPolicy); an administrator changes them in the admin without a restart.
+  ipBan: z
+    .strictObject({
+      enabled: z.boolean().optional(),
+      maxFailures: z.number().int().min(1).max(1000).optional(),
+      findTimeMs: z.number().int().min(60_000).max(30 * 86_400_000).optional(),
+      baseBanMs: z.number().int().min(60_000).max(35 * 86_400_000).optional(),
+      factor: z.number().int().min(1).max(24).optional(),
+      maxBanMs: z.number().int().min(60_000).max(365 * 86_400_000).optional(),
+      recidiveCount: z.number().int().min(2).max(50).optional(),
+      recidiveWindowMs: z.number().int().min(3_600_000).max(30 * 86_400_000).optional(),
+      recidiveBanMs: z.number().int().min(60_000).max(365 * 86_400_000).optional(),
+      historyRetentionMs: z.number().int().min(86_400_000).max(400 * 86_400_000).optional(),
+      ignore: z.array(z.string().min(2).max(64)).max(100).optional(),
+    })
+    .prefault({}),
   // /.well-known/security.txt (RFC 9116): where a researcher should report a vulnerability. Served only when `contact` is set.
   securityTxt: z
     .strictObject({
       contact: z.array(z.string().min(3)).max(5).default([]), // mailto:, https:// or tel: ; a bare address becomes mailto:
-      policy: z.string().url().optional(),                    // link to the disclosure policy (e.g. SECURITY.md in the repository)
+      policy: z.url().optional(),                    // link to the disclosure policy (e.g. SECURITY.md in the repository)
       expires: z.string().datetime().optional(),              // ISO date-time; unset = 180 days from the request
       preferredLanguages: z.array(z.string().min(2).max(8)).max(5).default(['ru', 'en']),
-      canonical: z.string().url().optional(),
+      canonical: z.url().optional(),
     })
     .prefault({}),
   // Stricter Content-Security-Policy sent next to the real one in report-only mode (nothing is blocked); violations go to the audit log.
@@ -407,9 +452,13 @@ export const SecurityConfigSchema = z.strictObject({
       maxLockMs: z.number().int().positive().default(24 * 3_600_000),
       // quiet time after which the miss counter starts again from zero
       resetAfterMs: z.number().int().positive().default(24 * 3_600_000),
+      // Counters are kept in the database (table auth_failure_counters): a restart does not clear a lock-out and several
+      // processes on one database share it. `syncMs`: how often a process takes over locks set by the others.
+      persist: z.boolean().default(true),
+      syncMs: z.number().int().min(1000).default(5000),
     })
     .prefault({}),
-  incidentContacts: z.array(z.string().email()).default([]),
+  incidentContacts: z.array(z.email()).default([]),
 });
 
 export const AuthConfigSchema = z.strictObject({
@@ -422,6 +471,10 @@ export const AuthConfigSchema = z.strictObject({
   totpEncryptionKey: z.string().min(16).optional(),
   previousTotpEncryptionKeys: z.array(z.string().min(16)).default([]),
   sessionTtlMs: z.number().int().positive().default(1000 * 60 * 60 * 8),
+  // Warning before the session ends (a dialog with "Stay signed in"), in ms; 0 = off, otherwise at least 20 s.
+  sessionWarnMs: z.number().int().refine((v) => v === 0 || v >= 20_000, 'sessionWarnMs: 0 or at least 20000').default(120_000),
+  // How many times a user may extend the running session from that dialog.
+  sessionMaxExtensions: z.number().int().min(10).default(10),
   // Self-registration (off by default). With `requireEmailConfirmation` (default) an account exists only after the
   // mailed link is opened, which is what keeps bots out; switching it off creates accounts at once, for closed networks.
   registration: z

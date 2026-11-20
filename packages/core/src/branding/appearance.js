@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { THEME_TOKENS } from '../ui/theme.js';
 import { sendUpload } from '../files/serve-upload.js';
-import { getCompanyBranding } from './company-branding.js';
+import { getCompanyBranding, getCompanyBrandingAsync } from './company-branding.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -28,6 +28,17 @@ export function brandingUploadDir(uploadsDir) {
 export function themeWithBranding(db, baseTheme = {}) {
   let b;
   try { b = getCompanyBranding(db); } catch { return baseTheme; }
+  return themeFrom(b, baseTheme);
+}
+
+/** `themeWithBranding` over `asyncDb`. */
+export async function themeWithBrandingAsync(db, baseTheme = {}) {
+  let b;
+  try { b = await getCompanyBrandingAsync(db); } catch { return baseTheme; }
+  return themeFrom(b, baseTheme);
+}
+
+function themeFrom(b, baseTheme) {
   if (!b.accent && !b.accentDark) return baseTheme;
   const tokens = { ...(baseTheme.tokens ?? {}) };
   const darkTokens = { ...(baseTheme.darkTokens ?? {}) };
@@ -42,9 +53,20 @@ export function themeWithBranding(db, baseTheme = {}) {
  * Brand block for the shell header/menu: the company logo (light and dark variants) next to the company name,
  * or only the name. `fallbackName` is the vendor/product name used when no company name is set.
  */
-export function brandingHtml(db, { fallbackName = '', logoBase = '/branding/logo' } = {}) {
+export function brandingHtml(db, opts = {}) {
   let b;
   try { b = getCompanyBranding(db); } catch { b = {}; }
+  return brandingHtmlFrom(b, opts);
+}
+
+/** `brandingHtml` over `asyncDb`. */
+export async function brandingHtmlAsync(db, opts = {}) {
+  let b;
+  try { b = await getCompanyBrandingAsync(db); } catch { b = {}; }
+  return brandingHtmlFrom(b, opts);
+}
+
+function brandingHtmlFrom(b, { fallbackName = '', logoBase = '/branding/logo' } = {}) {
   const name = b.name ?? fallbackName;
   const v = b.updatedAt ? `?v=${encodeURIComponent(Date.parse(b.updatedAt) || 0)}` : '';
   const alt = esc(name);
@@ -66,7 +88,7 @@ export function mountLogoRoute(app, { db, uploadsDir, path: routePath = '/brandi
   const dir = brandingUploadDir(uploadsDir);
   app.get(`${routePath}/:theme`, async (req, res, next) => {
     try {
-      const b = getCompanyBranding(db);
+      const b = await getCompanyBrandingAsync(db);
       const dark = req.params.theme === 'dark';
       if (req.params.theme !== 'light' && !dark) return res.status(404).end();
       const file = dark ? b.logoFileDark ?? b.logoFile : b.logoFile ?? b.logoFileDark;
@@ -96,10 +118,21 @@ function vendorLogoImg(vendorIdentity, theme, cls) {
  * @param {object} vendorIdentity - `branding.defineVendorIdentity()` of the app
  * @param {{logoBase?: string}} [opts]
  */
-export function brandBlockHtml(db, vendorIdentity, { logoBase = '/branding/logo' } = {}) {
+export function brandBlockHtml(db, vendorIdentity, opts = {}) {
   let b = {};
   if (db) { try { b = getCompanyBranding(db); } catch { b = {}; } }
-  if (b.logoFile || b.logoFileDark) return brandingHtml(db, { fallbackName: vendorIdentity?.name ?? '', logoBase });
+  return brandBlockFrom(b, vendorIdentity, opts);
+}
+
+/** `brandBlockHtml` over `asyncDb`. */
+export async function brandBlockHtmlAsync(db, vendorIdentity, opts = {}) {
+  let b = {};
+  if (db) { try { b = await getCompanyBrandingAsync(db); } catch { b = {}; } }
+  return brandBlockFrom(b, vendorIdentity, opts);
+}
+
+function brandBlockFrom(b, vendorIdentity, { logoBase = '/branding/logo' } = {}) {
+  if (b.logoFile || b.logoFileDark) return brandingHtmlFrom(b, { fallbackName: vendorIdentity?.name ?? '', logoBase });
   const name = b.name ?? vendorIdentity?.name ?? '';
   const both = vendorIdentity?.hasDarkLogo?.();
   const img = both

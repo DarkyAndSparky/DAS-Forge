@@ -36,7 +36,7 @@ export function redactMeta(value, depth = 0) {
   return out;
 }
 
-const VERIFY_PAGE = 2000;
+export const VERIFY_PAGE = 2000;
 
 /**
  * Walks the chain from the oldest hashed row. Rows without a hash

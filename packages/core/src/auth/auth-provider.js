@@ -7,7 +7,7 @@ import { assertAuthProvider } from './adapter.js';
  * satisfying the AuthProvider behavioral contract (assertAuthProvider).
  *
  * @param {object} opts
- * @param {import('../database/adapter.js')} opts.db - a DatabaseAdapter
+ * @param {object} opts.db - a DatabaseAdapter
  * @param {number} [opts.sessionTtlMs] - ignored since 0.1.73 (sessions are express-session's job; see createSessionStore); accepted so existing callers keep working
  * @param {number} [opts.sessionIdleTimeoutMs] - ignored since 0.1.73, same reason
  * @param {object} [opts.argon2Options]

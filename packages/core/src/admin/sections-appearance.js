@@ -1,11 +1,11 @@
-import { getCompanyBranding, setCompanyBranding } from '../branding/company-branding.js';
+import { getCompanyBrandingAsync, setCompanyBrandingAsync } from '../branding/company-branding.js';
 import { pickTexts } from '../i18n/overrides.js';
 import { brandingUploadDir } from '../branding/appearance.js';
 import { createMultipartUpload } from '../files/multipart.js';
 import { acceptUpload } from '../files/accept-upload.js';
 import { removeUpload } from '../files/upload-storage.js';
 import { THEME_TOKENS } from '../ui/theme.js';
-import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
 import { contextFromRequest } from '../audit/context.js';
 import { readForm } from './sections.js';
 import { versionField, isStale } from './edit-version.js';
@@ -50,11 +50,11 @@ export function mountAppearanceSection({ app, db, guard, page: render, basePath,
   const upload = createMultipartUpload({ field: 'logo', maxBytes, multer: appearance.multer });
 
   const back = (res, kind) => res.redirect(303, `${path}?msg=${kind}`);
-  const audit = (req, action, meta) => log(db, { ...contextFromRequest(req), action: `admin.appearance.${action}`, entity: 'branding', meta });
+  const audit = async (req, action, meta) => await logAsync(db, { ...contextFromRequest(req), action: `admin.appearance.${action}`, entity: 'branding', meta });
 
-  app.get(path, ...guard, (req, res) => {
+  app.get(path, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-appearance'], localeOf(req), 'admin-appearance');
-    const b = getCompanyBranding(db);
+    const b = await getCompanyBrandingAsync(db);
     const note = { ok: l.done, bad: l.bad, big: l.big, conflict: l.conflict }[req.query?.msg];
     const toast = note ? `<div class="adm-toast"${req.query.msg === 'ok' ? '' : ' style="border-left-color:var(--adm-danger)"'}>${esc(note)}</div>` : '';
     const v = b.updatedAt ? `?v=${encodeURIComponent(Date.parse(b.updatedAt) || 0)}` : '';
@@ -92,38 +92,38 @@ all('input[type=file][data-pv-file]').forEach(function(i){i.addEventListener('ch
 <div class="pv-col"><strong>${esc(l.dark)}</strong>${panel('dark')}<label class="pv-swatch">${esc(l.accentDark)}<input type="color" name="accentDark" value="${esc(b.accentDark ?? THEME_TOKENS.dark.accent)}"></label></div></div>
 <button class="adm-btn primary" type="submit">${esc(l.save)}</button></form>
 <form method="post" action="${path}/reset" style="margin-top:1rem"><button class="adm-btn" type="submit" data-confirm="${esc(l.confirmReset)}">${esc(l.reset)}</button></form></div>`;
-    render(req, res, { active: path, title: l.title, bodyHtml: body + pvScript });
+    await render(req, res, { active: path, title: l.title, bodyHtml: body + pvScript });
   });
 
   app.post(`${path}/name`, ...guard, ...stepUp, async (req, res) => {
     const form = await readForm(req);
-    if (isStale(form, nameState(getCompanyBranding(db)))) return back(res, 'conflict');
+    if (isStale(form, nameState(await getCompanyBrandingAsync(db)))) return back(res, 'conflict');
     const name = String(form.name ?? '').trim();
     try {
-      setCompanyBranding(db, { name: name === '' ? null : name }, { actor: req.user?.username });
-      audit(req, 'name', { set: name !== '' });
+      await setCompanyBrandingAsync(db, { name: name === '' ? null : name }, { actor: req.user?.username });
+      await audit(req, 'name', { set: name !== '' });
       return back(res, 'ok');
     } catch { return back(res, 'bad'); }
   });
 
   app.post(`${path}/colors`, ...guard, ...stepUp, async (req, res) => {
     const form = await readForm(req);
-    if (isStale(form, colorState(getCompanyBranding(db)))) return back(res, 'conflict');
+    if (isStale(form, colorState(await getCompanyBrandingAsync(db)))) return back(res, 'conflict');
     const pick = (v) => (HEX.test(String(v ?? '')) ? String(v).toLowerCase() : null);
     const accent = pick(form.accent);
     const accentDark = pick(form.accentDark);
     if (!accent || !accentDark) return back(res, 'bad');
     try {
-      setCompanyBranding(db, { accent, accentDark }, { actor: req.user?.username });
-      audit(req, 'colors', { accent, accentDark });
+      await setCompanyBrandingAsync(db, { accent, accentDark }, { actor: req.user?.username });
+      await audit(req, 'colors', { accent, accentDark });
       return back(res, 'ok');
     } catch { return back(res, 'bad'); }
   });
 
-  app.post(`${path}/reset`, ...guard, ...stepUp, (req, res) => {
+  app.post(`${path}/reset`, ...guard, ...stepUp, async (req, res) => {
     try {
-      setCompanyBranding(db, { name: null, accent: null, accentDark: null }, { actor: req.user?.username });
-      audit(req, 'reset', {});
+      await setCompanyBrandingAsync(db, { name: null, accent: null, accentDark: null }, { actor: req.user?.username });
+      await audit(req, 'reset', {});
       return back(res, 'ok');
     } catch { return back(res, 'bad'); }
   });
@@ -151,27 +151,27 @@ all('input[type=file][data-pv-file]').forEach(function(i){i.addEventListener('ch
     } catch (err) {
       return back(res, /too large|size/i.test(String(err?.message)) ? 'big' : 'bad');
     }
-    const previous = getCompanyBranding(db)[key];
+    const previous = (await getCompanyBrandingAsync(db))[key];
     try {
-      setCompanyBranding(db, { [key]: stored.filename }, { actor: req.user?.username });
+      await setCompanyBrandingAsync(db, { [key]: stored.filename }, { actor: req.user?.username });
     } catch {
       removeUpload(dir, stored.filename);
       return back(res, 'bad');
     }
     if (previous && previous !== stored.filename) removeUpload(dir, previous);
-    audit(req, 'logo', { theme: req.params.theme, type: stored.type });
+    await audit(req, 'logo', { theme: req.params.theme, type: stored.type });
     return back(res, 'ok');
   });
 
-  app.post(`${path}/logo/:theme/remove`, ...guard, ...stepUp, (req, res) => {
+  app.post(`${path}/logo/:theme/remove`, ...guard, ...stepUp, async (req, res) => {
     const key = themeKey(req.params.theme);
     if (!key) return back(res, 'bad');
-    const previous = getCompanyBranding(db)[key];
+    const previous = (await getCompanyBrandingAsync(db))[key];
     try {
-      setCompanyBranding(db, { [key]: null }, { actor: req.user?.username });
+      await setCompanyBrandingAsync(db, { [key]: null }, { actor: req.user?.username });
     } catch { return back(res, 'bad'); }
     if (previous) removeUpload(dir, previous);
-    audit(req, 'logo_removed', { theme: req.params.theme });
+    await audit(req, 'logo_removed', { theme: req.params.theme });
     return back(res, 'ok');
   });
   return path;

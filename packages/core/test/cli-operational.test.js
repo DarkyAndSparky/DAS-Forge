@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -176,6 +176,18 @@ describe('registerDbCommands', () => {
     expect(r.code).toBe(0);
     expect(r.logs.join('\n')).toMatch(/integrity OK/);
     expect(r.logs.join('\n')).toMatch(/VACUUM complete/);
+  });
+
+  it('copy asks for the name of an environment variable and says so when it is not set', async () => {
+    const cli = createCli();
+    registerDbCommands(cli, { db, migrationsDir, dbFilePath });
+    const none = await capture(() => cli.run(['db', 'copy']));
+    expect(none.code).toBe(1);
+    expect(none.errs.join('\n')).toMatch(/--to ENV_NAME is required/);
+    delete process.env.DAS_TEST_NO_SUCH_URL;
+    const unset = await capture(() => cli.run(['db', 'copy', '--to', 'DAS_TEST_NO_SUCH_URL']));
+    expect(unset.code).toBe(1);
+    expect(unset.errs.join('\n')).toMatch(/DAS_TEST_NO_SUCH_URL is not set/);
   });
 });
 

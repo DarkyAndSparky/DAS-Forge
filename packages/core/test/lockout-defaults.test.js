@@ -8,5 +8,7 @@ describe('sign-in lockout defaults', () => {
     expect(l.baseLockMs).toBe(5 * 60_000);
     expect(l.maxLockMs).toBe(24 * 3_600_000);
     expect(l.resetAfterMs).toBe(24 * 3_600_000);
+    expect(l.persist).toBe(true);
+    expect(l.syncMs).toBe(5000);
   });
 });

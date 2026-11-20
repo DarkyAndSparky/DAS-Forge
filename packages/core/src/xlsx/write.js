@@ -30,7 +30,6 @@ export function isFormulaLike(s) {
 const S = { default: 0, header: 1, money: 2, integer: 3, percent: 4, date: 5, datetime: 6, quoted: 7, number: 8 };
 const FORMAT_STYLE = { text: S.default, general: S.default, money: S.money, integer: S.integer, percent: S.percent, date: S.date, datetime: S.datetime, number: S.number };
 
-const NUMFMT_ID = { text: 0, general: 0, money: 4, integer: 3, percent: 10, date: 164, datetime: 165, number: 2 };
 const BASE = { fonts: 2, fills: 3, borders: 2, xfs: 9 };
 
 // The colours a person may name; anything else must be a strict #RRGGBB.

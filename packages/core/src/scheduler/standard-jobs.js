@@ -14,6 +14,7 @@ const registered = new WeakMap(); // scheduler -> names registered by registerSt
  * @param {object} [o.logger]
  * @param {{purgeExpired: () => number}} [o.sessionStore]
  * @param {{purge: () => unknown}} [o.bans]
+ * @param {{purge: () => unknown}} [o.ipBan] - `security.createIpBanPolicy()`: drops old failure counters
  * @param {{purge: () => unknown}} [o.metrics] - `admin.createMetrics(db)`
  * @param {{purgeFinished: (o: {olderThanDays: number}) => number}} [o.emailQueue]
  * @param {number} [o.auditRetentionDays=0] - 0 = keep audit rows forever (no job)
@@ -24,7 +25,7 @@ const registered = new WeakMap(); // scheduler -> names registered by registerSt
  * @param {boolean} [o.passwordResets=true]
  * @returns {string[]} names of the jobs registered
  */
-export function registerStandardJobs(scheduler, { db, logger = null, sessionStore = null, bans = null, metrics = null, emailQueue = null, auditRetentionDays = 0, auditPersonalDataDays = 0, auditPurgeBatchSize, auditArchiveDir = '', mailKeepFinishedDays = 30, passwordResets = true } = {}) {
+export function registerStandardJobs(scheduler, { db, logger = null, sessionStore = null, bans = null, ipBan = null, metrics = null, emailQueue = null, auditRetentionDays = 0, auditPersonalDataDays = 0, auditPurgeBatchSize, auditArchiveDir = '', mailKeepFinishedDays = 30, passwordResets = true } = {}) {
   if (!scheduler?.registerJob) throw new TypeError('registerStandardJobs: scheduler is required');
   if (!db) throw new TypeError('registerStandardJobs: db is required');
   const names = [];
@@ -51,7 +52,7 @@ export function registerStandardJobs(scheduler, { db, logger = null, sessionStor
       if (removed > 0) info('audit-personal-gc erased personal details of audit pseudonyms', { removed, days: auditPersonalDataDays });
     });
   }
-  if (bans) add('bans-gc', '15 4 * * *', () => { bans.purge(); });
+  if (bans) add('bans-gc', '15 4 * * *', () => { bans.purge(); ipBan?.purge(); });
   if (metrics) add('metrics-gc', '10 4 * * *', () => { metrics.purge(); });
   if (passwordResets) {
     add('password-resets-gc', '20 4 * * *', () => {

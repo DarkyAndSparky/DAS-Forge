@@ -10,7 +10,7 @@
  * same boundary as everywhere else in this codebase (§1).
  *
  * @param {object} opts
- * @param {import('../database/adapter.js')} opts.db
+ * @param {object} opts.db
  * @param {(db, id:number) => object|null} opts.findUserByIdFn - core/auth's findUserById
  * @param {{getDataSubjectHandlers: () => Array}} opts.moduleRegistry
  * @param {number} opts.userId

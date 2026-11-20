@@ -1,6 +1,7 @@
 import { pageParams, pagerFor } from './paging.js';
 import { pickTexts } from '../i18n/overrides.js';
-import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
+import { asyncView } from '../util/async-view.js';
 import { contextFromRequest } from '../audit/context.js';
 import { timeHtml } from '../ui/time.js';
 import { emptyRow, readForm } from './sections.js';
@@ -86,15 +87,15 @@ export function failedTasks(scheduler) {
 }
 
 /** Mail queue problems: failed mails or mails waiting far longer than a retry round. */
-export function mailProblems(queue) {
-  try { return queue.stats().failed > 0; } catch { return false; }
+export async function mailProblems(queue) {
+  try { return (await asyncView(queue).stats()).failed > 0; } catch { return false; }
 }
 
 /** "Tasks" section: the scheduler's jobs with a run-now action. */
 export function mountTasksSection({ app, db, guard, page: render, basePath, localeOf, texts = {}, stepUp = [], scheduler, taskSchedules = null, managedTasks = {} }) {
   const p = `${basePath}/tasks`;
   const SECTION_LABEL = { backups: { ru: 'Резервные копии', en: 'Backups' }, about: { ru: 'О системе', en: 'About' } };
-  app.get(p, ...guard, (req, res) => {
+  app.get(p, ...guard, async (req, res) => {
     const l = tx(texts, req, localeOf);
     const locale = localeOf(req);
     const msg = req.query?.msg === 'ok' ? `<div class="adm-toast">${esc(req.query.e === 'SCHED' ? l.schedSaved : l.taskDone)}</div>` : req.query?.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(req.query.e === 'UNKNOWN' ? l.taskUnknown : (l[`e_${String(req.query.e ?? '')}`] ?? l.taskBad))}</div>` : '';
@@ -109,12 +110,12 @@ export function mountTasksSection({ app, db, guard, page: render, basePath, loca
         edit = `<div class="adm-muted">${esc(l.managedIn)} <a href="${basePath}/${managed}">${esc(SECTION_LABEL[managed][locale] ?? SECTION_LABEL[managed].ru)}</a></div>`;
       } else if (taskSchedules) {
         const changed = taskSchedules.isOverridden(j.name);
-        edit = `<details style="margin-top:.35rem"><summary class="adm-muted" style="cursor:pointer">${esc(l.schedEdit)}</summary><form method="post" action="${href}/schedule" style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:.4rem 0"><input class="adm-input" name="cron" value="${esc(j.expression)}" aria-label="${esc(l.schedCron)}" style="width:10rem"><span class="adm-muted">${esc(l.schedOrDaily)}</span><input class="adm-input" type="time" name="time" style="width:7rem"><button class="adm-btn" type="submit">${esc(l.schedSave)}</button></form>${changed ? `<form method="post" action="${href}/schedule-reset" style="margin:0 0 .4rem"><span class="adm-muted">${esc(l.schedDefault)}: <code>${esc(j.defaultExpression)}</code></span> <button class="adm-btn" type="submit">${esc(l.schedReset)}</button></form>` : ''}</details>`;
+        edit = `<details style="margin-top:.35rem"><summary class="adm-muted" style="cursor:pointer">${esc(l.schedEdit)}</summary><form method="post" action="${href}/schedule" style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:.4rem 0"><input class="adm-input" name="cron" value="${esc(j.expression)}" aria-label="${esc(l.schedCron)}" style="width:10rem"><span class="adm-muted">${esc(l.schedOrDaily)}</span><input class="adm-input" type="time" name="time" style="width:7rem"><button class="adm-btn" type="submit">${esc(l.schedSave)}</button></form>${changed ? `<form method="post" action="${href}/schedule-reset" style="margin:0 0 .4rem"><span class="adm-muted">${esc(l.schedDefault)}: <code translate="no">${esc(j.defaultExpression)}</code></span> <button class="adm-btn" type="submit">${esc(l.schedReset)}</button></form>` : ''}</details>`;
       }
       const sched = `<code title="${esc(reading)}">${esc(j.expression)}</code><div class="adm-muted">${esc(reading)}${taskSchedules?.isOverridden(j.name) ? ` · ${esc(l.schedChanged)}` : ''}</div>${edit}`;
       return `<tr><td><strong>${esc(j.name)}</strong></td><td>${sched}</td><td>${state}</td><td>${j.lastRunAt ? timeHtml(j.lastRunAt, locale) : `<span class="adm-muted">${esc(l.never)}</span>`}</td><td>${j.lastError ? esc(j.lastError) : ''}</td><td><form method="post" action="${p}/${encodeURIComponent(j.name)}/run" style="margin:0"><button class="adm-btn" type="submit"${j.running ? ' disabled' : ''}>${esc(l.run)}</button></form></td></tr>`;
     }).join('') || emptyRow(6, l.emptyTasks);
-    render(req, res, { active: p, title: l.tasks, bodyHtml: `${msg}<p class="adm-muted">${esc(l.tasksHint)}</p>${taskSchedules ? `<p class="adm-muted">${esc(l.cronHelp)}</p>` : ''}<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.taskName)}</th><th>${esc(l.schedule)}</th><th>${esc(l.state)}</th><th>${esc(l.lastRun)}</th><th>${esc(l.lastError)}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` });
+    await render(req, res, { active: p, title: l.tasks, bodyHtml: `${msg}<p class="adm-muted">${esc(l.tasksHint)}</p>${taskSchedules ? `<p class="adm-muted">${esc(l.cronHelp)}</p>` : ''}<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.taskName)}</th><th>${esc(l.schedule)}</th><th>${esc(l.state)}</th><th>${esc(l.lastRun)}</th><th>${esc(l.lastError)}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` });
   });
 
   app.post(`${p}/:name/run`, ...guard, ...stepUp, async (req, res) => {
@@ -123,7 +124,7 @@ export function mountTasksSection({ app, db, guard, page: render, basePath, loca
     if (!known) return res.redirect(303, `${p}?msg=bad&e=UNKNOWN`);
     let ok = true;
     try { await scheduler.runNow(name); } catch { ok = false; }
-    log(db, { ...contextFromRequest(req), action: 'admin.task.run', entity: 'task', meta: { name }, result: ok ? 'success' : 'failure' });
+    await logAsync(db, { ...contextFromRequest(req), action: 'admin.task.run', entity: 'task', meta: { name }, result: ok ? 'success' : 'failure' });
     res.redirect(303, ok ? `${p}?msg=ok` : `${p}?msg=bad&e=FAILED`);
   });
 
@@ -134,7 +135,7 @@ export function mountTasksSection({ app, db, guard, page: render, basePath, loca
       try {
         const form = await readForm(req);
         const schedule = fn(name, form);
-        log(db, { ...contextFromRequest(req), action, entity: 'task', meta: { name, schedule }, result: 'success' });
+        await logAsync(db, { ...contextFromRequest(req), action, entity: 'task', meta: { name, schedule }, result: 'success' });
         res.redirect(303, `${p}?msg=ok&e=SCHED`);
       } catch (err) {
         res.redirect(303, `${p}?msg=bad&e=${err?.code === 'UNKNOWN' ? 'UNKNOWN' : 'CRON_INVALID'}`);
@@ -148,16 +149,17 @@ export function mountTasksSection({ app, db, guard, page: render, basePath, loca
 /** "Mail" section: queue counters and the newest rows (shortened addresses, no bodies). */
 export function mountMailSection({ app, db, guard, page: render, basePath, localeOf, texts = {}, stepUp = [], mail }) {
   const p = `${basePath}/mail`;
-  app.get(p, ...guard, (req, res) => {
+  const queue = asyncView(mail.queue);
+  app.get(p, ...guard, async (req, res) => {
     const l = tx(texts, req, localeOf);
     const locale = localeOf(req);
-    const stats = mail.queue?.stats?.() ?? { pending: 0, sending: 0, sent: 0, failed: 0 };
+    const stats = await queue?.stats?.() ?? { pending: 0, sending: 0, sent: 0, failed: 0 };
     const enabled = Boolean(mail.service?.enabled);
     const tiles = [[l.pending, stats.pending], [l.sending, stats.sending], [l.sent, stats.sent], [l.failedN, stats.failed]]
       .map(([k, v]) => `<div class="adm-card"><h2>${esc(k)}</h2><div class="adm-stat">${esc(v)}</div></div>`).join('');
     const statusBadge = (s) => `<span class="adm-badge ${s === 'sent' ? 'ok' : s === 'failed' ? 'danger' : 'info'}">${esc({ pending: l.pending, sending: l.sending, sent: l.sent, failed: l.failedN }[s] ?? s)}</span>`;
     const pg = pageParams(req);
-    const queueItems = mail.queue?.list?.({ limit: pg.size, offset: pg.offset }) ?? [];
+    const queueItems = await queue?.list?.({ limit: pg.size, offset: pg.offset }) ?? [];
     const queueTotal = (stats.pending ?? 0) + (stats.sending ?? 0) + (stats.sent ?? 0) + (stats.failed ?? 0);
     const canAct = Boolean(mail.queue?.cancel);
     const rows = queueItems.map((r) => `<tr><td>${esc(r.scenario)}</td><td>${esc(r.recipients.join(', '))}</td><td>${statusBadge(r.status)}</td><td>${esc(r.attempts)}</td><td>${r.status === 'pending' ? timeHtml(r.nextAttemptAt, locale) : ''}</td><td>${esc(r.lastError ?? '')}</td><td>${timeHtml(r.createdAt, locale)}</td>${canAct ? `<td>${r.status === 'pending' ? `<form method="post" action="${p}/cancel"><input type="hidden" name="id" value="${esc(r.id)}"><button class="adm-btn" type="submit">${esc(l.cancelBtn)}</button></form>` : ''}</td>` : ''}</tr>`).join('') || emptyRow(canAct ? 8 : 7, l.emptyMail);
@@ -165,20 +167,20 @@ export function mountMailSection({ app, db, guard, page: render, basePath, local
     const toast = q.msg === 'cancelled' ? `<div class="adm-toast">${esc(l.cancelled)}</div>` : q.msg === 'purged' ? `<div class="adm-toast">${esc(l.purged)} ${esc(Number(q.n) || 0)}</div>` : q.msg === 'ok' ? `<div class="adm-toast">${esc(l.testOk)}</div>` : q.msg === 'off' ? `<div class="adm-toast">${esc(l.testOff)}</div>` : q.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(q.e === 'ADDR' ? l.testBadAddr : `${l.testBad}${/^[A-Z_]{3,40}$/.test(String(q.e ?? '')) ? ` (${q.e})` : ''}`)}</div>` : '';
     const purgeForm = canAct ? `<div class="adm-card" style="margin-bottom:1rem"><p class="adm-muted">${esc(l.purgeHint)} ${esc(l.retryNote)}</p><form method="post" action="${p}/purge"><button class="adm-btn" type="submit">${esc(l.purgeBtn)}</button></form></div>` : '';
     const testForm = mail.service?.sendTest ? `<div class="adm-card" style="margin-bottom:1rem"><h2>${esc(l.testTitle)}</h2><p class="adm-muted">${esc(l.testHint)}</p><form method="post" action="${p}/test" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:end"><label class="adm-field">${esc(l.testTo)}<input class="adm-input" type="email" name="to" value="${esc(req.user?.email ?? '')}" maxlength="254" required autocomplete="off"></label><button class="adm-btn primary" type="submit"${enabled ? '' : ' disabled'}>${esc(l.testSend)}</button></form></div>` : '';
-    render(req, res, { active: p, title: l.mail, bodyHtml: `${toast}<p class="adm-muted">${esc(l.mailHint)}</p><p><span class="adm-badge ${enabled ? 'ok' : 'warn'}">${esc(enabled ? l.mailOn : l.mailOff)}</span></p>${testForm}${purgeForm}<div class="adm-grid" style="margin-bottom:1rem">${tiles}</div><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.scenario)}</th><th>${esc(l.recipients)}</th><th>${esc(l.status)}</th><th>${esc(l.attempts)}</th><th>${esc(l.next)}</th><th>${esc(l.error)}</th><th>${esc(l.created)}</th>${canAct ? `<th>${esc(l.actions)}</th>` : ''}</tr></thead><tbody data-paged="mail">${rows}</tbody></table>${pagerFor({ req, res, path: p, name: 'mail', ...pg, count: queueItems.length, total: queueTotal, locale })}</div>` });
+    await render(req, res, { active: p, title: l.mail, bodyHtml: `${toast}<p class="adm-muted">${esc(l.mailHint)}</p><p><span class="adm-badge ${enabled ? 'ok' : 'warn'}">${esc(enabled ? l.mailOn : l.mailOff)}</span></p>${testForm}${purgeForm}<div class="adm-grid" style="margin-bottom:1rem">${tiles}</div><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.scenario)}</th><th>${esc(l.recipients)}</th><th>${esc(l.status)}</th><th>${esc(l.attempts)}</th><th>${esc(l.next)}</th><th>${esc(l.error)}</th><th>${esc(l.created)}</th>${canAct ? `<th>${esc(l.actions)}</th>` : ''}</tr></thead><tbody data-paged="mail">${rows}</tbody></table>${pagerFor({ req, res, path: p, name: 'mail', ...pg, count: queueItems.length, total: queueTotal, locale })}</div>` });
   });
 
   if (mail.queue?.cancel) {
     app.post(`${p}/cancel`, ...guard, ...stepUp, async (req, res) => {
       const form = await readForm(req);
       const id = Number(form.id);
-      const done = mail.queue.cancel(id);
-      if (done && db) log(db, { ...contextFromRequest(req), action: 'admin.mail.cancel', entity: 'mail', entityId: String(id), result: 'success' });
+      const done = await queue.cancel(id);
+      if (done && db) await logAsync(db, { ...contextFromRequest(req), action: 'admin.mail.cancel', entity: 'mail', entityId: String(id), result: 'success' });
       res.redirect(303, done ? `${p}?msg=cancelled` : p);
     });
-    app.post(`${p}/purge`, ...guard, ...stepUp, (req, res) => {
-      const n = mail.queue.purgeFinished({ olderThanDays: 1 });
-      if (db) log(db, { ...contextFromRequest(req), action: 'admin.mail.purge', entity: 'mail', meta: { removed: n }, result: 'success' });
+    app.post(`${p}/purge`, ...guard, ...stepUp, async (req, res) => {
+      const n = await queue.purgeFinished({ olderThanDays: 1 });
+      if (db) await logAsync(db, { ...contextFromRequest(req), action: 'admin.mail.purge', entity: 'mail', meta: { removed: n }, result: 'success' });
       res.redirect(303, `${p}?msg=purged&n=${n}`);
     });
   }
@@ -193,10 +195,10 @@ export function mountMailSection({ app, db, guard, page: render, basePath, local
       try {
         const r = await mail.service.sendTest({ to, locale: localeOf(req) });
         if (r.skipped === 'disabled') return res.redirect(303, `${p}?msg=off`);
-        if (db) log(db, { ...contextFromRequest(req), action: 'admin.mail.test', entity: 'mail', meta: { to: masked }, result: 'success' });
+        if (db) await logAsync(db, { ...contextFromRequest(req), action: 'admin.mail.test', entity: 'mail', meta: { to: masked }, result: 'success' });
         res.redirect(303, `${p}?msg=ok`);
       } catch (err) {
-        if (db) log(db, { ...contextFromRequest(req), action: 'admin.mail.test', entity: 'mail', meta: { to: masked, code: err?.code ?? 'FAILED' }, result: 'failure' });
+        if (db) await logAsync(db, { ...contextFromRequest(req), action: 'admin.mail.test', entity: 'mail', meta: { to: masked, code: err?.code ?? 'FAILED' }, result: 'failure' });
         res.redirect(303, `${p}?msg=bad&e=${/^[A-Z_]{3,40}$/.test(String(err?.code ?? '')) ? err.code : 'FAILED'}`);
       }
     });
@@ -208,13 +210,13 @@ export function mountConfigSection({ app, guard, page: render, basePath, localeO
   const p = `${basePath}/config`;
   let defaults;
   const defaultsOnce = () => (defaults === undefined ? (defaults = schemaDefaults()) : defaults);
-  app.get(p, ...guard, (req, res) => {
+  app.get(p, ...guard, async (req, res) => {
     const l = tx(texts, req, localeOf);
     const q = String(req.query?.q ?? '').slice(0, 64).toLowerCase();
     const shown = (v) => {
       if (v === null) return `<span class="adm-badge">${esc(l.hidden)}</span>`;
       if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0) || (v && typeof v === 'object' && Object.keys(v).length === 0)) return `<span class="adm-muted">${esc(l.empty)}</span>`;
-      return `<code>${esc(typeof v === 'string' ? v : JSON.stringify(v))}</code>`;
+      return `<code translate="no">${esc(typeof v === 'string' ? v : JSON.stringify(v))}</code>`;
     };
     const onlyChanged = Boolean(configSources) && req.query?.changed === '1';
     const flat = config ? flattenConfig(config).filter(([k]) => !q || configKeyMatches(k, q)) : [];
@@ -225,7 +227,7 @@ export function mountConfigSection({ app, guard, page: render, basePath, localeO
     const cols = withSource ? 3 : 2;
     const rows = lines.map((r) => `<tr><td>${esc(r.path)}</td><td>${shown(r.value)}</td>${withSource ? `<td><span class="adm-muted">${esc(srcLabel[r.source] ?? '')}</span>${r.changed ? ` <span class="adm-badge">${esc(l.changed)}</span>` : ''}</td>` : ''}</tr>`).join('') || emptyRow(cols, l.emptyConfig);
     const changedBox = withSource ? `<label class="adm-field"><span><input type="checkbox" name="changed" value="1"${onlyChanged ? ' checked' : ''}> ${esc(l.onlyChanged)}</span></label>` : '';
-    render(req, res, { active: p, title: l.config, bodyHtml: `<p class="adm-muted">${esc(l.configHint)}</p><form method="get" class="adm-card adm-filters"><label class="adm-field">${esc(l.search)}<input class="adm-input" name="q" value="${esc(q)}" maxlength="64"></label>${changedBox}<button class="adm-btn primary" type="submit">${esc(l.find)}</button></form><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.path)}</th><th>${esc(l.value)}</th>${withSource ? `<th>${esc(l.source)}</th>` : ''}</tr></thead><tbody>${rows}</tbody></table></div>${envCard(l, env, q)}` });
+    await render(req, res, { active: p, title: l.config, bodyHtml: `<p class="adm-muted">${esc(l.configHint)}</p><form method="get" class="adm-card adm-filters"><label class="adm-field">${esc(l.search)}<input class="adm-input" name="q" value="${esc(q)}" maxlength="64"></label>${changedBox}<button class="adm-btn primary" type="submit">${esc(l.find)}</button></form><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.path)}</th><th>${esc(l.value)}</th>${withSource ? `<th>${esc(l.source)}</th>` : ''}</tr></thead><tbody>${rows}</tbody></table></div>${envCard(l, env, q)}` });
   });
 }
 
@@ -235,9 +237,9 @@ function envCard(l, env, q = '') {
   const known = all.known.filter((k) => !q || k.name.toLowerCase().includes(q) || configKeyMatches(k.path, q)); // the page search applies here too
   const unknown = all.unknown.filter((u) => !q || u.name.toLowerCase().includes(q));
   const label = (k) => (k.source === 'env' ? (k.note === 'both' ? l.envBoth : l.envSet) : k.source === 'file' ? l.envFile : l.envUnset);
-  const rows = known.map((k) => `<tr><td><code>${esc(k.name)}</code></td><td>${esc(k.path)}</td><td><span class="adm-badge ${k.source === 'unset' ? '' : 'ok'}">${esc(label(k))}</span></td></tr>`).join('');
+  const rows = known.map((k) => `<tr><td><code translate="no">${esc(k.name)}</code></td><td>${esc(k.path)}</td><td><span class="adm-badge ${k.source === 'unset' ? '' : 'ok'}">${esc(label(k))}</span></td></tr>`).join('');
   const stray = unknown.length
-    ? `<div class="adm-card" style="margin-top:1rem"><h2>${esc(l.envUnknown)}</h2><p class="adm-muted">${esc(l.envUnknownHint)}</p><ul>${unknown.map((u) => `<li><code>${esc(u.name)}</code>${u.didYouMean ? ` - ${esc(l.envDidYouMean)} <code>${esc(u.didYouMean)}</code>` : ''}</li>`).join('')}</ul></div>`
+    ? `<div class="adm-card" style="margin-top:1rem"><h2>${esc(l.envUnknown)}</h2><p class="adm-muted">${esc(l.envUnknownHint)}</p><ul>${unknown.map((u) => `<li><code translate="no">${esc(u.name)}</code>${u.didYouMean ? ` - ${esc(l.envDidYouMean)} <code translate="no">${esc(u.didYouMean)}</code>` : ''}</li>`).join('')}</ul></div>`
     : '';
   return `<div class="adm-card" style="margin-top:1rem"><h2>${esc(l.envTitle)}</h2><p class="adm-muted">${esc(l.envHint)}</p><table class="adm-table"><thead><tr><th>${esc(l.envName)}</th><th>${esc(l.path)}</th><th>${esc(l.envSource)}</th></tr></thead><tbody>${rows}</tbody></table></div>${stray}`;
 }

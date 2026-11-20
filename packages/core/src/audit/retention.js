@@ -2,6 +2,8 @@ import { ensureAuditTable } from './schema.js';
 import { log } from './log.js';
 import { purgeStaleSubjects } from './subjects.js';
 import { archiveBefore, verifyArchive } from './archive.js';
+import { archiveBeforeAsync } from './archive.js';
+import { purgeOlderThanAsync, logAsync } from './async.js';
 
 /**
  * Deletes audit_log rows strictly older than `beforeIso`. Returns the
@@ -73,4 +75,17 @@ function purgeSync(db, beforeIso, { record, actor, batchSize }) {
   // app should pass { record: true } so a retention run is itself audited.
   if (record) log(db, { actor, action: 'audit.purge', meta: { before: beforeIso, removed } });
   return removed;
+}
+
+/** `archiveAndPurge()` over `asyncDb`: archive, check the file, then delete; on any failure nothing is deleted. */
+export async function archiveAndPurgeAsync(db, beforeIso, { archiveDir, record = true, actor = null, batchSize = 5000 } = {}) {
+  if (!archiveDir) throw new TypeError('archiveAndPurge() requires archiveDir');
+  const archive = await archiveBeforeAsync(db, beforeIso, { dir: archiveDir });
+  if (archive) {
+    const v = verifyArchive(archive.file);
+    if (!v.ok || v.rows !== archive.rows) throw new Error(`audit archive check failed (${v.reason ?? 'row count'}); nothing was deleted`);
+  }
+  const removed = await purgeOlderThanAsync(db, beforeIso, { record: false, actor, batchSize });
+  if (record) await logAsync(db, { actor, action: 'audit.purge', meta: { before: beforeIso, removed, archive: archive ? { file: archive.file.split(/[\\/]/).pop(), rows: archive.rows, sha256: archive.sha256, lastId: archive.lastId, lastHash: archive.lastHash } : null } });
+  return { removed, archive };
 }

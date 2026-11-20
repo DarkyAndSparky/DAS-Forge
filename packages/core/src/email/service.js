@@ -134,7 +134,7 @@ export function createEmailService({ config, logger, transport, brandName = 'DAS
       headers: { 'Auto-Submitted': 'auto-generated', 'X-Auto-Response-Suppress': 'All' },
     };
     if (queue) {
-      const { id } = queue.enqueue(mail, { scenario });
+      const { id } = await queue.enqueue(mail, { scenario }); // a synchronous or an asynchronous queue
       logger?.info?.('email queued', { scenario, to: recipients.map(maskAddress), queueId: id });
       return { sent: false, queued: true, queueId: id };
     }
@@ -176,6 +176,7 @@ export function createEmailService({ config, logger, transport, brandName = 'DAS
     sendAlert: ({ to, title, message, severity = 'info', locale }) => deliver('alert', to, { title, message, severity }, { locale }),
     sendPasswordReset: ({ to, resetUrl, expiresInMinutes, locale }) => deliver('passwordReset', to, { resetUrl, expiresInMinutes }, { locale }),
     sendPasswordChanged: ({ to, locale }) => deliver('passwordChanged', to, {}, { locale }),
+    sendMfaRequired: ({ to, locale }) => deliver('mfaRequired', to, {}, { locale }),
     sendNewDeviceLogin: ({ to, when, ip, device, locale }) => deliver('newDeviceLogin', to, { when, ip, device }, { locale }),
     sendEmailVerification: ({ to, verifyUrl, locale }) => deliver('emailVerification', to, { verifyUrl }, { locale }),
     sendAccountBanned: ({ to, reason, until, locale }) => deliver('accountBanned', to, { reason, until }, { locale }),

@@ -113,8 +113,25 @@ export function createFailureTracker({
   now = Date.now,
   maxKeys = DEFAULT_MAX_KEYS,
   onLock,
+  store = null,
+  flushMs = 1000,
+  maxBatch = 500,
 } = {}) {
   const state = new Map(); // key -> { failures, lockedUntil, lastFailureAt }
+  // Persistence (A2): `store` (see security/failure-store.js) keeps the counters across restarts and processes. The map stays the
+  // working copy, so `check`/`recordFailure` remain synchronous and a request never waits for the database. Changes are written
+  // together at most once per `flushMs` (and at most `maxBatch` rows per write), so a flood of failures is one batch a second, not a query per attempt.
+  const dirty = new Set();
+  const removed = new Set();
+  const removedPrefixes = [];
+  let timer = null;
+  let flushing = null;
+  const touch = (key) => { removed.delete(key); dirty.add(key); schedule(); };
+  function schedule() {
+    if (!store || timer) return;
+    timer = setTimeout(() => { timer = null; flush().catch(() => { /* retried at the next change; a failing database must not break sign-in */ }); }, flushMs);
+    timer.unref?.();
+  }
 
   function current(key, t) {
     const s = state.get(key);
@@ -124,6 +141,45 @@ export function createFailureTracker({
       return null;
     }
     return s;
+  }
+
+  function merge(rows) {
+    const t = now();
+    let n = 0;
+    for (const r of rows) {
+      if (removed.has(r.key)) continue;
+      const live = r.lockedUntil > t || t - r.lastFailureAt <= resetAfterMs;
+      if (!live) continue;
+      const s = state.get(r.key);
+      if (!s) {
+        if (state.size >= maxKeys && r.lockedUntil <= t) continue;
+        state.set(r.key, { failures: r.failures, lockedUntil: r.lockedUntil, lastFailureAt: r.lastFailureAt });
+        n += 1;
+      } else {
+        s.failures = Math.max(s.failures, r.failures);
+        s.lockedUntil = Math.max(s.lockedUntil, r.lockedUntil);
+        s.lastFailureAt = Math.max(s.lastFailureAt, r.lastFailureAt);
+      }
+    }
+    return n;
+  }
+
+  async function flush() {
+    if (flushing) return flushing; // one write at a time
+    flushing = (async () => {
+      try {
+        const prefixes = removedPrefixes.splice(0);
+        for (const p of prefixes) await store.removePrefix(p);
+        const gone = [...removed].slice(0, maxBatch);
+        if (gone.length) { gone.forEach((k) => removed.delete(k)); await store.remove(gone); }
+        const keys = [...dirty].slice(0, maxBatch);
+        keys.forEach((k) => dirty.delete(k));
+        const rows = keys.map((k) => ({ key: k, s: state.get(k) })).filter((x) => x.s).map(({ key, s }) => ({ key, failures: s.failures, lockedUntil: s.lockedUntil, lastFailureAt: s.lastFailureAt }));
+        try { await store.save(rows); } catch (err) { keys.forEach((k) => dirty.add(k)); throw err; }
+        if (dirty.size > 0 || removed.size > 0) schedule();
+      } finally { flushing = null; }
+    })();
+    return flushing;
   }
 
   return {
@@ -162,6 +218,7 @@ export function createFailureTracker({
       }
       s.failures += 1;
       s.lastFailureAt = t;
+      touch(key);
       if (s.failures >= maxFailures) {
         const lockMs = Math.min(maxLockMs, baseLockMs * 2 ** (s.failures - maxFailures));
         s.lockedUntil = t + lockMs;
@@ -175,18 +232,51 @@ export function createFailureTracker({
     /** Forgets a key - call after a successful credential check. */
     reset(key) {
       state.delete(key);
+      if (store) { dirty.delete(key); removed.add(key); schedule(); }
     },
 
     /** Forgets every key that starts with `prefix` (e.g. all `name|ip` pairs of one username). @returns {number} how many */
     resetPrefix(prefix) {
       let n = 0;
       for (const k of [...state.keys()]) {
-        if (String(k).startsWith(prefix)) { state.delete(k); n++; }
+        if (String(k).startsWith(prefix)) { state.delete(k); dirty.delete(k); n++; }
       }
+      if (store) { removedPrefixes.push(prefix); schedule(); }
       return n;
     },
 
-    /** Active lock-outs only, soonest-to-expire first: what an administrator sees (audit R-08). Memory only: a restart empties it. */
+    /** Reads the stored counters into memory (call once at start). With a `store`, a restart no longer clears the lock-outs. */
+    async hydrate() {
+      if (!store) return 0;
+      return merge(await store.load());
+    },
+
+    /** Takes over counters other processes wrote: the larger value of each column wins, so a lock set elsewhere applies here too. */
+    async refresh() {
+      if (!store) return 0;
+      return merge(await store.load());
+    },
+
+    /** Writes pending changes now (also done by the timer). Safe to call at shutdown. */
+    async flush() {
+      if (!store) return;
+      return flush();
+    },
+
+    /** Stops the timer after a last write. */
+    async close() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      await this.flush();
+    },
+
+    /** Removes stored counters that are quiet and not locked (a scheduler job calls this). */
+    async purgeStore() {
+      if (!store) return;
+      const t = now();
+      await store.purge({ now: t, quietBefore: t - resetAfterMs });
+    },
+
+    /** Active lock-outs only, soonest-to-expire first: what an administrator sees (audit R-08). With a `store` they survive a restart. */
     list() {
       const t = now();
       const out = [];

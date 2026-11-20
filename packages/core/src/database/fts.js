@@ -124,3 +124,66 @@ export function createFtsIndex(db, table, columns, { rowidColumn = 'rowid', toke
        LIMIT ${normalizeLimit(limit)}`,
   };
 }
+
+/**
+ * Turns user text into a safe PostgreSQL `to_tsquery` string: every word (letters and digits) becomes a quoted lexeme,
+ * words are AND-ed, `prefix: true` makes each one a prefix (`'ноутбук':*`). Returns null when there is nothing to search.
+ */
+export function tsEscape(userInput, { prefix = false, foldYo: fold = false } = {}) {
+  const text = fold ? foldYo(userInput) : String(userInput ?? '');
+  const words = text.match(/[\p{L}\p{N}_]+/gu) ?? [];
+  return words.length === 0 ? null : words.map((w) => `'${w}'${prefix ? ':*' : ''}`).join(' & ');
+}
+
+/**
+ * Full-text search for any driver (ADR-0010). SQLite: the FTS5 index of `createFtsIndex` (the database must be the
+ * synchronous adapter). PostgreSQL: a GIN index over `to_tsvector(config, col1 || ' ' || col2 …)` — an expression index,
+ * so no triggers and no second copy of the text are needed, and `rebuild()` has nothing to do.
+ * The result has the same shape as `createFtsIndex`: `searchSql(limit)` (one `?` — the escaped text) and `escapeQuery`.
+ * It also has `searchAsync(text, { limit, prefix, foldYo })`, which escapes, runs the query and returns the rows.
+ *
+ * @param {object} db
+ * @param {string} table
+ * @param {string[]} columns
+ * @param {object} [opts]
+ * @param {string} [opts.rowidColumn]
+ * @param {string} [opts.config='simple'] PostgreSQL text search configuration (`russian` also stems words)
+ */
+export async function createFtsIndexAsync(db, table, columns, opts = {}) {
+  if (db?.dialect !== 'postgres') {
+    if (typeof db?.createFtsIndex !== 'function') {
+      throw new TypeError('createFtsIndexAsync: for SQLite pass the synchronous database adapter');
+    }
+    return db.createFtsIndex(table, columns, opts);
+  }
+  if (!Array.isArray(columns) || columns.length === 0) {
+    throw new TypeError('createFtsIndex requires a non-empty columns array');
+  }
+  assertSafeIdentifier(table, 'table');
+  for (const c of columns) assertSafeIdentifier(c, 'column');
+  const config = opts.config ?? 'simple';
+  if (!/^[a-z_]+$/.test(config)) throw new TypeError('createFtsIndexAsync: config must be a text search configuration name such as "simple" or "russian"');
+  const rowidColumn = opts.rowidColumn && opts.rowidColumn !== 'rowid' ? opts.rowidColumn : null;
+  if (rowidColumn) assertSafeIdentifier(rowidColumn, 'rowid column');
+
+  const ftsTable = `${table}_fts`; // the index name; there is no separate table
+  const vector = `to_tsvector('${config}', ${columns.map((c) => `coalesce(${c}::text, '')`).join(` || ' ' || `)})`;
+  await db.exec(`CREATE INDEX IF NOT EXISTS ${ftsTable} ON ${table} USING GIN (${vector})`);
+
+  const searchSql = (limit = 20) =>
+    `SELECT ${table}.* FROM ${table}
+     WHERE ${vector} @@ to_tsquery('${config}', ?)
+     ORDER BY ts_rank(${vector}, to_tsquery('${config}', ?)) DESC
+     LIMIT ${normalizeLimit(limit)}`;
+  return {
+    tableName: ftsTable,
+    escapeQuery: (text, options) => tsEscape(text, options),
+    rebuild: async () => {},
+    searchSql,
+    /** `searchSql` takes the escaped text twice (filter and rank) — this does both. */
+    searchAsync: async (text, { limit = 20, ...options } = {}) => {
+      const q = tsEscape(text, options);
+      return q === null ? [] : db.all(searchSql(limit), [q, q]);
+    },
+  };
+}

@@ -1,6 +1,6 @@
 import { pickTexts } from '../i18n/overrides.js';
 import { formatProcessingRegistry } from '../privacy/registry.js';
-import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
 import { contextFromRequest } from '../audit/context.js';
 import { emptyRow } from './sections.js';
 
@@ -29,22 +29,22 @@ export function mountRegistrySection({ app, db, guard, page, basePath, localeOf,
   const p = `${basePath}/registry`;
   const tx = (req) => pickTexts(REGISTRY_TEXTS, texts['admin-registry'], localeOf(req), 'admin-registry');
 
-  app.get(p, ...guard, (req, res) => {
+  app.get(p, ...guard, async (req, res) => {
     const l = tx(req);
     const lang = localeOf(req) === 'en' ? 'en' : 'ru';
     const reg = build();
     const rows = reg.entries.map((e) => { const r = e[lang]; return `<tr><td>${esc(r.name)}</td><td>${esc(r.purpose)}</td><td>${esc(r.data)}</td><td>${esc(r.legalBasis)}</td><td>${esc(r.retention)}</td><td>${esc(r.erasure)}</td></tr>`; }).join('') || emptyRow(6, l.none);
-    const gaps = reg.gaps.length ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(l.gaps)}: ${reg.gaps.map((g) => `<code>${esc(g)}</code>`).join(', ')}</div>` : '';
+    const gaps = reg.gaps.length ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(l.gaps)}: ${reg.gaps.map((g) => `<code translate="no">${esc(g)}</code>`).join(', ')}</div>` : '';
     const links = ['md', 'csv', 'json'].map((f) => `<a class="adm-btn" href="${p}.${f}">${esc(l.download)} ${f.toUpperCase()}</a>`).join(' ');
-    page(req, res, { active: p, title: l.registry, bodyHtml: `<p class="adm-muted">${esc(l.hint)}</p>${gaps}<p>${links}</p><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.name)}</th><th>${esc(l.purpose)}</th><th>${esc(l.data)}</th><th>${esc(l.basis)}</th><th>${esc(l.retention)}</th><th>${esc(l.erasure)}</th></tr></thead><tbody>${rows}</tbody></table></div>` });
+    await page(req, res, { active: p, title: l.registry, bodyHtml: `<p class="adm-muted">${esc(l.hint)}</p>${gaps}<p>${links}</p><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.name)}</th><th>${esc(l.purpose)}</th><th>${esc(l.data)}</th><th>${esc(l.basis)}</th><th>${esc(l.retention)}</th><th>${esc(l.erasure)}</th></tr></thead><tbody>${rows}</tbody></table></div>` });
   });
 
   const types = { md: 'text/markdown', csv: 'text/csv', json: 'application/json' };
   for (const format of Object.keys(types)) {
-    app.get(`${p}.${format}`, ...guard, (req, res) => {
+    app.get(`${p}.${format}`, ...guard, async (req, res) => {
       const lang = localeOf(req) === 'en' ? 'en' : 'ru';
       const text = formatProcessingRegistry(build(), { format, lang });
-      log(db, { ...contextFromRequest(req), action: 'admin.registry.export', entity: 'registry', meta: { format, lang } });
+      await logAsync(db, { ...contextFromRequest(req), action: 'admin.registry.export', entity: 'registry', meta: { format, lang } });
       res.set('Content-Type', `${types[format]}; charset=utf-8`).set('Content-Disposition', `attachment; filename="processing-registry.${format}"`).set('Cache-Control', 'no-store').send(text);
     });
   }

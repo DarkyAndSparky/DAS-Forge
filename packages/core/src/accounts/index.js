@@ -6,13 +6,15 @@ import * as http from '../http/index.js';
 import * as audit from '../audit/index.js';
 import * as qr from '../qr/index.js';
 import { pickTexts } from '../i18n/overrides.js';
-import { themeWithBranding, brandBlockHtml } from '../branding/index.js';
+import { themeWithBrandingAsync, brandBlockHtmlAsync } from '../branding/index.js';
 import { ACCOUNT_TEXTS } from './texts.js';
-import { createRegistrationStore } from './registration.js';
-import { createDirectoryLinks } from './directory.js';
+import { createFailureStore } from '../security/failure-store.js';
+import { createRegistrationStore, ensureRegistrationsTableAsync } from './registration.js';
+import { createDirectoryLinks, ensureDirectoryLinksTableAsync } from './directory.js';
+import { parseId } from '../util/parse-id.js';
 import { renderRegisterPage, renderRegisterConfirmPage, renderLoginPage, renderForgotPasswordPage, renderResetPasswordPage, renderForcedPasswordPage, renderAccountBody } from './pages.js';
 
-export { ACCOUNT_TEXTS, createRegistrationStore, createDirectoryLinks };
+export { ACCOUNT_TEXTS, createRegistrationStore, createDirectoryLinks, ensureRegistrationsTableAsync, ensureDirectoryLinksTableAsync };
 
 const LoginSchema = z.object({
   username: z.string().min(1).max(128),
@@ -76,13 +78,16 @@ const RecoveryGenerateSchema = z.object({
 const MFA_PENDING_TTL_MS = 5 * 60_000;
 
 /** What /me may return about the logged-in user (serialize strict allowlist, audit A19). */
-const ME_FIELDS = { id: true, username: true, role: true, permissions: true, mustChangePassword: true };
+const ME_FIELDS = { id: true, username: true, role: true, permissions: true, mustChangePassword: true, mustEnrollMfa: true };
 
 /** Paths a user with a pending forced password change may still use (the app adds its own with `allowDuringPasswordChange`). */
 const PASSWORD_CHANGE_ALLOWED_PATHS = ['/password/change', '/logout', '/me', '/login', '/', '/favicon.ico'];
 
-function activeTotpAuthenticators(db, userId) {
-  return auth.listAuthenticators(db, userId).filter((a) => a.type === 'totp' && a.status === 'active');
+/** Paths a user whose role requires a second factor (and has none yet) may use: only what is needed to set one up. */
+const MFA_ENROLL_ALLOWED_PATHS = ['/logout', '/me', '/login', '/', '/favicon.ico', '/totp/authenticators', '/totp/enroll/start', '/totp/enroll/qr.svg', '/totp/enroll/verify', '/recovery-codes/generate', '/recovery-codes/remaining'];
+
+async function activeTotpAuthenticators(db, userId) {
+  return (await auth.listAuthenticatorsAsync(db, userId)).filter((a) => a.type === 'totp' && a.status === 'active');
 }
 
 /**
@@ -98,6 +103,7 @@ function activeTotpAuthenticators(db, userId) {
  * @param {object} [o.appConfig] - uses `auth` (sessionTtlMs, passwordPolicy, sessionSecret, totpEncryptionKey, previous*), `security` (loginRateLimit, lockout), `email.baseUrl`
  * @param {{authenticate: (username: string, password: string) => Promise<{ok: boolean, code?: string, username?: string, email?: string|null, role?: string}>, source?: string, allowedRoles?: string[]}} [o.directory] - LDAP/AD sign-in (`ldap.createLdapAuthenticator()`): an unknown username, or an account created from the directory, is checked there; local accounts keep their own password
  * @param {object} [o.bans] - `security.createBans()`; a banned username gets no session
+ * @param {{recordFailure: Function}} [o.ipBan] - `security.createIpBanPolicy()`; every failed sign-in counts towards an automatic, stored ban of the address
  * @param {(info: object) => void} [o.onLock] - called when a lock-out starts
  * @param {object} [o.emailService] - `email.createEmailService()`; password reset mail needs it enabled
  * @param {object} [o.logger]
@@ -117,7 +123,7 @@ function activeTotpAuthenticators(db, userId) {
  * @returns {{ forgetLoginFailures: (username: string) => void, userPublicShape: (user: object) => object, totpKey: string[] }}
  */
 export function mountAccountRoutes(app, {
-  db, authProvider, directory = null, appConfig = {}, bans = null, onLock = null, emailService = null, logger = null,
+  db, authProvider, directory = null, appConfig = {}, bans = null, ipBan = null, onLock = null, emailService = null, logger = null,
   permissionsForRole, mfaRequiredForRole = () => false, pages = {}, texts = {}, appName = '', vendorIdentity = null, theme = {}, brand = null, accountShell = null, accountPath = '/ui/account',
   homePath = '/ui', passwordChangePath = '/ui/password', allowDuringPasswordChange = [],
 }) {
@@ -127,6 +133,10 @@ export function mountAccountRoutes(app, {
   const uuidv4 = randomUUID;
   const directoryLinks = directory ? createDirectoryLinks(db) : null;
   const allowedPaths = new Set([...PASSWORD_CHANGE_ALLOWED_PATHS, passwordChangePath, ...allowDuringPasswordChange, ...(accountShell ? [accountPath] : [])]);
+  const enrollPaths = new Set([...MFA_ENROLL_ALLOWED_PATHS, accountPath]);
+  // A role can need a second factor because the application says so in code or because an administrator switched it on.
+  const mfaRoles = auth.createMfaRoleStoreAsync({ db });
+  const mfaNeededFor = async (role) => Boolean(mfaRequiredForRole(role)) || (await mfaRoles.has(role));
 
   function userPublicShape(user) {
     return { id: user.id, username: user.username, role: user.role, permissions: permissionsForRole(user.role) };
@@ -138,26 +148,30 @@ export function mountAccountRoutes(app, {
    * id (session-fixation protection, §4.5h): whatever session the request arrived with is destroyed, a pending MFA session
    * is never promoted in place.
    */
+  // Not yet confirmed a factor while the role needs one. Worked out here for every way a full session is issued
+  // (password, TOTP, recovery code, after a password change), so none of them can step around the restriction.
+  const mustEnrollMfa = async (user) => user.mustEnrollMfa ?? ((await mfaNeededFor(user.role)) && (await activeTotpAuthenticators(db, user.id)).length === 0);
+
   async function issueFullSession(req, { user, ttlMs }, res = null) {
     await http.establishSession(req, {
       userId: user.id,
       // mustChangePassword rides in the session snapshot so a route-level guard can enforce it without a DB read per request (audit A06).
-      user: { ...userPublicShape(user), mustChangePassword: Boolean(user.mustChangePassword) },
+      user: { ...userPublicShape(user), mustChangePassword: Boolean(user.mustChangePassword), mustEnrollMfa: await mustEnrollMfa(user) },
       maxAgeMs: ttlMs,
     });
-    if (res) noteDevice(req, res, user);
+    if (res) await noteDevice(req, res, user);
   }
 
   /** Recognises the browser by its `das_device` cookie; a browser not seen before for this account is reported to the owner by e-mail. Never breaks the sign-in. */
-  function noteDevice(req, res, user) {
+  async function noteDevice(req, res, user) {
     try {
-      const seen = devices.recognizeDevice(db, { userId: user.id, deviceId: req.cookies?.[devices.DEVICE_COOKIE], ip: req.ip, userAgent: req.headers?.['user-agent'] });
+      const seen = await devices.recognizeDeviceAsync(db, { userId: user.id, deviceId: req.cookies?.[devices.DEVICE_COOKIE], ip: req.ip, userAgent: req.headers?.['user-agent'] });
       res.cookie(devices.DEVICE_COOKIE, seen.deviceId, { httpOnly: true, sameSite: 'lax', secure: Boolean(req.secure), maxAge: devices.DEVICE_COOKIE_MAX_AGE_MS, path: '/' });
       if (!seen.isNew || seen.firstEver) return;
       const device = devices.describeAgent(req.headers?.['user-agent']);
-      logAudit(req, { actor: user.username, action: 'auth.login.new_device', entity: 'user', entityId: user.id, meta: { device } });
-      if (appConfig.auth?.newDeviceNotice === false || !emailService?.enabled || !auth.findUserById(db, user.id)?.email) return;
-      void emailService.sendNewDeviceLogin({ to: auth.findUserById(db, user.id).email, when: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC', ip: req.ip ?? '?', device, locale: req.locale === 'en' ? 'en' : 'ru' })
+      await logAudit(req, { actor: user.username, action: 'auth.login.new_device', entity: 'user', entityId: user.id, meta: { device } });
+      if (appConfig.auth?.newDeviceNotice === false || !emailService?.enabled || !(await auth.findUserByIdAsync(db, user.id))?.email) return;
+      void emailService.sendNewDeviceLogin({ to: (await auth.findUserByIdAsync(db, user.id)).email, when: new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC', ip: req.ip ?? '?', device, locale: req.locale === 'en' ? 'en' : 'ru' })
         .catch((err) => logger?.warn?.('new device mail failed', { code: err?.code }));
     } catch (err) {
       logger?.warn?.('device recognition failed', { message: err?.message });
@@ -165,9 +179,9 @@ export function mountAccountRoutes(app, {
   }
 
   // Best-effort audit entry that takes request id and address from the request; a failing log must never break the request.
-  function logAudit(req, { actor, action, entity = null, entityId = null, result = 'success', meta = {} }) {
+  async function logAudit(req, { actor, action, entity = null, entityId = null, result = 'success', meta = {} }) {
     try {
-      audit.log(db, { actor, action, entity, entityId, result, meta, requestId: req.id, ip: req.ip });
+      await audit.logAsync(db, { actor, action, entity, entityId, result, meta, requestId: req.id, ip: req.ip });
     } catch {
       // best-effort
     }
@@ -179,7 +193,7 @@ export function mountAccountRoutes(app, {
   const securityCfg = appConfig?.security ?? {};
   const sessionTtlMs = appConfig?.auth?.sessionTtlMs ?? 1000 * 60 * 60 * 8;
   // The rules an administrator can change in the admin panel (stored in the database); the configuration is the starting point.
-  const passwordRules = auth.createPasswordPolicy({ db, config: appConfig?.auth?.passwordPolicy ?? {}, appName, blocklistFile: appConfig?.auth?.passwordBlocklistFile });
+  const passwordRules = auth.createPasswordPolicyAsync({ db, config: appConfig?.auth?.passwordPolicy ?? {}, appName, blocklistFile: appConfig?.auth?.passwordBlocklistFile });
   const isAdminUser = (u) => (permissionsForRole(u.role) ?? []).includes('admin.access');
   // A10: TOTP secrets are encrypted at rest with a key derived from the
   // session secret (rotating that secret requires re-enrolling TOTP).
@@ -194,7 +208,7 @@ export function mountAccountRoutes(app, {
     ...(appConfig?.auth?.previousSessionSecrets ?? []),
   ].filter((k) => typeof k === 'string' && k.length >= 16);
   if (totpKey.length > 0) {
-    try { auth.sealExistingTotpSecrets(db, totpKey); } catch { /* tables may not exist yet; sealed on next start */ }
+    auth.sealExistingTotpSecretsAsync(db, totpKey).catch(() => { /* tables may not exist yet; sealed on next start */ });
   }
   const loginRateCfg = securityCfg.loginRateLimit ?? { windowMs: 60_000, max: 10 };
   const lockoutCfg = securityCfg.lockout ?? { maxFailures: 5, baseLockMs: 5 * 60_000, maxLockMs: 24 * 3_600_000, resetAfterMs: 24 * 3_600_000 };
@@ -206,14 +220,32 @@ export function mountAccountRoutes(app, {
   // Two budgets on the name (audit K03): the strict one is per (name, IP), so a stranger typing wrong passwords for
   // "admin" locks only his own address, not the administrator; the per-name one is several times wider, so a guess
   // spread over many addresses is still stopped, and reaching it writes an `auth.lockout` audit entry.
-  const loginPairFailures = http.createFailureTracker({ ...lockoutCfg, onLock });
-  const loginUserFailures = http.createFailureTracker({ ...lockoutCfg, onLock, maxFailures: lockoutCfg.maxFailures * 6, maxLockMs: Math.min(lockoutCfg.maxLockMs, 3_600_000) }); // by login alone: capped at 1 h, so a stranger cannot keep the real owner out for a day
+  const persist = lockoutCfg.persist !== false;
+  const store = (scope) => (persist ? createFailureStore(db, { scope }) : null);
+  const loginPairFailures = http.createFailureTracker({ ...lockoutCfg, onLock, store: store('login-pair') });
+  const loginUserFailures = http.createFailureTracker({ ...lockoutCfg, onLock, store: store('login-user'), maxFailures: lockoutCfg.maxFailures * 6, maxLockMs: Math.min(lockoutCfg.maxLockMs, 3_600_000) }); // by login alone: capped at 1 h, so a stranger cannot keep the real owner out for a day
   // Per-IP budget is wider: it stops one source spraying many usernames,
   // without punishing a shared NAT for a couple of typos.
-  const loginIpFailures = http.createFailureTracker({ ...lockoutCfg, onLock, maxFailures: lockoutCfg.maxFailures * 4 });
+  const loginIpFailures = http.createFailureTracker({ ...lockoutCfg, onLock, store: store('login-ip'), maxFailures: lockoutCfg.maxFailures * 4 });
   // Shared by /login/totp and /login/recovery, keyed by user id, so the
   // pending-session cookie can be re-minted but the budget cannot.
-  const mfaFailures = http.createFailureTracker({ ...lockoutCfg, onLock, baseLockMs: Math.max(lockoutCfg.baseLockMs, 60_000) });
+  const mfaFailures = http.createFailureTracker({ ...lockoutCfg, onLock, store: store('mfa'), baseLockMs: Math.max(lockoutCfg.baseLockMs, 60_000) });
+
+  // Stored counters: loaded now, then locks set by other processes are taken over every `syncMs`; quiet rows are purged hourly.
+  // A failing database never breaks sign-in (the in-memory counters keep working).
+  const lockTrackers = [loginPairFailures, loginUserFailures, loginIpFailures, mfaFailures];
+  let lockSync = null;
+  if (persist) {
+    const quiet = (p) => p.catch(() => { /* the database may not be ready yet: the next round tries again */ });
+    quiet(Promise.all(lockTrackers.map((t) => t.hydrate())));
+    let rounds = 0;
+    lockSync = setInterval(() => {
+      rounds += 1;
+      quiet(Promise.all(lockTrackers.map((t) => t.refresh())));
+      if (rounds % Math.max(1, Math.round(3_600_000 / (lockoutCfg.syncMs ?? 5000))) === 0) quiet(Promise.all(lockTrackers.map((t) => t.purgeStore())));
+    }, lockoutCfg.syncMs ?? 5000);
+    lockSync.unref?.();
+  }
 
   function tooManyAttempts(res, retryAfterMs) {
     const retryAfterSec = Math.max(1, Math.ceil(retryAfterMs / 1000));
@@ -238,6 +270,16 @@ export function mountAccountRoutes(app, {
     next();
   });
 
+  // A role that requires a second factor gets nothing but the setup page until one is confirmed. Registered after the
+  // password guard: a forced password change comes first.
+  app.use((req, res, next) => {
+    if (req.user?.mustEnrollMfa && !req.user.mustChangePassword && !enrollPaths.has(req.path ?? req.url)) {
+      if ((req.method === 'GET' || req.method === 'HEAD') && /text\/html/i.test(String(req.headers?.accept ?? ''))) return res.redirect(302, `${accountPath}?msg=mfa#mfa`);
+      return res.status(403).json({ error: 'MFA_ENROLL_REQUIRED', fields: [] });
+    }
+    next();
+  });
+
   // Entry point: signed in -> the app, otherwise the sign-in page. No favicon of its own (204, not a 404 in the log).
   app.get('/', (req, res) => res.redirect(302, req.user ? homePath : '/login'));
   app.get('/favicon.ico', (req, res) => res.status(204).end());
@@ -245,31 +287,31 @@ export function mountAccountRoutes(app, {
   // --- Pages -----------------------------------------------------------------------------------------------
   const localeOf = (req) => (req.locale === 'en' ? 'en' : 'ru');
   const textsOf = (req) => pickTexts(ACCOUNT_TEXTS, texts, localeOf(req), 'accounts');
-  const brandOf = (req) => {
+  const brandOf = async (req) => {
     if (brand) { const b = brand(req) ?? {}; return { theme: b.theme ?? theme, html: b.html ?? '' }; }
     let themed = theme;
-    try { themed = themeWithBranding(db, theme); } catch { /* the page still renders with the plain theme */ }
+    try { themed = await themeWithBrandingAsync(db, theme); } catch { /* the page still renders with the plain theme */ }
     let html = '';
-    try { html = vendorIdentity ? brandBlockHtml(db, vendorIdentity) : ''; } catch { /* no brand block */ }
+    try { html = vendorIdentity ? await brandBlockHtmlAsync(db, vendorIdentity) : ''; } catch { /* no brand block */ }
     return { theme: themed, html };
   };
   // The shortest password this person may choose (administrators may be held to a longer one): read from the live password policy.
-  const minLengthFor = (req) => {
-    const p = passwordRules.get();
+  const minLengthFor = async (req) => {
+    const p = await passwordRules.get();
     try { return req?.user && isAdminUser(req.user) ? p.adminMinLength : p.minLength; } catch { return p.minLength; }
   };
   const withMin = (l, min) => ({ ...l, forcedNewPassword: String(l.forcedNewPassword ?? '').replace('{min}', min), accountPwNew: String(l.accountPwNew ?? '').replace('{min}', min) });
-  const common = (req, res) => ({ registration: Boolean(appConfig?.auth?.registration?.enabled), nonce: res.locals?.cspNonce, locale: localeOf(req), brand: brandOf(req), l: withMin(textsOf(req), minLengthFor(req)), minLength: minLengthFor(req), appName, homePath, passwordChangePath });
+  const common = async (req, res) => ({ registration: Boolean(appConfig?.auth?.registration?.enabled), nonce: res.locals?.cspNonce, locale: localeOf(req), brand: await brandOf(req), l: withMin(textsOf(req), await minLengthFor(req)), minLength: await minLengthFor(req), appName, homePath, passwordChangePath, accountPath });
   const pageRoute = (key, path, render, { noCache = false } = {}) => {
     if (pages[key] === false) return;
     const own = pages[key];
-    app.get(path, (req, res) => {
+    app.get(path, async (req, res) => {
       if (noCache) {
         // no-referrer + no-store: the page is reached through a one-time link
         res.setHeader('Referrer-Policy', 'no-referrer');
         res.setHeader('Cache-Control', 'no-store');
       }
-      res.type('html').send(own ? own(req, res) : render(common(req, res)));
+      res.type('html').send(own ? await own(req, res) : render(await common(req, res)));
     });
   };
   pageRoute('login', '/login', renderLoginPage);
@@ -281,19 +323,19 @@ export function mountAccountRoutes(app, {
   if (regCfg.enabled) {
     const store = createRegistrationStore(db);
     const needMail = regCfg.requireEmailConfirmation !== false;
-    const regCommon = (req, res) => ({ ...common(req, res), registration: true });
-    app.get('/register', (req, res) => res.type('html').send(renderRegisterPage(regCommon(req, res))));
-    app.get('/register/confirm', (req, res) => {
+    const regCommon = async (req, res) => ({ ...(await common(req, res)), registration: true });
+    app.get('/register', async (req, res) => res.type('html').send(renderRegisterPage(await regCommon(req, res))));
+    app.get('/register/confirm', async (req, res) => {
       res.setHeader('Referrer-Policy', 'no-referrer');
       res.setHeader('Cache-Control', 'no-store');
-      res.type('html').send(renderRegisterConfirmPage(regCommon(req, res)));
+      res.type('html').send(renderRegisterConfirmPage(await regCommon(req, res)));
     });
     app.post('/register', loginLimiter, http.validateBody(RegisterSchema), async (req, res) => {
       const { username, email, password, website, t } = req.body;
       const ip = req.ip ?? null;
       // bot filters: a filled hidden field or an instantly submitted form look like success but do nothing
       if ((website ?? '') !== '' || (typeof t === 'number' && Date.now() - t < (regCfg.minFillMs ?? 2000))) {
-        logAudit(req, { actor: null, action: 'auth.registration_bot', result: 'failure', meta: { reason: website ? 'honeypot' : 'too_fast' } });
+        await logAudit(req, { actor: null, action: 'auth.registration_bot', result: 'failure', meta: { reason: website ? 'honeypot' : 'too_fast' } });
         return res.status(202).json({ ok: true });
       }
       if (needMail && !emailService?.enabled) return res.status(503).json({ error: 'EMAIL_DISABLED' });
@@ -302,54 +344,54 @@ export function mountAccountRoutes(app, {
       const weak = await passwordRules.checkFull(password, { username, email, isAdmin: false }, {});
       if (!weak.ok) return res.status(400).json({ error: 'WEAK_PASSWORD', fields: ['password'], problems: weak.problems });
       // budgets: a few requests per address per hour, one mail per e-mail per ten minutes (silently the same answer)
-      if (store.recent({ ip, sinceMs: 3_600_000 }) >= 5) return res.status(429).json({ error: 'RATE_LIMITED' });
-      if (store.recent({ email, sinceMs: 600_000 }) >= 1) return res.status(202).json({ ok: true });
+      if (await store.recentAsync({ ip, sinceMs: 3_600_000 }) >= 5) return res.status(429).json({ error: 'RATE_LIMITED' });
+      if (await store.recentAsync({ email, sinceMs: 600_000 }) >= 1) return res.status(202).json({ ok: true });
       // taken username or e-mail: the same answer as success (no way to learn who is registered)
-      if (auth.findUserByUsername(db, username) || auth.findUserByEmail(db, email)) {
-        logAudit(req, { actor: null, action: 'auth.registration_refused', result: 'failure', meta: { reason: 'taken' } });
+      if (await auth.findUserByUsernameAsync(db, username) || await auth.findUserByEmailAsync(db, email)) {
+        await logAudit(req, { actor: null, action: 'auth.registration_refused', result: 'failure', meta: { reason: 'taken' } });
         return res.status(202).json({ ok: true });
       }
       const passwordHash = await authProvider.hashPassword(password);
       if (!needMail) {
         try {
-          auth.createManagedUser(db, { username, email, role: regCfg.role ?? 'operator', passwordHash, mustChangePassword: false });
+          await auth.createManagedUserAsync(db, { username, email, role: regCfg.role ?? 'operator', passwordHash, mustChangePassword: false });
         } catch { return res.status(400).json({ error: 'INVALID', fields: ['username'] }); }
-        logAudit(req, { actor: username, action: 'auth.registered', meta: { confirmed: false } });
+        await logAudit(req, { actor: username, action: 'auth.registered', meta: { confirmed: false } });
         return res.status(201).json({ ok: true });
       }
-      const token = store.add({ username, email, passwordHash, ip, ttlHours: regCfg.ttlHours ?? 24 });
+      const token = await store.addAsync({ username, email, passwordHash, ip, ttlHours: regCfg.ttlHours ?? 24 });
       const verifyUrl = `${String(appConfig?.email?.baseUrl ?? '').replace(/\/+$/, '')}/register/confirm#token=${token}`;
       void emailService.sendEmailVerification({ to: email, verifyUrl, locale: localeOf(req) }).catch((err) => logger?.warn?.('registration mail failed', { code: err?.code }));
-      logAudit(req, { actor: null, action: 'auth.registration_requested' });
+      await logAudit(req, { actor: null, action: 'auth.registration_requested' });
       res.status(202).json({ ok: true });
     });
-    app.post('/register/confirm', loginLimiter, http.validateBody(RegisterConfirmSchema), (req, res) => {
-      const pending = store.consume(req.body.token);
+    app.post('/register/confirm', loginLimiter, http.validateBody(RegisterConfirmSchema), async (req, res) => {
+      const pending = await store.consumeAsync(req.body.token);
       if (!pending) return res.status(400).json({ error: 'INVALID_TOKEN' });
       try {
-        auth.createManagedUser(db, { username: pending.username, email: pending.email, role: regCfg.role ?? 'operator', passwordHash: pending.passwordHash, mustChangePassword: false });
+        await auth.createManagedUserAsync(db, { username: pending.username, email: pending.email, role: regCfg.role ?? 'operator', passwordHash: pending.passwordHash, mustChangePassword: false });
       } catch { return res.status(400).json({ error: 'INVALID_TOKEN' }); } // taken in the meantime
-      logAudit(req, { actor: pending.username, action: 'auth.registered', meta: { confirmed: true } });
+      await logAudit(req, { actor: pending.username, action: 'auth.registered', meta: { confirmed: true } });
       res.json({ ok: true });
     });
   }
 
   // The forced password change page (the one a temporary password leads to).
   if (pages.forcedPassword !== false) {
-    app.get(passwordChangePath, http.requireAuth(), (req, res) => {
+    app.get(passwordChangePath, http.requireAuth(), async (req, res) => {
       if (!req.user.mustChangePassword) return res.redirect(302, accountShell ? accountPath : homePath);
-      res.type('html').send(pages.forcedPassword ? pages.forcedPassword(req, res) : renderForcedPasswordPage(common(req, res)));
+      res.type('html').send(pages.forcedPassword ? await pages.forcedPassword(req, res) : renderForcedPasswordPage(await common(req, res)));
     });
   }
 
   // "Account": password, own e-mail, authenticators, recovery codes, inside the application's own page.
   if (accountShell) {
-    app.get(accountPath, http.requireAuth(), (req, res) => {
-      const l = withMin(textsOf(req), minLengthFor(req));
-      const authenticators = auth.listAuthenticators(db, req.user.id).filter((a) => a.type === 'totp');
+    app.get(accountPath, http.requireAuth(), async (req, res) => {
+      const l = withMin(textsOf(req), await minLengthFor(req));
+      const authenticators = (await auth.listAuthenticatorsAsync(db, req.user.id)).filter((a) => a.type === 'totp');
       const bodyHtml = renderAccountBody({
-        user: req.user, authenticators, email: auth.findUserById(db, req.user.id)?.email ?? null,
-        mfaRequiredForRole: mfaRequiredForRole(req.user.role), nonce: res.locals?.cspNonce, l, homePath, accountPath, locale: localeOf(req), minLength: minLengthFor(req),
+        user: req.user, authenticators, email: (await auth.findUserByIdAsync(db, req.user.id))?.email ?? null,
+        mfaRequiredForRole: await mfaNeededFor(req.user.role), mfaNotice: Boolean(req.user.mustEnrollMfa), nonce: res.locals?.cspNonce, l, homePath, accountPath, locale: localeOf(req), minLength: minLengthFor(req),
       });
       res.type('html').send(accountShell(req, res, { title: `${l.accountTitle}${appName ? ` — ${appName}` : ''}`, bodyHtml, activePath: accountPath }));
     });
@@ -370,56 +412,57 @@ export function mountAccountRoutes(app, {
     const pairKey = `${nameKey}|${ipKey}`;
     const locked = [loginPairFailures.check(pairKey), loginUserFailures.check(nameKey), loginIpFailures.check(ipKey)].find((c) => c.locked);
     if (locked) {
-      logAudit(req, { actor: req.body.username, action: 'auth.login', result: 'failure', meta: { reason: 'locked_out' } });
+      await logAudit(req, { actor: req.body.username, action: 'auth.login', result: 'failure', meta: { reason: 'locked_out' } });
       return tooManyAttempts(res, locked.retryAfterMs);
     }
-    const failLogin = () => {
+    const failLogin = async () => {
       loginPairFailures.recordFailure(pairKey);
       if (loginUserFailures.recordFailure(nameKey).locked) {
-        logAudit(req, { actor: req.body.username, action: 'auth.lockout', result: 'failure', meta: { scope: 'username' } });
+        await logAudit(req, { actor: req.body.username, action: 'auth.lockout', result: 'failure', meta: { scope: 'username' } });
       }
       loginIpFailures.recordFailure(ipKey);
+      await ipBan?.recordFailure(req.ip, { ctx: { requestId: req.id, ip: req.ip } }); // persistent automatic ban of the address
     };
 
-    let user = auth.findUserByUsername(db, req.body.username);
+    let user = await auth.findUserByUsernameAsync(db, req.body.username);
     let result = null;
-    const link = user && directoryLinks ? directoryLinks.get(user.id) : null;
+    const link = user && directoryLinks ? await directoryLinks.getAsync(user.id) : null;
     if (directory && (!user || link)) {
       // Unknown name or an account the directory manages: the directory decides. A local account never reaches here.
       const d = await directory.authenticate(req.body.username, req.body.password).catch((e) => ({ ok: false, code: 'UNAVAILABLE', error: e?.message }));
       if (!d.ok) {
-        if (d.code !== 'UNAVAILABLE') failLogin(); // a directory outage is not the user's fault: it must not lock anyone out
-        logAudit(req, { actor: req.body.username, action: 'auth.login', ...(user ? { entity: 'user', entityId: user.id } : {}), result: 'failure', meta: { reason: `directory_${String(d.code ?? 'failed').toLowerCase()}` } });
+        if (d.code !== 'UNAVAILABLE') await failLogin(); // a directory outage is not the user's fault: it must not lock anyone out
+        await logAudit(req, { actor: req.body.username, action: 'auth.login', ...(user ? { entity: 'user', entityId: user.id } : {}), result: 'failure', meta: { reason: `directory_${String(d.code ?? 'failed').toLowerCase()}` } });
         return res.status(401).json({ error: 'INVALID_CREDENTIALS', fields: [] }); // one answer for "wrong password", "no such user" and "directory down"
       }
       if (!user) {
         try {
           const hash = await authProvider.hashPassword(`${uuidv4()}${uuidv4()}`); // random: the directory is the only way in
-          const mk = (email) => auth.createManagedUser(db, { username: d.username ?? req.body.username, email, role: d.role, passwordHash: hash, allowedRoles: directory.allowedRoles, mustChangePassword: false });
-          try { user = mk(d.email ?? null); } catch { user = mk(null); } // the mail address may already belong to another account
-          directoryLinks.link(user.id, directory.source ?? 'ldap', d.dn);
-          logAudit(req, { actor: user.username, action: 'auth.directory.provision', entity: 'user', entityId: user.id, meta: { role: user.role } });
+          const mk = async (email) => await auth.createManagedUserAsync(db, { username: d.username ?? req.body.username, email, role: d.role, passwordHash: hash, allowedRoles: directory.allowedRoles, mustChangePassword: false });
+          try { user = await mk(d.email ?? null); } catch { user = await mk(null); } // the mail address may already belong to another account
+          await directoryLinks.linkAsync(user.id, directory.source ?? 'ldap', d.dn);
+          await logAudit(req, { actor: user.username, action: 'auth.directory.provision', entity: 'user', entityId: user.id, meta: { role: user.role } });
         } catch (e) {
-          failLogin();
-          logAudit(req, { actor: req.body.username, action: 'auth.login', result: 'failure', meta: { reason: 'directory_provision_failed' } });
+          await failLogin();
+          await logAudit(req, { actor: req.body.username, action: 'auth.login', result: 'failure', meta: { reason: 'directory_provision_failed' } });
           return res.status(401).json({ error: 'INVALID_CREDENTIALS', fields: [] });
         }
       }
       result = { valid: true, needsRehash: false };
     } else if (!user) {
       await authProvider.verifyPassword(await getDummyHash(), req.body.password); // timing parity, result ignored
-      failLogin();
+      await failLogin();
       // actor is the ATTEMPTED username, not a real account - audit
       // search still needs it (who/what was being probed), even though
       // it never resolved to a real user row.
-      logAudit(req, { actor: req.body.username, action: 'auth.login', result: 'failure', meta: { reason: 'unknown_user' } });
+      await logAudit(req, { actor: req.body.username, action: 'auth.login', result: 'failure', meta: { reason: 'unknown_user' } });
       return res.status(401).json({ error: 'INVALID_CREDENTIALS', fields: [] });
     }
 
     result ??= await authProvider.verifyPassword(user.passwordHash, req.body.password);
     if (!result.valid) {
-      failLogin();
-      logAudit(req, {
+      await failLogin();
+      await logAudit(req, {
         actor: user.username,
         action: 'auth.login',
         entity: 'user',
@@ -437,7 +480,7 @@ export function mountAccountRoutes(app, {
     // is already known inside the org (an admin disabled it on
     // purpose), unlike an unregistered username.
     if (user.disabled) {
-      logAudit(req, {
+      await logAudit(req, {
         actor: user.username,
         action: 'auth.login',
         entity: 'user',
@@ -451,7 +494,7 @@ export function mountAccountRoutes(app, {
     // A banned username gets no session at all (the ban middleware only sees a user AFTER sign-in, so without
     // this check a banned user would be signed in and then answered 403 on every page).
     if (bans?.check({ username: user.username })) {
-      logAudit(req, { actor: user.username, action: 'auth.login', entity: 'user', entityId: user.id, result: 'failure', meta: { reason: 'banned' } });
+      await logAudit(req, { actor: user.username, action: 'auth.login', entity: 'user', entityId: user.id, result: 'failure', meta: { reason: 'banned' } });
       return res.status(403).json({ error: 'BANNED', fields: [] });
     }
 
@@ -466,21 +509,24 @@ export function mountAccountRoutes(app, {
       // Lazy legacy-password migration (core/auth's pattern, see
       // §core-auth in docs/index.html) - transparent to the user.
       const newHash = await authProvider.hashPassword(req.body.password);
-      auth.updatePasswordHash(db, user.id, newHash);
+      await auth.updatePasswordHashAsync(db, user.id, newHash);
     }
 
     // A password older than the policy allows must be replaced: same mechanism as a forced change.
-    if (!user.mustChangePassword && passwordRules.isExpired(user.id)) {
+    if (!user.mustChangePassword && (await passwordRules.isExpired(user.id))) {
       db.run(`UPDATE users SET must_change_password = 1 WHERE id = ?`, [user.id]);
       user.mustChangePassword = true;
-      logAudit(req, { actor: user.username, action: 'auth.password_expired', entity: 'user', entityId: user.id });
+      await logAudit(req, { actor: user.username, action: 'auth.password_expired', entity: 'user', entityId: user.id });
     }
 
-    const factors = activeTotpAuthenticators(db, user.id);
+    const factors = await activeTotpAuthenticators(db, user.id);
     if (factors.length === 0) {
+      // The role requires a second factor and the user has none: signed in, but only to the setup page (guard above).
+      user.mustEnrollMfa = await mfaNeededFor(user.role);
       await issueFullSession(req, { user, ttlMs: sessionTtlMs }, res);
-      logAudit(req, { actor: user.username, action: 'auth.login', entity: 'user', entityId: user.id });
-      return res.json({ ok: true, mfaRequired: false, mustChangePassword: user.mustChangePassword });
+      await logAudit(req, { actor: user.username, action: 'auth.login', entity: 'user', entityId: user.id });
+      if (user.mustEnrollMfa) await logAudit(req, { actor: user.username, action: 'auth.mfa_enroll_required', entity: 'user', entityId: user.id });
+      return res.json({ ok: true, mfaRequired: false, mustChangePassword: user.mustChangePassword, mustEnrollMfa: user.mustEnrollMfa });
     }
 
     // No `user` and no `userId`: req.user stays empty, so requireAuth() blocks every normal
@@ -492,7 +538,7 @@ export function mountAccountRoutes(app, {
     // Not a failure (the password WAS correct) and not a completed
     // login either - its own action name, so an audit reader can tell
     // "password ok, waiting on MFA" apart from both outcomes.
-    logAudit(req, { actor: user.username, action: 'auth.login.pending', entity: 'user', entityId: user.id });
+    await logAudit(req, { actor: user.username, action: 'auth.login.pending', entity: 'user', entityId: user.id });
     res.json({ ok: true, mfaRequired: true });
   });
 
@@ -509,9 +555,9 @@ export function mountAccountRoutes(app, {
       return tooManyAttempts(res, mfaLock.retryAfterMs);
     }
 
-    const matchedId = auth.verifyTotpLogin(db, userId, req.body.code, { encryptionKey: totpKey });
+    const matchedId = await auth.verifyTotpLoginAsync(db, userId, req.body.code, { encryptionKey: totpKey });
     if (!matchedId) {
-      logAudit(req, { actor: null, action: 'auth.login.totp', entity: 'user', entityId: userId, result: 'failure' });
+      await logAudit(req, { actor: null, action: 'auth.login.totp', entity: 'user', entityId: userId, result: 'failure' });
       const miss = mfaFailures.recordFailure(String(userId));
       if (miss.locked) {
         // Too many wrong codes: burn the pending session so the attacker
@@ -525,9 +571,9 @@ export function mountAccountRoutes(app, {
 
     // The pending session is single-use: issueFullSession regenerates the id, which destroys
     // it, so a leaked/replayed pending cookie can't be used for a second completion attempt.
-    const user = auth.findUserById(db, userId);
+    const user = await auth.findUserByIdAsync(db, userId);
     await issueFullSession(req, { user, ttlMs: sessionTtlMs }, res);
-    logAudit(req, { actor: user.username, action: 'auth.login.totp', entity: 'user', entityId: user.id });
+    await logAudit(req, { actor: user.username, action: 'auth.login.totp', entity: 'user', entityId: user.id });
     res.json({ ok: true, mustChangePassword: user.mustChangePassword });
   });
 
@@ -544,9 +590,9 @@ export function mountAccountRoutes(app, {
       return tooManyAttempts(res, mfaLock.retryAfterMs);
     }
 
-    const ok = await auth.verifyAndConsumeRecoveryCode(db, userId, req.body.code);
+    const ok = await auth.verifyAndConsumeRecoveryCodeAsync(db, userId, req.body.code);
     if (!ok) {
-      logAudit(req, { actor: null, action: 'auth.login.recovery', entity: 'user', entityId: userId, result: 'failure' });
+      await logAudit(req, { actor: null, action: 'auth.login.recovery', entity: 'user', entityId: userId, result: 'failure' });
       const miss = mfaFailures.recordFailure(String(userId));
       if (miss.locked) {
         await http.endSession(req, res);
@@ -556,9 +602,9 @@ export function mountAccountRoutes(app, {
     }
     mfaFailures.reset(String(userId));
 
-    const user = auth.findUserById(db, userId);
+    const user = await auth.findUserByIdAsync(db, userId);
     await issueFullSession(req, { user, ttlMs: sessionTtlMs }, res);
-    logAudit(req, { actor: user.username, action: 'auth.login.recovery', entity: 'user', entityId: user.id });
+    await logAudit(req, { actor: user.username, action: 'auth.login.recovery', entity: 'user', entityId: user.id });
     res.json({ ok: true, mustChangePassword: user.mustChangePassword });
   });
 
@@ -572,7 +618,7 @@ export function mountAccountRoutes(app, {
     // user bails out of the TOTP step), and without any session at all.
     await http.endSession(req, res);
     if (appConfig.auth?.clearSiteDataOnLogout === true && req.secure) res.setHeader('Clear-Site-Data', '"cache", "storage"'); // browsers ignore it over plain HTTP
-    if (userId) logAudit(req, { actor, action: 'auth.logout', entity: 'user', entityId: userId });
+    if (userId) await logAudit(req, { actor, action: 'auth.logout', entity: 'user', entityId: userId });
     res.json({ ok: true });
   });
 
@@ -587,13 +633,13 @@ export function mountAccountRoutes(app, {
   // active session (§4.5h - changing a password is sensitive enough
   // that session possession alone isn't proof of intent) -------------
   app.post('/password/change', http.requireAuth(), http.validateBody(ChangePasswordSchema), async (req, res) => {
-    const user = auth.findUserById(db, req.user.id);
+    const user = await auth.findUserByIdAsync(db, req.user.id);
     // With a pending temporary password the sign-in that just happened IS the proof; otherwise the current password is required.
     const mustChange = Boolean(user.mustChangePassword);
     if (!mustChange && !req.body.currentPassword) return res.status(400).json({ error: 'VALIDATION_ERROR', fields: ['currentPassword'] });
     const result = mustChange ? { valid: true } : await authProvider.verifyPassword(user.passwordHash, req.body.currentPassword);
     if (!result.valid) {
-      logAudit(req, {
+      await logAudit(req, {
         actor: req.user.username,
         action: 'auth.password_change',
         entity: 'user',
@@ -617,26 +663,26 @@ export function mountAccountRoutes(app, {
     }
 
     const newHash = await authProvider.hashPassword(req.body.newPassword);
-    auth.updatePasswordHash(db, req.user.id, newHash, { clearMustChange: true });
+    await auth.updatePasswordHashAsync(db, req.user.id, newHash, { clearMustChange: true });
     // Every session issued under the OLD password dies - including this
     // one (audit A05/A13) - and the caller gets a brand-new session with
     // the refreshed snapshot (mustChangePassword now false).
-    auth.destroyUserSessions(db, req.user.id);
-    await issueFullSession(req, { user: auth.findUserById(db, req.user.id), ttlMs: sessionTtlMs });
-    logAudit(req, { actor: req.user.username, action: 'auth.password_change', entity: 'user', entityId: req.user.id });
+    await auth.destroyUserSessionsAsync(db, req.user.id);
+    await issueFullSession(req, { user: await auth.findUserByIdAsync(db, req.user.id), ttlMs: sessionTtlMs });
+    await logAudit(req, { actor: req.user.username, action: 'auth.password_change', entity: 'user', entityId: req.user.id });
     res.json({ ok: true });
   });
 
   // --- Own e-mail address (used for password-reset links) -------------
-  app.post('/account/email', http.requireAuth(), http.validateBody(AccountEmailSchema), (req, res) => {
+  app.post('/account/email', http.requireAuth(), http.validateBody(AccountEmailSchema), async (req, res) => {
     const email = req.body.email === null || req.body.email.trim() === '' ? null : req.body.email.trim();
     try {
-      auth.setUserEmail(db, req.user.id, email);
+      await auth.setUserEmailAsync(db, req.user.id, email);
     } catch (err) {
       const taken = /taken|exists|in use|already/i.test(String(err?.message ?? ''));
       return res.status(taken ? 409 : 400).json({ error: taken ? 'EMAIL_TAKEN' : 'INVALID_EMAIL', fields: ['email'] });
     }
-    logAudit(req, { actor: req.user.username, action: 'account.email_change', entity: 'user', entityId: req.user.id });
+    await logAudit(req, { actor: req.user.username, action: 'account.email_change', entity: 'user', entityId: req.user.id });
     res.json({ ok: true, email });
   });
 
@@ -651,36 +697,36 @@ export function mountAccountRoutes(app, {
 
     void (async () => {
       if (!emailService?.enabled) return;
-      const user = auth.findUserByUsername(db, login) ?? auth.findUserByEmail(db, login);
+      const user = await auth.findUserByUsernameAsync(db, login) ?? await auth.findUserByEmailAsync(db, login);
       if (!user || user.disabled || !user.email) return;
       const ttlMinutes = 30;
-      const { token } = auth.createPasswordResetToken(db, user.id, { ttlMinutes });
+      const { token } = await auth.createPasswordResetTokenAsync(db, user.id, { ttlMinutes });
       // Token in the URL FRAGMENT: it is never sent to a server, so it cannot land in
       // access logs or Referer headers; the page reads it and POSTs it to /password/reset.
       const resetUrl = `${String(appConfig?.email?.baseUrl ?? '').replace(/\/+$/, '')}/reset-password#token=${token}`;
       await emailService.sendPasswordReset({ to: user.email, resetUrl, expiresInMinutes: ttlMinutes });
-      logAudit(req, { actor: null, action: 'auth.password_reset_requested', entity: 'user', entityId: user.id });
+      await logAudit(req, { actor: null, action: 'auth.password_reset_requested', entity: 'user', entityId: user.id });
     })().catch((err) => logger?.warn?.('password reset mail failed', { code: err?.code }));
   });
 
   app.post('/password/reset', loginLimiter, http.validateBody(ResetPasswordSchema), async (req, res) => {
     const invalid = () => res.status(400).json({ error: 'INVALID_TOKEN', fields: ['token'] });
-    const peeked = auth.peekPasswordResetToken(db, req.body.token);
-    const user = peeked ? auth.findUserById(db, peeked.userId) : null;
+    const peeked = await auth.peekPasswordResetTokenAsync(db, req.body.token);
+    const user = peeked ? await auth.findUserByIdAsync(db, peeked.userId) : null;
     if (!user || user.disabled) return invalid();
 
     // Judge the password BEFORE the token is burnt: a too-weak first try must not cost the link.
     const policy = await passwordRules.checkFull(req.body.newPassword, { username: user.username, email: user.email, isAdmin: isAdminUser(user) }, { userId: user.id, verify: authProvider.verifyPassword, currentHash: user.passwordHash });
     if (!policy.ok) return res.status(400).json({ error: 'WEAK_PASSWORD', fields: ['newPassword'], problems: policy.problems });
 
-    if (!auth.consumePasswordResetToken(db, req.body.token)) return invalid();
+    if (!await auth.consumePasswordResetTokenAsync(db, req.body.token)) return invalid();
 
     const newHash = await authProvider.hashPassword(req.body.newPassword);
-    auth.updatePasswordHash(db, user.id, newHash, { clearMustChange: true });
-    auth.destroyUserSessions(db, user.id); // whoever held the old password is signed out everywhere
+    await auth.updatePasswordHashAsync(db, user.id, newHash, { clearMustChange: true });
+    await auth.destroyUserSessionsAsync(db, user.id); // whoever held the old password is signed out everywhere
     loginPairFailures.resetPrefix(`${user.username.toLowerCase()}|`);
     loginUserFailures.reset(user.username.toLowerCase()); // a lockout from forgetting the password ends here
-    logAudit(req, { actor: user.username, action: 'auth.password_reset', entity: 'user', entityId: user.id });
+    await logAudit(req, { actor: user.username, action: 'auth.password_reset', entity: 'user', entityId: user.id });
     if (emailService?.enabled && user.email) {
       void emailService.sendPasswordChanged({ to: user.email }).catch((err) => logger?.warn?.('password changed mail failed', { code: err?.code }));
     }
@@ -688,9 +734,8 @@ export function mountAccountRoutes(app, {
   });
 
   // --- TOTP enrollment (§5) ------------------------------------------
-  app.get('/totp/authenticators', http.requireAuth(), (req, res) => {
-    const list = auth
-      .listAuthenticators(db, req.user.id)
+  app.get('/totp/authenticators', http.requireAuth(), async (req, res) => {
+    const list = (await auth.listAuthenticatorsAsync(db, req.user.id))
       .filter((a) => a.type === 'totp')
       .map(({ id, status, name, createdAt, lastUsedAt }) => ({ id, status, name, createdAt, lastUsedAt }));
     res.json(list);
@@ -698,8 +743,8 @@ export function mountAccountRoutes(app, {
 
   // Returns the secret/otpauth URI PLAINTEXT, once - same "shown once,
   // never retrievable again" pattern as recovery codes.
-  app.post('/totp/enroll/start', http.requireAuth(), http.validateBody(TotpEnrollStartSchema), (req, res) => {
-    const result = auth.startTotpEnrollment(db, req.user.id, {
+  app.post('/totp/enroll/start', http.requireAuth(), http.validateBody(TotpEnrollStartSchema), async (req, res) => {
+    const result = await auth.startTotpEnrollmentAsync(db, req.user.id, {
       name: req.body.name,
       accountName: req.user.username,
       encryptionKey: totpKey,
@@ -718,10 +763,10 @@ export function mountAccountRoutes(app, {
     res.json({ svg });
   });
 
-  app.post('/totp/enroll/verify', http.requireAuth(), http.validateBody(TotpEnrollVerifySchema), (req, res) => {
-    const ok = auth.verifyTotpEnrollment(db, req.body.authenticatorId, req.body.code, { userId: req.user.id, encryptionKey: totpKey });
+  app.post('/totp/enroll/verify', http.requireAuth(), http.validateBody(TotpEnrollVerifySchema), async (req, res) => {
+    const ok = await auth.verifyTotpEnrollmentAsync(db, req.body.authenticatorId, req.body.code, { userId: req.user.id, encryptionKey: totpKey });
     if (!ok) {
-      logAudit(req, {
+      await logAudit(req, {
         actor: req.user.username,
         action: 'auth.totp_enroll',
         entity: 'user',
@@ -730,26 +775,35 @@ export function mountAccountRoutes(app, {
       });
       return res.status(400).json({ error: 'INVALID_CODE', fields: ['code'] });
     }
-    logAudit(req, { actor: req.user.username, action: 'auth.totp_enroll', entity: 'user', entityId: req.user.id });
+    await logAudit(req, { actor: req.user.username, action: 'auth.totp_enroll', entity: 'user', entityId: req.user.id });
+    // The factor is confirmed: the setup-only restriction ends. A fresh session carries the refreshed snapshot.
+    if (req.user.mustEnrollMfa) {
+      const fresh = await auth.findUserByIdAsync(db, req.user.id);
+      return http.establishSession(req, { userId: fresh.id, user: { ...userPublicShape(fresh), mustChangePassword: Boolean(fresh.mustChangePassword), mustEnrollMfa: false }, maxAgeMs: sessionTtlMs })
+        .then(() => res.json({ ok: true }))
+        .catch(() => res.json({ ok: true }));
+    }
     res.json({ ok: true });
   });
 
-  app.post('/totp/authenticators/:id/remove', http.requireAuth(), (req, res) => {
-    const result = auth.removeAuthenticator(db, req.user.id, Number(req.params.id), {
-      mfaRequired: mfaRequiredForRole(req.user.role),
+  app.post('/totp/authenticators/:id/remove', http.requireAuth(), async (req, res) => {
+    const authenticatorId = parseId(req.params.id);
+    if (authenticatorId === null) return res.status(404).json({ error: 'NOT_FOUND', fields: [] });
+    const result = await auth.removeAuthenticatorAsync(db, req.user.id, authenticatorId, {
+      mfaRequired: await mfaNeededFor(req.user.role),
     });
     if (!result.ok) {
       const status = result.reason === 'not_found' ? 404 : 409;
       return res.status(status).json({ error: result.reason.toUpperCase(), fields: [] });
     }
-    logAudit(req, { actor: req.user.username, action: 'auth.totp_remove', entity: 'user', entityId: req.user.id });
+    await logAudit(req, { actor: req.user.username, action: 'auth.totp_remove', entity: 'user', entityId: req.user.id });
     res.json({ ok: true });
   });
 
   // --- Recovery codes (§22) -------------------------------------------
   app.post('/recovery-codes/generate', http.requireAuth(), http.validateBody(RecoveryGenerateSchema), async (req, res) => {
-    const codes = await auth.generateRecoveryCodes(db, req.user.id, { count: req.body.count });
-    logAudit(req, {
+    const codes = await auth.generateRecoveryCodesAsync(db, req.user.id, { count: req.body.count });
+    await logAudit(req, {
       actor: req.user.username,
       action: 'auth.recovery_codes_generate',
       entity: 'user',
@@ -759,8 +813,30 @@ export function mountAccountRoutes(app, {
     res.json({ codes }); // plaintext, shown once - cannot be retrieved again
   });
 
-  app.get('/recovery-codes/remaining', http.requireAuth(), (req, res) => {
-    res.json({ remaining: auth.countRemainingRecoveryCodes(db, req.user.id) });
+  // --- Session time left, and "stay signed in" (WCAG 2.2.1): the dialog in the page shell uses these two ---------
+  const maxExtensions = appConfig?.auth?.sessionMaxExtensions ?? 10;
+  const sessionLeft = (req) => {
+    const c = req.session?.cookie;
+    const end = c?.expires ? new Date(c.expires).getTime() : Date.now() + (c?.maxAge ?? sessionTtlMs);
+    return { remainingMs: Math.max(0, end - Date.now()), extensions: req.session?.extensions ?? 0, canExtend: (req.session?.extensions ?? 0) < maxExtensions };
+  };
+  app.get('/session/status', http.requireAuth(), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(sessionLeft(req));
+  });
+  app.post('/session/extend', http.requireAuth(), async (req, res) => {
+    const cur = sessionLeft(req);
+    if (!cur.canExtend) return res.status(409).json({ error: { code: 'CONFLICT', message: 'session cannot be extended any more' }, ...cur });
+    req.session.extensions = cur.extensions + 1;
+    req.session.cookie.maxAge = sessionTtlMs;
+    await new Promise((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())));
+    await logAudit(req, { actor: req.user.username, action: 'auth.session_extend', entity: 'user', entityId: req.user.id, meta: { n: req.session.extensions } });
+    res.set('Cache-Control', 'no-store');
+    res.json(sessionLeft(req));
+  });
+
+  app.get('/recovery-codes/remaining', http.requireAuth(), async (req, res) => {
+    res.json({ remaining: await auth.countRemainingRecoveryCodesAsync(db, req.user.id) });
   });
 
   return {
@@ -770,7 +846,7 @@ export function mountAccountRoutes(app, {
       loginPairFailures.resetPrefix(`${name}|`);
       loginUserFailures.reset(name);
     },
-    /** Active sign-in lock-outs for the administration: `[{kind, key, failures, retryAfterMs}]` (memory only, audit R-08). */
+    /** Active sign-in lock-outs for the administration: `[{kind, key, failures, retryAfterMs}]` (audit R-08; with `security.lockout.persist` they survive a restart). */
     lockouts() {
       const trackers = { pair: loginPairFailures, user: loginUserFailures, ip: loginIpFailures, mfa: mfaFailures };
       return Object.entries(trackers).flatMap(([kind, tr]) => tr.list().map((e) => ({ kind, ...e })));
@@ -781,6 +857,11 @@ export function mountAccountRoutes(app, {
       if (!tr || !tr.list().some((e) => e.key === key)) return false;
       tr.reset(key);
       return true;
+    },
+    /** Writes pending lock-out counters and stops the periodic sync (call when the application stops). */
+    async closeLockouts() {
+      if (lockSync) { clearInterval(lockSync); lockSync = null; }
+      await Promise.all(lockTrackers.map((t) => t.close().catch(() => {})));
     },
     userPublicShape,
     totpKey,

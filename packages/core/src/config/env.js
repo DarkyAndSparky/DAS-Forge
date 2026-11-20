@@ -70,7 +70,7 @@ export function applyEnvOverrides(configObject, env = process.env, { readFile = 
       try {
         raw = readFile(file).replace(/\r?\n$/, '');
       } catch (err) {
-        throw new Error(`${envKey}_FILE points at "${file}" which could not be read: ${err.message}`);
+        throw new Error(`${envKey}_FILE points at "${file}" which could not be read: ${err.message}`, { cause: err });
       }
     }
     if (raw !== undefined && raw !== '') {

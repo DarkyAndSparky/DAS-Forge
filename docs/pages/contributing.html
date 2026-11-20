@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Участие в разработке DAS-Forge — DAS-Forge 0.1.283</title>
+<title>Участие в разработке DAS-Forge — DAS-Forge 0.1.367</title>
 <style>
 :root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
 @media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
@@ -44,7 +44,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
         fill="#0d0f12" text-anchor="middle">WS</text>
 </svg></div>
-<div><h1>Участие в разработке DAS-Forge</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.283 · <code>CONTRIBUTING.md</code></p></div>
+<div><h1>Участие в разработке DAS-Forge</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.367 · <code>CONTRIBUTING.md</code></p></div>
 </header>
 <main class="page">
 <h1 id="участие-в-разработке-das-forge">Участие в разработке DAS-Forge</h1>
@@ -58,7 +58,7 @@ npm install-scripts approve argon2 cpu-features ssh2   # нативные пак
 npm test                                               # ядро и пример
 npm run test:template                                  # шаблон приложения
 npm run docs                                           # пересобрать docs/index.html</code></pre>
-<p>Перед pull request выполните <code>npm test</code>, <code>npm run version:check</code> и <code>npm run lock:check</code>.</p>
+<p>Перед pull request выполните <code>npm run lint</code>, <code>npm run typecheck</code>, <code>npm test</code>, <code>npm run version:check</code> и <code>npm run lock:check</code>. Полный свод правил: <a href="development-rules.html">docs/internal/development-rules.md</a>.</p>
 <h2 id="правила-изменений">Правила изменений</h2>
 <ol><li><strong>Один pull request — одна тема.</strong> Ошибка и несвязанная чистка кода — отдельные.</li><li><strong>Тест вместе с кодом.</strong> Новое поведение и исправление ошибки получают тест; тест, который проходил бы и без исправления, не считается.</li><li><strong>Тексты на двух языках.</strong> Всё, что видит пользователь, пишется на русском и английском сразу (<code>packages/core/src/**/texts.js</code> и словари разделов); тест каталога переводов проверяет, что ключи совпадают.</li><li><strong>Документация описывает текущую версию.</strong> Без «добавлено в X»: история только в <a href="changelog.html">CHANGELOG</a>. Новая опция или команда — строка в соответствующем <a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/docs/guide">руководстве</a>.</li><li><strong>Ядро даёт значения по умолчанию, приложение переопределяет.</strong> Не зашивайте в ядро знание о конкретном приложении.</li><li><strong>Зависимости.</strong> Сначала посмотрите <a href="dependencies-target.html">список целевых зависимостей</a>: новый пакет без причины не добавляется. Версию проверяйте на npmjs.com, а не по памяти.</li><li><strong>Безопасность.</strong> Не ослабляйте проверки ради удобства; тест <code>security-invariants</code> перечисляет опасные конструкции и ловит новые.</li><li><strong>Версия и журнал.</strong> Каждая поставка повышает патч-номер (<code>npm run version:set -- X.Y.Z</code>) и добавляет запись в CHANGELOG с подразделом «Не проверено»: что не удалось проверить у вас. Это делает мейнтейнер при слиянии, если вы не договорились иначе.</li></ol>
 <h2 id="стиль">Стиль</h2>

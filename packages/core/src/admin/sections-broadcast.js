@@ -1,5 +1,6 @@
+import { asyncDb } from '../database/async.js';
 import { pickTexts } from '../i18n/overrides.js';
-import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
 import { contextFromRequest } from '../audit/context.js';
 import { isAnonymizedUser } from '../auth/user-admin.js';
 import { readForm } from './sections.js';
@@ -42,8 +43,8 @@ export function mountBroadcastSection({ app, db, guard, page: render, basePath, 
   const tx = (req) => pickTexts(BROADCAST_TEXTS, texts['admin-broadcast'], localeOf(req), 'admin-broadcast');
   const field = 'height:2.4rem;box-sizing:border-box';
 
-  function recipientsFor(role) {
-    const rows = db.all(`SELECT id, username, email, role, disabled FROM users WHERE email IS NOT NULL AND email != '' AND disabled = 0 ORDER BY id`);
+  async function recipientsFor(role) {
+    const rows = await asyncDb(db).all(`SELECT id, username, email, role, disabled FROM users WHERE email IS NOT NULL AND email != '' AND disabled = 0 ORDER BY id`);
     return rows.filter((u) => !isAnonymizedUser(u) && (!role || u.role === role));
   }
 
@@ -59,23 +60,24 @@ export function mountBroadcastSection({ app, db, guard, page: render, basePath, 
     return { subject, message, locale, role };
   }
 
-  const audit = (req, action, meta) => log(db, { ...contextFromRequest(req), action, entity: 'broadcast', meta });
+  const audit = async (req, action, meta) => await logAsync(db, { ...contextFromRequest(req), action, entity: 'broadcast', meta });
   const toast = (l, req) => (req.query?.msg === 'ok'
     ? `<div class="adm-toast">${esc(l.done)} ${req.query.t ? esc(l.testSent) : `${esc(l.sentTo)}: ${esc(String(req.query.n ?? 0).slice(0, 6))}; ${esc(l.skipped)}: ${esc(String(req.query.s ?? 0).slice(0, 6))}; ${esc(l.failed)}: ${esc(String(req.query.f ?? 0).slice(0, 6))}`}</div>`
     : req.query?.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(l[`e_${String(req.query.e ?? '')}`] ?? l.bad)}</div>` : '');
 
-  app.get(p, ...guard, (req, res) => {
+  app.get(p, ...guard, async (req, res) => {
     const l = tx(req);
     const on = Boolean(mail.service?.enabled);
-    const count = recipientsFor('').length;
-    const roleOpts = `<option value="">${esc(l.allRoles)}</option>${roles.map((r) => `<option value="${esc(r)}">${esc(r)} (${recipientsFor(r).length})</option>`).join('')}`;
+    const count = (await recipientsFor('')).length;
+    let roleOpts = `<option value="">${esc(l.allRoles)}</option>`;
+    for (const r of roles) roleOpts += `<option value="${esc(r)}">${esc(r)} (${(await recipientsFor(r)).length})</option>`;
     const form = `<form method="post" action="${p}/send" class="adm-card" style="display:flex;flex-direction:column;gap:.75rem;max-width:40rem">
 <label class="adm-field">${esc(l.role)}<select class="adm-input" name="role" style="${field}">${roleOpts}</select></label>
 <label class="adm-field">${esc(l.language)}<select class="adm-input" name="locale" style="${field}"><option value="ru">Русский</option><option value="en">English</option></select></label>
 <label class="adm-field">${esc(l.subject)}<input class="adm-input" name="subject" required maxlength="${MAX_SUBJECT}" style="${field}"></label>
 <label class="adm-field">${esc(l.message)}<textarea class="adm-input" name="message" rows="8" required maxlength="${MAX_MESSAGE}"></textarea></label>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap"><button class="adm-btn" type="submit" formaction="${p}/test"${on ? '' : ' disabled'}>${esc(l.sendTest)}</button><button class="adm-btn danger" type="submit" data-confirm="${esc(l.confirm)}"${on ? '' : ' disabled'}>${esc(l.sendAll)}</button></div></form>`;
-    render(req, res, { active: p, title: l.broadcast, bodyHtml: `${toast(l, req)}<div class="adm-card" style="margin-bottom:1rem"><p class="adm-muted">${esc(l.hint)}</p>${on ? '' : `<p><span class="adm-badge warn">${esc(l.off)}</span></p>`}<p>${esc(l.recipients)}: <strong>${count}</strong></p></div>${form}` });
+    await render(req, res, { active: p, title: l.broadcast, bodyHtml: `${toast(l, req)}<div class="adm-card" style="margin-bottom:1rem"><p class="adm-muted">${esc(l.hint)}</p>${on ? '' : `<p><span class="adm-badge warn">${esc(l.off)}</span></p>`}<p>${esc(l.recipients)}: <strong>${count}</strong></p></div>${form}` });
   });
 
   async function deliver(list, input) {
@@ -93,11 +95,11 @@ export function mountBroadcastSection({ app, db, guard, page: render, basePath, 
     try {
       if (!mail.service?.enabled) throw new BroadcastError('MAIL_OFF');
       const input = readInput(await readForm(req, MAX_MESSAGE + 4096));
-      const list = recipientsFor(input.role);
+      const list = await recipientsFor(input.role);
       if (!list.length) throw new BroadcastError('NO_RECIPIENTS');
       if (list.length > MAX_RECIPIENTS) throw new BroadcastError('TOO_MANY');
       const r = await deliver(list, input);
-      audit(req, 'admin.broadcast.send', { recipients: list.length, ...r, role: input.role || null, locale: input.locale, subject: input.subject.slice(0, 100) });
+      await audit(req, 'admin.broadcast.send', { recipients: list.length, ...r, role: input.role || null, locale: input.locale, subject: input.subject.slice(0, 100) });
       res.redirect(303, `${p}?msg=ok&n=${r.queued}&s=${r.skipped}&f=${r.failed}`);
     } catch (err) {
       if (err instanceof BroadcastError) return res.redirect(303, `${p}?msg=bad&e=${encodeURIComponent(err.code)}`);
@@ -109,10 +111,10 @@ export function mountBroadcastSection({ app, db, guard, page: render, basePath, 
     try {
       if (!mail.service?.enabled) throw new BroadcastError('MAIL_OFF');
       const input = readInput(await readForm(req, MAX_MESSAGE + 4096));
-      const me = req.user?.id != null ? db.get('SELECT email FROM users WHERE id = ?', [req.user.id]) : null;
+      const me = req.user?.id != null ? await asyncDb(db).get('SELECT email FROM users WHERE id = ?', [req.user.id]) : null;
       if (!me?.email) throw new BroadcastError('NO_EMAIL');
       await deliver([{ email: me.email }], input);
-      audit(req, 'admin.broadcast.test', { locale: input.locale });
+      await audit(req, 'admin.broadcast.test', { locale: input.locale });
       res.redirect(303, `${p}?msg=ok&t=1`);
     } catch (err) {
       if (err instanceof BroadcastError) return res.redirect(303, `${p}?msg=bad&e=${encodeURIComponent(err.code)}`);

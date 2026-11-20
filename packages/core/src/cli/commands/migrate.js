@@ -1,4 +1,4 @@
-import { runMigrations, migrationStatus } from '../migrator.js';
+import { runMigrationsAsync, migrationStatusAsync } from '../migrator.js';
 import { log } from '../../audit/log.js';
 import { cliActor } from '../actor.js';
 
@@ -7,7 +7,7 @@ import { cliActor } from '../actor.js';
  *
  * @param {object} cli
  * @param {object} opts
- * @param {import('../../database/adapter.js')} opts.db
+ * @param {object} opts.db
  * @param {string} opts.migrationsDir
  * @param {string|null} [opts.backupDir] - where the pre-migration copy goes (`migrate --no-backup` skips it, and that is audited)
  */
@@ -17,7 +17,7 @@ export function registerMigrateCommands(cli, { db, migrationsDir, backupDir = nu
     usage: '[--no-backup]',
     examples: ['migrate', 'migrate --no-backup'],
     async handler({ flags }) {
-      const { applied, backup } = await runMigrations(db, migrationsDir, {
+      const { applied, backup } = await runMigrationsAsync(db, migrationsDir, {
         backupDir,
         skipBackup: flags['no-backup'] === true,
         onBackup: (e) => auditBackup(db, e),
@@ -43,8 +43,8 @@ export function registerMigrateCommands(cli, { db, migrationsDir, backupDir = nu
     description: 'List migrations and whether each has been applied',
     usage: '',
     examples: ['migrate status'],
-    handler() {
-      const status = migrationStatus(db, migrationsDir);
+    async handler() {
+      const status = await migrationStatusAsync(db, migrationsDir);
       if (status.length === 0) {
         // eslint-disable-next-line no-console
         console.log('No migration files found.');

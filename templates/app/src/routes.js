@@ -18,7 +18,6 @@ const NoteSchema = z.object({ body: z.string().trim().min(1).max(2000) });
  */
 export function registerRoutes(app, { db, authProvider, bans, appConfig, moduleRegistry, onLock = null, vendorIdentity = null, emailService = null, logger = null }) {
   const localeOf = (req) => (req.locale === 'en' ? 'en' : 'ru');
-  const brandOf = () => ({ theme: branding.themeWithBranding(db, {}), html: branding.brandBlockHtml(db, vendorIdentity) });
 
   /** audit.log that pulls the request id and address out of the request and never breaks the request itself. */
   function logAudit(req, { actor, action, entity = null, entityId = null, result = 'success', meta = {} }) {

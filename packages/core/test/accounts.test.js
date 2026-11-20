@@ -77,6 +77,21 @@ describe('account routes (core)', () => {
     expect((await run(gate, { user: { mustChangePassword: false }, path: '/assets', method: 'GET', headers: {} })).next).toBe(true);
   });
 
+  it('a user who must set up a second factor sees only the setup paths', async () => {
+    const { app } = base({ accountPath: '/ui/account' });
+    const gate = app.middleware[1];
+    const user = { mustEnrollMfa: true };
+    for (const path of ['/totp/enroll/start', '/totp/enroll/verify', '/logout', '/me']) expect((await run(gate, { user, path, method: 'POST', headers: {} })).next, path).toBe(true);
+    const api = await run(gate, { user, path: '/assets', method: 'GET', headers: { accept: 'application/json' } });
+    expect(api.code).toBe(403);
+    expect(api.body.error).toBe('MFA_ENROLL_REQUIRED');
+    const page = await run(gate, { user, path: '/assets', method: 'GET', headers: { accept: 'text/html' } });
+    expect(page.location).toBe('/ui/account?msg=mfa#mfa');
+    expect((await run(gate, { user: { mustEnrollMfa: false }, path: '/assets', method: 'GET', headers: {} })).next).toBe(true);
+    // a forced password change comes first: the MFA guard stays out of its way
+    expect((await run(gate, { user: { mustEnrollMfa: true, mustChangePassword: true }, path: '/ui/password', method: 'GET', headers: {} })).next).toBe(true);
+  });
+
   it('forgetLoginFailures and userPublicShape are handed back', () => {
     const { api } = base();
     expect(() => api.forgetLoginFailures('Ann')).not.toThrow();

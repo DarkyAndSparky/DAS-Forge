@@ -1,20 +1,16 @@
+import { changeUserRoleAsync, createManagedUserAsync, createPasswordResetTokenAsync, findUserByIdAsync, forceUserLogoutAsync, generateRecoveryCodesAsync, listAuthenticatorsAsync, listUsersAsync, removeUserAsync, renameUserAsync, resetUserMfaAsync, resetUserPasswordAsync, setUserDisabledAsync, setUserEmailAsync } from '../auth/index.js';
 import { pageParams, pagerFor } from './paging.js';
 import { pickTexts } from '../i18n/overrides.js';
 import { timeHtml } from '../ui/time.js';
-import {
-  UserAdminError, isAnonymizedUser, listUsers, createManagedUser, changeUserRole, renameUser, setUserEmail, setUserDisabled, resetUserPassword, forceUserLogout, resetUserMfa, removeUser, generateTempPassword,
-} from '../auth/user-admin.js';
+import { UserAdminError, isAnonymizedUser, generateTempPassword } from '../auth/user-admin.js';
 import { createHash } from 'node:crypto';
-import { findUserById } from '../auth/users.js';
-import { listAuthenticators } from '../auth/authenticators.js';
-import { generateRecoveryCodes } from '../auth/recovery-codes.js';
-import { createPasswordResetToken } from '../auth/password-reset.js';
-import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
 import { contextFromRequest } from '../audit/context.js';
 import { readForm, emptyRow } from './sections.js';
-import { inactiveUsers, userCard } from './user-activity.js';
+import { inactiveUsersAsync, userCardAsync } from './user-activity.js';
 import { describeAgent } from '../auth/devices.js';
 import { OPS_TEXTS as L } from './sections-ops.js';
+import { parseId } from '../util/parse-id.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -66,7 +62,7 @@ function open(f,user){form=f;var mode=f.elements.mode.value;msg.textContent=(mod
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.adm-remove');if(!b)return;e.preventDefault();open(b.form,b.dataset.user)});
 no.addEventListener('click',function(){stop();d.close()});d.addEventListener('close',stop);
 ok.addEventListener('click',function(){if(ok.disabled||!form)return;form.elements.confirm.value='1';form.submit()})})();`;
-  return `<dialog id="admConfirm" ${data} style="max-width:28rem;border:1px solid var(--adm-danger);border-radius:10px;background:var(--adm-surface);color:var(--adm-text);padding:1.25rem"><p class="adm-msg" style="margin-top:0;font-weight:600"></p><div style="display:flex;gap:.5rem;justify-content:flex-end"><button type="button" class="adm-btn adm-cancel">${esc(l.cancel)}</button><button type="button" class="adm-btn danger adm-ok" disabled>${esc(l.confirmRemove)}</button></div></dialog><script${nonce}>${script}</script>`;
+  return `<dialog id="admConfirm" ${data} style="max-width:28rem;border:1px solid var(--adm-danger);border-radius:10px;background:var(--adm-surface);color:var(--adm-text);padding:1.25rem"><p class="adm-msg" style="margin-top:0;font-weight:600"></p><div style="display:flex;gap:.5rem;justify-content:flex-end"><button type="button" class="adm-btn adm-cancel" autofocus>${esc(l.cancel)}</button><button type="button" class="adm-btn danger adm-ok" disabled>${esc(l.confirmRemove)}</button></div></dialog><script${nonce}>${script}</script>`;
 }
 
 export function mountUsersSection({ app, db, guard, page: render, basePath, localeOf, texts = {}, stepUp = [], manage = null }) {
@@ -76,7 +72,7 @@ export function mountUsersSection({ app, db, guard, page: render, basePath, loca
   const mailService = manage?.email?.service;
   const mailReady = Boolean(mailService?.enabled && manage?.email?.baseUrl);
   const tx = (req) => pickTexts(L, texts['admin-ops'], localeOf(req), 'admin-ops');
-  const audit = (req, action, id, meta) => log(db, { ...contextFromRequest(req), action, entity: 'user', entityId: id, meta });
+  const audit = async (req, action, id, meta) => await logAsync(db, { ...contextFromRequest(req), action, entity: 'user', entityId: id, meta });
   const isSelf = (req, id) => req.user?.id === id;
 
   /**
@@ -126,11 +122,11 @@ export function mountUsersSection({ app, db, guard, page: render, basePath, loca
     return `<button type="button" class="adm-btn adm-open" data-target="adm-u-${u.id}">${esc(l.actions)}</button><dialog id="adm-u-${u.id}" style="width:30rem;max-width:92vw;max-height:90vh;overflow:auto;border:1px solid var(--adm-border);border-radius:10px;background:var(--adm-surface);color:var(--adm-text);padding:1rem 1.25rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.25rem"><div><strong style="font-size:1.1rem">${esc(u.username)}</strong> <span class="adm-badge ${u.disabled ? 'danger' : 'ok'}">${esc(u.disabled ? l.disabled : l.active)}</span></div><button type="button" class="adm-btn adm-close" aria-label="${esc(l.cancel)}">×</button></div>${profile}${role}${reset}${mfa}${unlock}${out}${remove}</dialog>`;
   }
 
-  app.get(path_, ...guard, (req, res) => {
+  app.get(path_, ...guard, async (req, res) => {
     const l = tx(req);
     const search = String(req.query?.q ?? '').slice(0, 64);
     const pg = pageParams(req);
-    const { items, total } = listUsers(db, { search, limit: pg.size, offset: pg.offset });
+    const { items, total } = await listUsersAsync(db, { search, limit: pg.size, offset: pg.offset });
     const rows = items.map((u) => {
       if (isAnonymizedUser(u)) return `<tr class="adm-muted"><td>${esc(u.username)}</td><td></td><td>${esc(u.role)}</td><td><span class="adm-badge">${esc(l.anonymized)}</span></td><td></td><td>${timeHtml(u.createdAt, localeOf(req))}</td><td></td></tr>`;
       const toggle = `<form method="post" action="${path_}/${u.id}/${u.disabled ? 'enable' : 'disable'}" style="display:inline"><button class="adm-btn ${u.disabled ? '' : 'danger'}" type="submit">${esc(u.disabled ? l.enable : l.disable)}</button></form>`;
@@ -138,11 +134,11 @@ export function mountUsersSection({ app, db, guard, page: render, basePath, loca
       return `<tr><td><a href="${path_}/${u.id}">${esc(u.username)}</a></td><td>${esc(u.email ?? '')}</td><td>${esc(u.role)}</td><td><span class="adm-badge ${u.disabled ? 'danger' : 'ok'}">${esc(u.disabled ? l.disabled : l.active)}</span></td><td>${u.activeAuthenticators ? '✓' : ''}</td><td>${timeHtml(u.createdAt, localeOf(req))}</td><td><div style="display:flex;gap:.5rem;align-items:center;justify-content:flex-end;flex-wrap:wrap">${isSelf(req, u.id) ? '' : toggle}${more}</div></td></tr>`;
     }).join('') || emptyRow(7, l.emptyUsers);
     const createForm = manage
-      ? `<form method="post" action="${path_}/create" class="adm-card adm-filters"><strong style="flex-basis:100%">${esc(l.newUser)}</strong><label class="adm-field">${esc(l.username)}<input class="adm-input" name="username" required minlength="3" maxlength="64"></label><label class="adm-field">${esc(l.email)}<input class="adm-input" name="email" type="email" maxlength="320"></label><label class="adm-field">${esc(l.role)}<select class="adm-input" name="role">${roleOptions(roles[roles.length - 1])}</select></label><button class="adm-btn primary" type="submit">${esc(l.create)}</button></form>`
+      ? `<form method="post" action="${path_}/create" class="adm-card adm-filters"><strong style="flex-basis:100%">${esc(l.newUser)}</strong><label class="adm-field">${esc(l.username)}<input class="adm-input" name="username" required minlength="3" maxlength="64" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></label><label class="adm-field">${esc(l.email)}<input class="adm-input" name="email" type="email" maxlength="320" autocapitalize="off" spellcheck="false" autocomplete="off"></label><label class="adm-field">${esc(l.role)}<select class="adm-input" name="role">${roleOptions(roles[roles.length - 1])}</select></label><button class="adm-btn primary" type="submit">${esc(l.create)}</button></form>`
       : '';
     const nonce = res.locals?.cspNonce ? ` nonce="${esc(res.locals.cspNonce)}"` : '';
     const dialog = manage ? confirmDialog(l, nonce, manage.allowDelete) : '';
-    render(req, res, { active: path_, title: l.users, bodyHtml: `${toast(l, req.query)}${createForm}<p><a href="${path_}/inactive">${esc(l.inactiveLink)}</a>${manage?.lockouts ? ` · <a href="${path_}/lockouts">${esc(l.lockoutsLink)}</a>` : ''}</p><form method="get" class="adm-card adm-filters"><label class="adm-field">${esc(l.search)}<input class="adm-input" name="q" value="${esc(search)}" maxlength="64"></label><button class="adm-btn primary" type="submit">${esc(l.find)}</button></form><div class="adm-card"><p class="adm-muted">${esc(l.total)}: ${esc(total)}</p><table class="adm-table"><thead><tr><th>${esc(l.username)}</th><th>${esc(l.email)}</th><th>${esc(l.role)}</th><th>${esc(l.status)}</th><th>${esc(l.mfa)}</th><th>${esc(l.created)}</th><th></th></tr></thead><tbody data-paged="users">${rows}</tbody></table>${pagerFor({ req, res, path: path_, name: 'users', ...pg, count: items.length, total, locale: localeOf(req) })}</div>${dialog}` });
+    await render(req, res, { active: path_, title: l.users, bodyHtml: `${toast(l, req.query)}${createForm}<p><a href="${path_}/inactive">${esc(l.inactiveLink)}</a>${manage?.lockouts ? ` · <a href="${path_}/lockouts">${esc(l.lockoutsLink)}</a>` : ''}</p><form method="get" class="adm-card adm-filters"><label class="adm-field">${esc(l.search)}<input class="adm-input" name="q" value="${esc(search)}" maxlength="64"></label><button class="adm-btn primary" type="submit">${esc(l.find)}</button></form><div class="adm-card"><p class="adm-muted">${esc(l.total)}: ${esc(total)}</p><table class="adm-table"><thead><tr><th>${esc(l.username)}</th><th>${esc(l.email)}</th><th>${esc(l.role)}</th><th>${esc(l.status)}</th><th>${esc(l.mfa)}</th><th>${esc(l.created)}</th><th></th></tr></thead><tbody data-paged="users">${rows}</tbody></table>${pagerFor({ req, res, path: path_, name: 'users', ...pg, count: items.length, total, locale: localeOf(req) })}</div>${dialog}` });
   });
 
   /** Wraps a POST handler: a refusal or a UserAdminError becomes a toast on the list, anything else goes to the error handler. */
@@ -155,73 +151,73 @@ export function mountUsersSection({ app, db, guard, page: render, basePath, loca
     }
   };
   const ok = (res) => res.redirect(303, `${path_}?msg=ok`);
-  const targetId = (req) => {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 1) throw new Refuse('NOT_FOUND');
-    const target = findUserById(db, id);
+  const targetId = async (req) => {
+    const id = parseId(req.params.id);
+    if (id === null) throw new Refuse('NOT_FOUND');
+    const target = await findUserByIdAsync(db, id);
     if (!target || isAnonymizedUser(target)) throw new Refuse('NOT_FOUND'); // an anonymized account is a closed record
     return id;
   };
   const notSelf = (req, id) => { if (isSelf(req, id)) throw new Refuse('SELF'); };
 
   /** The one page that shows a temporary password; no redirect, so it is never in a URL or history. */
-  function showPassword(req, res, l, { title, username, password }) {
-    render(req, res, { active: path_, title, bodyHtml: `<div class="adm-card"><h2>${esc(title)}</h2><p>${esc(l.username)}: <strong>${esc(username)}</strong></p><p>${esc(l.password)}: <code style="font-size:1.2em;user-select:all">${esc(password)}</code></p><p class="adm-muted">${esc(l.tempShown)}</p><p><a class="adm-btn" href="${path_}">${esc(l.back)}</a></p></div>` });
+  async function showPassword(req, res, l, { title, username, password }) {
+    await render(req, res, { active: path_, title, bodyHtml: `<div class="adm-card"><h2>${esc(title)}</h2><p>${esc(l.username)}: <strong>${esc(username)}</strong></p><p>${esc(l.password)}: <code style="font-size:1.2em;user-select:all">${esc(password)}</code></p><p class="adm-muted">${esc(l.tempShown)}</p><p><a class="adm-btn" href="${path_}">${esc(l.back)}</a></p></div>` });
   }
 
 
   // The report and the card are read-only; only the bulk disable below changes anything.
   const clampDays = (v) => Math.min(3650, Math.max(1, Math.trunc(Number(v)) || 90));
 
-  app.get(`${path_}/inactive`, ...guard, (req, res) => {
+  app.get(`${path_}/inactive`, ...guard, async (req, res) => {
     const l = tx(req);
     const days = clampDays(req.query?.days);
-    const list = inactiveUsers(db, { days });
+    const list = await inactiveUsersAsync(db, { days });
     const rows = list.map((u) => `<tr><td><a href="${path_}/${u.id}">${esc(u.username)}</a></td><td>${esc(u.email ?? '')}</td><td>${esc(u.role)}</td><td>${u.lastActivityAt ? timeHtml(u.lastActivityAt, localeOf(req)) : esc(l.never)}</td><td>${u.idleDays ?? '—'}</td></tr>`).join('') || emptyRow(5, l.inactiveNone);
     const bulk = list.length ? `<form method="post" action="${path_}/inactive/disable"><input type="hidden" name="days" value="${days}"><button class="adm-btn danger" type="submit" data-confirm="${esc(l.disableAll)}?">${esc(l.disableAll)} (${list.length})</button></form>` : '';
-    render(req, res, { active: path_, title: l.inactiveTitle, bodyHtml: `${toast(l, req.query)}<p class="adm-muted">${esc(l.inactiveHint)}</p><form method="get" class="adm-card adm-filters"><label class="adm-field">${esc(l.daysLbl)}<input class="adm-input" name="days" type="number" min="1" max="3650" value="${days}"></label><button class="adm-btn primary" type="submit">${esc(l.find)}</button></form><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.username)}</th><th>${esc(l.email)}</th><th>${esc(l.role)}</th><th>${esc(l.lastActivity)}</th><th>${esc(l.idleLbl)}</th></tr></thead><tbody>${rows}</tbody></table></div>${bulk}<p><a class="adm-btn" href="${path_}">${esc(l.toList)}</a></p>` });
+    await render(req, res, { active: path_, title: l.inactiveTitle, bodyHtml: `${toast(l, req.query)}<p class="adm-muted">${esc(l.inactiveHint)}</p><form method="get" class="adm-card adm-filters"><label class="adm-field">${esc(l.daysLbl)}<input class="adm-input" name="days" type="number" min="1" max="3650" value="${days}"></label><button class="adm-btn primary" type="submit">${esc(l.find)}</button></form><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.username)}</th><th>${esc(l.email)}</th><th>${esc(l.role)}</th><th>${esc(l.lastActivity)}</th><th>${esc(l.idleLbl)}</th></tr></thead><tbody>${rows}</tbody></table></div>${bulk}<p><a class="adm-btn" href="${path_}">${esc(l.toList)}</a></p>` });
   });
 
   app.post(`${path_}/inactive/disable`, ...guard, ...stepUp, act(async (req, res, form) => {
     const days = clampDays(form.days);
     let done = 0;
     let skipped = 0;
-    for (const u of inactiveUsers(db, { days })) {
+    for (const u of await inactiveUsersAsync(db, { days })) {
       if (isSelf(req, u.id)) { skipped++; continue; }
       try {
-        const r = setUserDisabled(db, u.id, true, { adminRole });
-        const notified = await notifyUser(req, findUserById(db, u.id), 'disable');
-        audit(req, 'admin.user.disable', u.id, { username: u.username, revokedSessions: r.revokedSessions, reason: `inactive_${days}d`, notified });
+        const r = await setUserDisabledAsync(db, u.id, true, { adminRole });
+        const notified = await notifyUser(req, await findUserByIdAsync(db, u.id), 'disable');
+        await audit(req, 'admin.user.disable', u.id, { username: u.username, revokedSessions: r.revokedSessions, reason: `inactive_${days}d`, notified });
         done++;
       } catch (e) {
         if (!(e instanceof UserAdminError)) throw e;
         skipped++; // the last active administrator is protected
       }
     }
-    audit(req, 'admin.user.disable_inactive', 0, { days, disabled: done, skipped });
+    await audit(req, 'admin.user.disable_inactive', 0, { days, disabled: done, skipped });
     res.redirect(303, `${path_}/inactive?days=${days}&msg=bulk&n=${done}&s=${skipped}`);
   }));
 
   if (manage?.lockouts) {
-    app.get(`${path_}/lockouts`, ...guard, (req, res) => {
+    app.get(`${path_}/lockouts`, ...guard, async (req, res) => {
       const l = tx(req);
-      const rows = manage.lockouts.list().map((e) => `<tr><td>${esc(l.lockKinds?.[e.kind] ?? e.kind)}</td><td><code>${esc(e.key)}</code></td><td>${esc(e.failures)}</td><td>${esc(Math.ceil(e.retryAfterMs / 1000))}</td><td><form method="post" action="${path_}/lockouts/unlock"><input type="hidden" name="kind" value="${esc(e.kind)}"><input type="hidden" name="key" value="${esc(e.key)}"><button class="adm-btn" type="submit">${esc(l.lockLift)}</button></form></td></tr>`).join('') || emptyRow(5, l.lockNone);
-      render(req, res, { active: path_, title: l.lockoutsTitle, bodyHtml: `${toast(l, req.query)}<p class="adm-muted">${esc(l.lockoutsHint)}</p><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.lockKind)}</th><th>${esc(l.lockKey)}</th><th>${esc(l.lockFails)}</th><th>${esc(l.lockLeft)}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><p><a class="adm-btn" href="${path_}">${esc(l.toList)}</a></p>` });
+      const rows = manage.lockouts.list().map((e) => `<tr><td>${esc(l.lockKinds?.[e.kind] ?? e.kind)}</td><td><code translate="no">${esc(e.key)}</code></td><td>${esc(e.failures)}</td><td>${esc(Math.ceil(e.retryAfterMs / 1000))}</td><td><form method="post" action="${path_}/lockouts/unlock"><input type="hidden" name="kind" value="${esc(e.kind)}"><input type="hidden" name="key" value="${esc(e.key)}"><button class="adm-btn" type="submit">${esc(l.lockLift)}</button></form></td></tr>`).join('') || emptyRow(5, l.lockNone);
+      await render(req, res, { active: path_, title: l.lockoutsTitle, bodyHtml: `${toast(l, req.query)}<p class="adm-muted">${esc(l.lockoutsHint)}</p><div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.lockKind)}</th><th>${esc(l.lockKey)}</th><th>${esc(l.lockFails)}</th><th>${esc(l.lockLeft)}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><p><a class="adm-btn" href="${path_}">${esc(l.toList)}</a></p>` });
     });
 
     app.post(`${path_}/lockouts/unlock`, ...guard, ...stepUp, act(async (req, res, form) => {
       const kind = String(form.kind ?? '').slice(0, 16);
       const key = String(form.key ?? '').slice(0, 400);
       if (!manage.lockouts.unlock(kind, key)) throw new Refuse('NOT_FOUND');
-      audit(req, 'admin.user.unlock', null, { kind, key, via: 'lockouts' });
+      await audit(req, 'admin.user.unlock', null, { kind, key, via: 'lockouts' });
       res.redirect(303, `${path_}/lockouts?msg=ok`);
     }));
   }
 
-  app.get(`${path_}/:id`, ...guard, (req, res, next) => {
+  app.get(`${path_}/:id`, ...guard, async (req, res, next) => {
     const l = tx(req);
-    const id = Number(req.params.id);
-    const card = Number.isInteger(id) && id > 0 ? userCard(db, id) : null;
+    const id = parseId(req.params.id);
+    const card = id !== null ? await userCardAsync(db, id) : null;
     if (!card || isAnonymizedUser(card.user)) return next();
     const loc = localeOf(req);
     const t = (v) => (v ? timeHtml(v, loc) : esc(l.never));
@@ -235,16 +231,16 @@ export function mountUsersSection({ app, db, guard, page: render, basePath, loca
       + `<div class="adm-card"><h2>${esc(l.cardSessions)}</h2>${tbl([l.created, l.lastSeenLbl, l.expiresLbl], sess, 3)}</div>`
       + `<div class="adm-card"><h2>${esc(l.cardDevices)}</h2>${tbl([l.deviceLbl, l.ipLbl, l.firstSeen, l.lastSeenLbl], devs, 4)}</div>`
       + `<div class="adm-card"><h2>${esc(l.cardEvents)}</h2>${tbl([l.created, l.actionLbl, l.resultLbl, l.ipLbl], evs, 4)}</div><p><a class="adm-btn" href="${path_}">${esc(l.toList)}</a></p>`;
-    render(req, res, { active: path_, title: `${l.cardTitle}: ${u.username}`, bodyHtml: body });
+    await render(req, res, { active: path_, title: `${l.cardTitle}: ${u.username}`, bodyHtml: body });
   });
 
   for (const [verb, flag] of [['disable', true], ['enable', false]]) {
     app.post(`${path_}/:id/${verb}`, ...guard, ...stepUp, act(async (req, res) => {
-      const id = targetId(req);
+      const id = await targetId(req);
       if (flag) notSelf(req, id);
-      const r = setUserDisabled(db, id, flag, { adminRole });
-      const notified = await notifyUser(req, findUserById(db, id), verb);
-      audit(req, `admin.user.${verb}`, id, { username: r.user?.username, revokedSessions: r.revokedSessions, notified });
+      const r = await setUserDisabledAsync(db, id, flag, { adminRole });
+      const notified = await notifyUser(req, await findUserByIdAsync(db, id), verb);
+      await audit(req, `admin.user.${verb}`, id, { username: r.user?.username, revokedSessions: r.revokedSessions, notified });
       ok(res);
     }, { form: false }));
   }
@@ -256,132 +252,132 @@ export function mountUsersSection({ app, db, guard, page: render, basePath, loca
   app.post(`${path_}/create`, ...guard, ...stepUp, act(async (req, res, form) => {
     const l = tx(req);
     const temporaryPassword = generateTempPassword();
-    const user = createManagedUser(db, {
+    const user = await createManagedUserAsync(db, {
       username: String(form.username ?? '').trim(),
       email: String(form.email ?? '').trim() || null,
       role: String(form.role ?? ''),
       passwordHash: await manage.authProvider.hashPassword(temporaryPassword),
       allowedRoles: roles,
     });
-    audit(req, 'admin.user.create', user.id, { username: user.username, role: user.role });
-    showPassword(req, res, l, { title: l.accountCreated, username: user.username, password: temporaryPassword });
+    await audit(req, 'admin.user.create', user.id, { username: user.username, role: user.role });
+    await showPassword(req, res, l, { title: l.accountCreated, username: user.username, password: temporaryPassword });
   }));
 
   app.post(`${path_}/:id/profile`, ...guard, ...stepUp, act(async (req, res, form) => {
-    const id = targetId(req);
+    const id = await targetId(req);
     notSelf(req, id);
-    const before = findUserById(db, id);
+    const before = await findUserByIdAsync(db, id);
     if (!before) throw new Refuse('NOT_FOUND');
     if (form._v && form._v !== userVersion(before)) throw new Refuse('CONFLICT');
     const changes = {};
     const username = String(form.username ?? '').trim();
     const email = String(form.email ?? '').trim() || null;
     if (username !== before.username) {
-      renameUser(db, id, username);
+      await renameUserAsync(db, id, username);
       changes.username = { from: before.username, to: username };
     }
     if (email !== (before.email ?? null)) {
-      setUserEmail(db, id, email);
+      await setUserEmailAsync(db, id, email);
       changes.email = true;
     }
-    if (Object.keys(changes).length > 0) audit(req, 'admin.user.update', id, { changes });
+    if (Object.keys(changes).length > 0) await audit(req, 'admin.user.update', id, { changes });
     ok(res);
   }));
 
   app.post(`${path_}/:id/role`, ...guard, ...stepUp, act(async (req, res, form) => {
-    const id = targetId(req);
+    const id = await targetId(req);
     notSelf(req, id);
-    const before = findUserById(db, id);
+    const before = await findUserByIdAsync(db, id);
     if (!before) throw new Refuse('NOT_FOUND');
     if (form._v && form._v !== userVersion(before)) throw new Refuse('CONFLICT');
     const role = String(form.role ?? '');
     if (role !== before.role) {
-      changeUserRole(db, id, role, { adminRole, allowedRoles: roles });
+      await changeUserRoleAsync(db, id, role, { adminRole, allowedRoles: roles });
       const notified = await notifyUser(req, before, 'Role', { from: before.role, to: role });
-      audit(req, 'admin.user.update', id, { changes: { role: { from: before.role, to: role } }, notified });
+      await audit(req, 'admin.user.update', id, { changes: { role: { from: before.role, to: role } }, notified });
     }
     ok(res);
   }));
 
   app.post(`${path_}/:id/reset`, ...guard, ...stepUp, act(async (req, res, form) => {
     const l = tx(req);
-    const id = targetId(req);
-    const user = findUserById(db, id);
+    const id = await targetId(req);
+    const user = await findUserByIdAsync(db, id);
     if (!user) throw new Refuse('NOT_FOUND');
     if (user.disabled) throw new Refuse('ACCOUNT_DISABLED');
     if (form.mode === 'email') {
       if (!mailReady) throw new Refuse('EMAIL_UNAVAILABLE');
       if (!user.email) throw new Refuse('NO_EMAIL');
       const ttlMinutes = manage.email.ttlMinutes ?? 30;
-      const { token } = createPasswordResetToken(db, user.id, { ttlMinutes });
+      const { token } = await createPasswordResetTokenAsync(db, user.id, { ttlMinutes });
       const resetUrl = `${String(manage.email.baseUrl).replace(/\/+$/, '')}${manage.email.resetPath ?? '/reset-password'}#token=${token}`;
       try {
         await mailService.sendPasswordReset({ to: user.email, resetUrl, expiresInMinutes: ttlMinutes, locale: localeOf(req) });
       } catch {
         throw new Refuse('EMAIL_FAILED');
       }
-      audit(req, 'admin.user.reset_password', id, { mode: 'email' });
+      await audit(req, 'admin.user.reset_password', id, { mode: 'email' });
       return ok(res);
     }
     notSelf(req, id); // resetting your own password here would end this very session; use the account page
     const temporaryPassword = generateTempPassword();
-    const r = resetUserPassword(db, id, await manage.authProvider.hashPassword(temporaryPassword));
+    const r = await resetUserPasswordAsync(db, id, await manage.authProvider.hashPassword(temporaryPassword));
     manage.onPasswordReset?.(user);
     const notified = await notifyUser(req, user, 'Reset');
-    audit(req, 'admin.user.reset_password', id, { mode: 'temporary', revokedSessions: r.revokedSessions, notified });
-    showPassword(req, res, l, { title: l.tempTitle, username: user.username, password: temporaryPassword });
+    await audit(req, 'admin.user.reset_password', id, { mode: 'temporary', revokedSessions: r.revokedSessions, notified });
+    await showPassword(req, res, l, { title: l.tempTitle, username: user.username, password: temporaryPassword });
   }));
 
   app.post(`${path_}/:id/unlock`, ...guard, ...stepUp, act(async (req, res) => {
-    const id = targetId(req);
-    const user = findUserById(db, id);
+    const id = await targetId(req);
+    const user = await findUserByIdAsync(db, id);
     if (!user) throw new Refuse('NOT_FOUND');
     if (typeof manage.onUnlock !== 'function') throw new Refuse('FORBIDDEN');
     manage.onUnlock(user);
-    audit(req, 'admin.user.unlock', id);
+    await audit(req, 'admin.user.unlock', id);
     ok(res);
   }));
 
   app.post(`${path_}/:id/logout`, ...guard, ...stepUp, act(async (req, res, form) => {
-    const id = targetId(req);
+    const id = await targetId(req);
     notSelf(req, id);
-    const r = forceUserLogout(db, id, { requirePasswordChange: form.requireChange === '1' });
-    const notified = await notifyUser(req, findUserById(db, id), 'Logout');
-    audit(req, 'admin.user.force_logout', id, { revokedSessions: r.revokedSessions, requirePasswordChange: r.mustChangePassword, notified });
+    const r = await forceUserLogoutAsync(db, id, { requirePasswordChange: form.requireChange === '1' });
+    const notified = await notifyUser(req, await findUserByIdAsync(db, id), 'Logout');
+    await audit(req, 'admin.user.force_logout', id, { revokedSessions: r.revokedSessions, requirePasswordChange: r.mustChangePassword, notified });
     ok(res);
   }));
 
   app.post(`${path_}/:id/reset-mfa`, ...guard, ...stepUp, act(async (req, res) => {
-    const id = targetId(req);
+    const id = await targetId(req);
     notSelf(req, id); // your own factor is changed on the account page
-    const user = findUserById(db, id);
-    const r = resetUserMfa(db, id);
+    const user = await findUserByIdAsync(db, id);
+    const r = await resetUserMfaAsync(db, id);
     const notified = await notifyUser(req, user, 'Mfa');
-    audit(req, 'admin.user.reset_mfa', id, { removedAuthenticators: r.removedAuthenticators, revokedSessions: r.revokedSessions, notified });
+    await audit(req, 'admin.user.reset_mfa', id, { removedAuthenticators: r.removedAuthenticators, revokedSessions: r.revokedSessions, notified });
     ok(res);
   }, { form: false }));
 
   app.post(`${path_}/:id/recovery-codes`, ...guard, ...stepUp, act(async (req, res) => {
     const l = tx(req);
-    const id = targetId(req);
+    const id = await targetId(req);
     notSelf(req, id);
-    const user = findUserById(db, id);
-    if (!listAuthenticators(db, id).some((a) => a.type === 'totp' && a.status === 'active')) throw new Refuse('NO_ACTIVE_MFA');
-    const codes = await generateRecoveryCodes(db, id);
+    const user = await findUserByIdAsync(db, id);
+    if (!(await listAuthenticatorsAsync(db, id)).some((a) => a.type === 'totp' && a.status === 'active')) throw new Refuse('NO_ACTIVE_MFA');
+    const codes = await generateRecoveryCodesAsync(db, id);
     const notified = await notifyUser(req, user, 'Codes');
-    audit(req, 'admin.user.recovery_codes', id, { count: codes.length, notified });
+    await audit(req, 'admin.user.recovery_codes', id, { count: codes.length, notified });
     res.set?.('Cache-Control', 'no-store');
-    render(req, res, { active: path_, title: l.codesTitle, bodyHtml: `<div class="adm-card"><h2>${esc(l.codesTitle)}</h2><p>${esc(l.username)}: <strong>${esc(user.username)}</strong></p><ul style="font-size:1.1em;user-select:all">${codes.map((c) => `<li><code>${esc(c)}</code></li>`).join('')}</ul><p class="adm-muted">${esc(l.codesShown)}</p><p><a class="adm-btn" href="${path_}">${esc(l.back)}</a></p></div>` });
+    await render(req, res, { active: path_, title: l.codesTitle, bodyHtml: `<div class="adm-card"><h2>${esc(l.codesTitle)}</h2><p>${esc(l.username)}: <strong>${esc(user.username)}</strong></p><ul style="font-size:1.1em;user-select:all">${codes.map((c) => `<li><code translate="no">${esc(c)}</code></li>`).join('')}</ul><p class="adm-muted">${esc(l.codesShown)}</p><p><a class="adm-btn" href="${path_}">${esc(l.back)}</a></p></div>` });
   }, { form: false }));
 
   app.post(`${path_}/:id/remove`, ...guard, ...stepUp, act(async (req, res, form) => {
-    const id = targetId(req);
+    const id = await targetId(req);
     notSelf(req, id);
     if (form.confirm !== '1') throw new Refuse('CONFIRM');
     const mode = form.mode === 'delete' ? 'delete' : 'anonymize';
     if (mode === 'delete' && !manage.allowDelete) throw new Refuse('FORBIDDEN');
-    const r = removeUser(db, id, { mode, adminRole });
-    audit(req, 'admin.user.delete', id, { username: r.username, mode });
+    const r = await removeUserAsync(db, id, { mode, adminRole });
+    await audit(req, 'admin.user.delete', id, { username: r.username, mode });
     ok(res);
   }));
 }

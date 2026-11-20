@@ -6,6 +6,7 @@ import { ApplicationConfigSchema } from './schema.js';
 import { applyEnvOverrides, describeEnv } from './env.js';
 import { ConfigValidationError } from './errors.js';
 import { isPlaceholderSecret } from './secrets.js';
+import { applyExposureProfile } from './profile.js';
 
 /**
  * Deep-merges plain objects (arrays are replaced wholesale, not merged
@@ -74,6 +75,10 @@ export async function loadConfig({
     report.envPaths = describeEnv(env).known.filter((k) => k.source !== 'unset').map((k) => k.path);
   }
 
+  const profile = applyExposureProfile(merged);
+  merged = profile.config;
+  if (report) report.profileApplied = profile.applied;
+
   const result = schema.safeParse(merged);
   if (!result.success) {
     throw new ConfigValidationError(result.error, { sourcePath: resolvedPath });
@@ -93,7 +98,7 @@ export async function loadConfig({
  * and for unit tests that already have a plain object in hand.
  */
 export function validateConfig(plainObject, { sourcePath, schema = ApplicationConfigSchema } = {}) {
-  const result = schema.safeParse(plainObject);
+  const result = schema.safeParse(applyExposureProfile(plainObject).config);
   if (!result.success) {
     throw new ConfigValidationError(result.error, { sourcePath });
   }

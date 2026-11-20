@@ -10,6 +10,8 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { ensureAuditTable } from './schema.js';
+import { asyncDb } from '../database/async.js';
+import { ensureAuditTableAsync } from './async.js';
 
 const PAGE = 2000;
 const stamp = (iso) => String(iso).replace(/[:.]/g, '-').replace(/[^0-9A-Za-z-]/g, '').slice(0, 19);
@@ -22,7 +24,21 @@ export async function archiveBefore(db, beforeIso, { dir } = {}) {
   if (!beforeIso) throw new TypeError('archiveBefore() requires a cutoff ISO datetime string');
   if (!dir) throw new TypeError('archiveBefore() requires a directory');
   ensureAuditTable(db);
-  const first = db.get('SELECT MIN(created_at) AS a FROM audit_log WHERE created_at < ?', [beforeIso])?.a;
+  return writeArchive(db, beforeIso, dir);
+}
+
+/** `archiveBefore()` over `asyncDb` (any driver): the same file, the same checks. */
+export async function archiveBeforeAsync(db, beforeIso, { dir } = {}) {
+  if (!beforeIso) throw new TypeError('archiveBefore() requires a cutoff ISO datetime string');
+  if (!dir) throw new TypeError('archiveBefore() requires a directory');
+  const a = asyncDb(db);
+  await ensureAuditTableAsync(a);
+  return writeArchive(a, beforeIso, dir);
+}
+
+/** `db` is a synchronous adapter or an `asyncDb`: every read is awaited, so both work. */
+async function writeArchive(db, beforeIso, dir) {
+  const first = (await db.get('SELECT MIN(created_at) AS a FROM audit_log WHERE created_at < ?', [beforeIso]))?.a;
   if (!first) return null;
   mkdirSync(dir, { recursive: true, mode: 0o700 });
 
@@ -38,7 +54,7 @@ export async function archiveBefore(db, beforeIso, { dir } = {}) {
   const write = async (line) => { if (!gz.write(`${line}\n`)) await once(gz, 'drain'); };
   try {
     for (;;) {
-      const page = db.all('SELECT * FROM audit_log WHERE created_at < ? AND id > ? ORDER BY id LIMIT ?', [beforeIso, afterId, PAGE]);
+      const page = await db.all('SELECT * FROM audit_log WHERE created_at < ? AND id > ? ORDER BY id LIMIT ?', [beforeIso, afterId, PAGE]);
       if (page.length === 0) break;
       for (const r of page) {
         await write(JSON.stringify(r));

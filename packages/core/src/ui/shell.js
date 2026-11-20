@@ -1,6 +1,7 @@
 import { langSwitchHtml } from './lang-switch.js';
 import { themeHead, themeToggleHtml } from './theme.js';
 import { modalScript } from './modal.js';
+import { sessionWatchScript } from './session-watch.js';
 import { TIME_SCRIPT } from './time.js';
 import { uiTexts } from './texts.js';
 import { poweredByHtml } from './powered-by.js';
@@ -71,6 +72,7 @@ export function renderAppShell({
   accountUrl = '',
   badge = '',
   showLogout = false,
+  sessionWarnMs = 0,
 }) {
   const translations = moduleRegistry.getTranslations ? moduleRegistry.getTranslations() : { ru: {}, en: {} };
   const dict = translations[locale] ?? {};
@@ -126,6 +128,7 @@ ${bodyHtml}
 <div class="adm-foot">${bodyEndHtml}<div style="margin-top:1rem">${poweredByHtml(locale)}</div></div>
   </div>
 <script${n}>${modalScript()}</script>
+${showLogout && user?.username && sessionWarnMs > 0 ? `<script${n}>${sessionWatchScript({ warnMs: sessionWarnMs })}</script>` : ''}
 <script${n}>${TIME_SCRIPT}</script>
 ${showLogout ? `<script${n}>document.getElementById('adm-logout')?.addEventListener('click',async(ev)=>{const b=ev.currentTarget;b.disabled=true;try{const r=await fetch('/logout',{method:'POST'});if(!r.ok&&!r.redirected)throw new Error('HTTP '+r.status)}catch(e){b.disabled=false;alert(${JSON.stringify(ui.signOutFailed).replace(/</g, '\\u003c')});return}location.href='/login'})</script>` : ''}
 </body>

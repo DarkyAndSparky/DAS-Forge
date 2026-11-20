@@ -27,7 +27,7 @@ function generateTempPassword(length = 24) {
  * `app user create-admin --temp` CLI command remains the manual
  * fallback for recovery scenarios (lost access, not first run).
  *
- * @returns {{created: boolean, username?: string, tempPassword?: string}}
+ * @returns {Promise<{created: boolean, username?: string, tempPassword?: string}>}
  */
 export async function firstRunBootstrap(db, { username = 'admin', argon2Options } = {}) {
   if (countUsers(db) > 0) {

@@ -1,5 +1,5 @@
 // G-12: audit filter timings on N rows (default 1 000 000, ~10 s to fill). Usage: node scripts/audit-bench.mjs [rows]
-// Numbers go to docs/performance-budget.md; run on the target server before trusting them.
+// Numbers go to docs/internal/performance-budget.md; run on the target server before trusting them.
 const root = new URL("../packages/core", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"); const N = Number(process.argv[2] || 1000000);
 const imp = (p) => import(`${root}/src/${p}`);
 const { createSqliteAdapter } = await imp('database/sqlite-adapter.js');
@@ -10,7 +10,6 @@ ensureAuditTable(db);
 const acts = ['login','logout','user.create','user.update','backup.run','audit.export','settings.change','password.change'];
 const t0 = Date.now();
 db.exec('BEGIN');
-const st = db.raw ? null : null;
 for (let i = 0; i < N; i++) {
   const d = new Date(Date.UTC(2025, 0, 1) + i * 25000).toISOString();
   db.run('INSERT INTO audit_log (actor,action,entity,entity_id,result,meta,request_id,ip,created_at,hash) VALUES (?,?,?,?,?,?,?,?,?,?)',

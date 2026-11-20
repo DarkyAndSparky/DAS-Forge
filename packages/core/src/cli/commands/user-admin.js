@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { cliActor } from '../actor.js';
+import { asyncView } from '../../util/async-view.js';
 
 /**
  * `app user create-admin [--username=NAME] [--force]` - manual fallback
@@ -20,7 +21,7 @@ function generateTempPassword(length = 24) {
 /**
  * @param {object} cli
  * @param {object} opts
- * @param {import('../../database/adapter.js')} opts.db
+ * @param {object} opts.db
  * @param {(plain:string) => Promise<string>} opts.hashPassword - core/auth's hashPassword
  * @param {(db, patch) => object} opts.createUser - core/auth's createUser
  * @param {(db, username) => object|null} opts.findUserByUsername
@@ -48,15 +49,16 @@ export function registerUserCommands(
     listAuthenticators,
     removeAuthenticator,
     generateRecoveryCodes,
-    userAdmin,
+    userAdmin: userAdminIn,
     roles,
     adminRole = 'admin',
     auditLog,
   }
 ) {
-  const record = (action, user, meta = {}) => {
+  const userAdmin = asyncView(userAdminIn);
+  const record = async (action, user, meta = {}) => {
     try {
-      auditLog?.({ actor: cliActor(), action, entity: 'user', entityId: user?.id ?? null, meta: { username: user?.username, ...meta } });
+      await auditLog?.({ actor: cliActor(), action, entity: 'user', entityId: user?.id ?? null, meta: { username: user?.username, ...meta } });
     } catch {
       /* the audit trail must not turn a finished operation into a failure */
     }
@@ -72,8 +74,8 @@ export function registerUserCommands(
     examples: ['user create-admin', 'user create-admin --username root --force'],
     async handler({ flags }) {
       const username = typeof flags.username === 'string' ? flags.username : 'admin';
-      const hasUsers = countUsers(db) > 0;
-      const existing = findUserByUsername(db, username);
+      const hasUsers = await countUsers(db) > 0;
+      const existing = await findUserByUsername(db, username);
 
       if (hasUsers && flags.force !== true) {
         // eslint-disable-next-line no-console
@@ -88,9 +90,9 @@ export function registerUserCommands(
       const passwordHash = await hashPassword(tempPassword);
 
       if (existing) {
-        updatePasswordHash(db, existing.id, passwordHash, { clearMustChange: false });
+        await updatePasswordHash(db, existing.id, passwordHash, { clearMustChange: false });
       } else {
-        createUser(db, { username, passwordHash, role: 'admin', mustChangePassword: true });
+        await createUser(db, { username, passwordHash, role: 'admin', mustChangePassword: true });
       }
 
       // eslint-disable-next-line no-console
@@ -128,7 +130,7 @@ export function registerUserCommands(
         return 2;
       }
 
-      const existing = findUserByUsername(db, username);
+      const existing = await findUserByUsername(db, username);
       if (!existing) {
         // eslint-disable-next-line no-console
         console.error(`No such user: "${username}"`);
@@ -139,11 +141,11 @@ export function registerUserCommands(
       const passwordHash = await hashPassword(tempPassword);
       if (userAdmin) {
         // stores the hash, forces a change and signs the user out everywhere
-        userAdmin.resetUserPassword(db, existing.id, passwordHash);
+        await userAdmin.resetUserPassword(db, existing.id, passwordHash);
       } else {
-        updatePasswordHash(db, existing.id, passwordHash, { clearMustChange: false });
+        await updatePasswordHash(db, existing.id, passwordHash, { clearMustChange: false });
       }
-      record('user.password_reset', existing);
+      await record('user.password_reset', existing);
 
       // eslint-disable-next-line no-console
       console.log(
@@ -159,8 +161,8 @@ export function registerUserCommands(
       console.error(text); // eslint-disable-line no-console
       return code;
     };
-    const needUser = (username) => {
-      const user = username ? findUserByUsername(db, username) : null;
+    const needUser = async (username) => {
+      const user = username ? await findUserByUsername(db, username) : null;
       return user ?? null;
     };
     /** Runs an operation, turning a UserAdminError into a message and exit code 1. */
@@ -184,8 +186,8 @@ export function registerUserCommands(
         { name: '--json', description: 'Print JSON instead of a table' },
       ],
       examples: ['user list', 'user list --role admin', 'user list --search ivan --json'],
-      handler({ flags }) {
-        const result = userAdmin.listUsers(db, {
+      async handler({ flags }) {
+        const result = await userAdmin.listUsers(db, {
           search: typeof flags.search === 'string' ? flags.search : undefined,
           role: typeof flags.role === 'string' ? flags.role : undefined,
           disabled: flags.disabled ? true : undefined,
@@ -221,16 +223,16 @@ export function registerUserCommands(
       async handler({ positionals, flags }) {
         const username = positionals[0];
         if (!username) return fail('Usage: user create <username> [--role name] [--email address]', 2);
-        return guarded(async () => {
+        return await guarded(async () => {
           const tempPassword = generateTempPassword();
-          const user = userAdmin.createManagedUser(db, {
+          const user = await userAdmin.createManagedUser(db, {
             username,
             email: typeof flags.email === 'string' ? flags.email : null,
             role: typeof flags.role === 'string' ? flags.role : 'operator',
             passwordHash: await hashPassword(tempPassword),
             allowedRoles: roles,
           });
-          record('user.create', user, { role: user.role });
+          await record('user.create', user, { role: user.role });
           say(`Created "${user.username}" (${user.role}).\nTemporary password: ${tempPassword}\n(must be changed on first login)`);
           return 0;
         });
@@ -241,14 +243,14 @@ export function registerUserCommands(
       description: "Change a user's login (their other sessions are ended)",
       usage: '<username> <new-username>',
       examples: ['user rename ivan ivan.petrov'],
-      handler({ positionals }) {
+      async handler({ positionals }) {
         const [username, next] = positionals;
         if (!username || !next) return fail('Usage: user rename <username> <new-username>', 2);
-        const user = needUser(username);
+        const user = await needUser(username);
         if (!user) return fail(`No such user: "${username}"`);
-        return guarded(() => {
-          const r = userAdmin.renameUser(db, user.id, next);
-          record('user.rename', user, { from: username, to: next });
+        return await guarded(async () => {
+          const r = await userAdmin.renameUser(db, user.id, next);
+          await record('user.rename', user, { from: username, to: next });
           say(`Renamed "${username}" to "${r.user.username}"${r.revokedSessions ? ` (${r.revokedSessions} session(s) ended)` : ''}.`);
           return 0;
         });
@@ -259,14 +261,14 @@ export function registerUserCommands(
       description: "Change a user's role (their sessions are ended; the last active admin cannot be demoted)",
       usage: '<username> <role>',
       examples: ['user set-role anna admin'],
-      handler({ positionals }) {
+      async handler({ positionals }) {
         const [username, role] = positionals;
         if (!username || !role) return fail('Usage: user set-role <username> <role>', 2);
-        const user = needUser(username);
+        const user = await needUser(username);
         if (!user) return fail(`No such user: "${username}"`);
-        return guarded(() => {
-          const r = userAdmin.changeUserRole(db, user.id, role, { adminRole, allowedRoles: roles });
-          if (r.changed) record('user.set_role', user, { from: user.role, to: role });
+        return await guarded(async () => {
+          const r = await userAdmin.changeUserRole(db, user.id, role, { adminRole, allowedRoles: roles });
+          if (r.changed) await record('user.set_role', user, { from: user.role, to: role });
           say(r.changed ? `"${username}" is now ${role}.` : `"${username}" already has the role ${role}.`);
           return 0;
         });
@@ -278,14 +280,14 @@ export function registerUserCommands(
       usage: '<username> <address> | <username> --clear',
       flags: [{ name: '--clear', description: 'Remove the address' }],
       examples: ['user set-email anna anna@example.com', 'user set-email anna --clear'],
-      handler({ positionals, flags }) {
+      async handler({ positionals, flags }) {
         const [username, address] = positionals;
         if (!username || (!address && !flags.clear)) return fail('Usage: user set-email <username> <address> | <username> --clear', 2);
-        const user = needUser(username);
+        const user = await needUser(username);
         if (!user) return fail(`No such user: "${username}"`);
-        return guarded(() => {
-          const u = userAdmin.setUserEmail(db, user.id, flags.clear ? null : address);
-          record('user.set_email', user, { cleared: !u.email });
+        return await guarded(async () => {
+          const u = await userAdmin.setUserEmail(db, user.id, flags.clear ? null : address);
+          await record('user.set_email', user, { cleared: !u.email });
           say(u.email ? `E-mail of "${username}" set to ${u.email}.` : `E-mail of "${username}" cleared.`);
           return 0;
         });
@@ -299,14 +301,14 @@ export function registerUserCommands(
           : "Allow a disabled user to log in again",
         usage: '<username>',
         examples: [`user ${name} ivan`],
-        handler({ positionals }) {
+        async handler({ positionals }) {
           const username = positionals[0];
           if (!username) return fail(`Usage: user ${name} <username>`, 2);
-          const user = needUser(username);
+          const user = await needUser(username);
           if (!user) return fail(`No such user: "${username}"`);
-          return guarded(() => {
-            const r = userAdmin.setUserDisabled(db, user.id, disable, { adminRole });
-            if (r.changed) record(disable ? 'user.disable' : 'user.enable', user);
+          return await guarded(async () => {
+            const r = await userAdmin.setUserDisabled(db, user.id, disable, { adminRole });
+            if (r.changed) await record(disable ? 'user.disable' : 'user.enable', user);
             say(r.changed ? `"${username}" ${disable ? 'disabled' : 'enabled'}.` : `"${username}" is already ${disable ? 'disabled' : 'enabled'}.`);
             return 0;
           });
@@ -322,15 +324,15 @@ export function registerUserCommands(
         { name: '--hard', description: 'Delete the row instead of anonymising it (only where the law requires it)' },
       ],
       examples: ['user delete ivan --yes', 'user delete ivan --yes --hard'],
-      handler({ positionals, flags }) {
+      async handler({ positionals, flags }) {
         const username = positionals[0];
         if (!username) return fail('Usage: user delete <username> --yes [--hard]', 2);
         if (flags.yes !== true) return fail('Refusing to remove an account without --yes.', 2);
-        const user = needUser(username);
+        const user = await needUser(username);
         if (!user) return fail(`No such user: "${username}"`);
-        return guarded(() => {
-          const r = userAdmin.removeUser(db, user.id, { mode: flags.hard === true ? 'delete' : 'anonymize', adminRole });
-          record('user.delete', user, { mode: r.mode });
+        return await guarded(async () => {
+          const r = await userAdmin.removeUser(db, user.id, { mode: flags.hard === true ? 'delete' : 'anonymize', adminRole });
+          await record('user.delete', user, { mode: r.mode });
           say(`${r.mode === 'delete' ? 'Deleted' : 'Anonymised'} "${username}".`);
           return 0;
         });
@@ -351,21 +353,21 @@ export function registerUserCommands(
       usage: '<username> [--json]',
       flags: [{ name: '--json', description: 'Print the list as JSON instead of a table' }],
       examples: ['user authenticators alice', 'user authenticators alice --json'],
-      handler({ positionals, flags }) {
+      async handler({ positionals, flags }) {
         const username = positionals[0];
         if (!username) {
           // eslint-disable-next-line no-console
           console.error('Usage: user authenticators <username>');
           return 2;
         }
-        const user = findUserByUsername(db, username);
+        const user = await findUserByUsername(db, username);
         if (!user) {
           // eslint-disable-next-line no-console
           console.error(`No such user: "${username}"`);
           return 1;
         }
 
-        const list = listAuthenticators(db, user.id);
+        const list = await listAuthenticators(db, user.id);
         if (flags.json) {
           // eslint-disable-next-line no-console
           console.log(JSON.stringify(list));
@@ -389,14 +391,14 @@ export function registerUserCommands(
       usage: '<username> <id> [--force]',
       flags: [{ name: '--force', description: "Override the \"last factor\" protection" }],
       examples: ['user authenticators-remove alice 3', 'user authenticators-remove alice 3 --force'],
-      handler({ positionals, flags }) {
+      async handler({ positionals, flags }) {
         const [username, idStr] = positionals;
         if (!username || !idStr) {
           // eslint-disable-next-line no-console
           console.error('Usage: user authenticators-remove <username> <id> [--force]');
           return 2;
         }
-        const user = findUserByUsername(db, username);
+        const user = await findUserByUsername(db, username);
         if (!user) {
           // eslint-disable-next-line no-console
           console.error(`No such user: "${username}"`);
@@ -408,7 +410,7 @@ export function registerUserCommands(
         // admin fat-fingering this command benefits from too; --force
         // is the deliberate override for "yes, I know, they're
         // re-enrolling right now".
-        const result = removeAuthenticator(db, user.id, Number(idStr), { mfaRequired: flags.force !== true });
+        const result = await removeAuthenticator(db, user.id, Number(idStr), { mfaRequired: flags.force !== true });
 
         if (!result.ok) {
           // eslint-disable-next-line no-console
@@ -440,7 +442,7 @@ export function registerUserCommands(
           console.error('Usage: user recovery-codes <username> [--count n]');
           return 2;
         }
-        const user = findUserByUsername(db, username);
+        const user = await findUserByUsername(db, username);
         if (!user) {
           // eslint-disable-next-line no-console
           console.error(`No such user: "${username}"`);

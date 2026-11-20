@@ -32,8 +32,8 @@ describe('administration listener', () => {
     expect(run(gate, '/administrator', 9002)).toBe('next'); // another path with the same beginning
     expect(run(gate, '/login', 9003)).toBe('next');
   });
-  it('the schema keeps the admin address optional', () => {
-    expect(ServerConfigSchema.parse({}).admin).toEqual({});
+  it('the schema keeps the admin address optional and the allowed networks empty', () => {
+    expect(ServerConfigSchema.parse({}).admin).toEqual({ allowedNets: [] });
     expect(ServerConfigSchema.parse({ admin: { port: 9103 } }).admin.port).toBe(9103);
   });
   it('the diagnostics tell a separate listener from a shared one', async () => {

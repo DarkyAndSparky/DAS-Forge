@@ -74,7 +74,7 @@ export const ACCOUNT_TEXTS = {
 
     accountTitle: 'Аккаунт',
     accountBack: 'Назад',
-    accountUiTitle: 'Интерфейс', accountLang: 'Язык', accountTheme: 'Тема', accountThemeAuto: 'Как в системе', accountThemeLight: 'Светлая', accountThemeDark: 'Тёмная', accountUiHint: 'Выбор хранится в этом браузере.',
+    accountUiTitle: 'Интерфейс', accountLang: 'Язык', accountTheme: 'Тема', accountThemeAuto: 'Как в системе', accountThemeLight: 'Светлая', accountThemeDark: 'Тёмная', accountThemeContrast: 'Высокая контрастность', accountUiHint: 'Выбор хранится в этом браузере.',
     accountSignOut: 'Выйти',
     accountPwTitle: 'Смена пароля',
     accountPwCurrent: 'Текущий пароль',
@@ -92,6 +92,7 @@ export const ACCOUNT_TEXTS = {
     accountMfaTitle: 'Двухфакторная аутентификация',
     accountMfaRequired: '(обязательна для вашей роли: нужно оставить хотя бы один)',
     accountNoAuth: 'Аутентификаторы ещё не добавлены.',
+    accountMfaEnrollNotice: 'Для вашей роли обязателен второй фактор. Подключите приложение-аутентификатор и подтвердите код: до этого другие страницы недоступны.',
     accountUnnamed: 'Без названия',
     accountRemove: 'Удалить',
     accountStatusActive: 'активен',
@@ -178,7 +179,7 @@ export const ACCOUNT_TEXTS = {
 
     accountTitle: 'Account',
     accountBack: 'Back',
-    accountUiTitle: 'Interface', accountLang: 'Language', accountTheme: 'Theme', accountThemeAuto: 'Follow the system', accountThemeLight: 'Light', accountThemeDark: 'Dark', accountUiHint: 'The choice is kept in this browser.',
+    accountUiTitle: 'Interface', accountLang: 'Language', accountTheme: 'Theme', accountThemeAuto: 'Follow the system', accountThemeLight: 'Light', accountThemeDark: 'Dark', accountThemeContrast: 'High contrast', accountUiHint: 'The choice is kept in this browser.',
     accountSignOut: 'Sign out',
     accountPwTitle: 'Change password',
     accountPwCurrent: 'Current password',
@@ -196,6 +197,7 @@ export const ACCOUNT_TEXTS = {
     accountMfaTitle: 'Two-factor authentication',
     accountMfaRequired: '(required for your role: you must keep at least one)',
     accountNoAuth: 'No authenticators enrolled yet.',
+    accountMfaEnrollNotice: 'A second factor is required for your role. Connect an authenticator app and confirm a code: other pages stay closed until then.',
     accountUnnamed: 'Unnamed',
     accountRemove: 'Remove',
     accountStatusActive: 'active',

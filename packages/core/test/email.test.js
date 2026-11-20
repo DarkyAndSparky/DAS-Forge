@@ -25,6 +25,7 @@ describe('email templates', () => {
       alert: { title: 'Disk', message: 'full', severity: 'warning' },
       passwordReset: { resetUrl: 'https://app.example.com/r?t=1', expiresInMinutes: 30 },
       passwordChanged: {},
+      mfaRequired: {},
       emailVerification: { verifyUrl: 'https://app.example.com/v?t=1' },
       accountBanned: { reason: 'abuse', until: '2026-12-01' },
       accountUnbanned: {},

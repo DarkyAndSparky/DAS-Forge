@@ -29,6 +29,7 @@ const LabMessageSchema = z.object({
 
 export function permissionsForRole(role) {
   if (role === 'auditor') return ['read:basic', 'audit.read', 'audit.export'];
+  if (role === 'viewer') return ['read:basic'];
   return role === 'admin' ? ['read:basic', 'read:finance', 'admin:write', 'admin.access'] : ['read:basic'];
 }
 
@@ -36,13 +37,12 @@ export function permissionsForRole(role) {
  * §18's "несколько факторов на пользователя" policy decision, made
  * HERE (the app), not in core/auth - core only enforces an invariant
  * once told whether it applies (see removeAuthenticator()'s
- * `mfaRequired` option). Workshop's own policy: admins must always
- * keep at least one active factor once they've enrolled one; regular
- * operators are never forced to (demonstrates the flag doing
- * something real, not just always `false`).
+ * `mfaRequired` option). Workshop's own policy: NOT forced by default (the demo app is re-created often); set
+ * DAS_REQUIRE_ADMIN_2FA=1 and an admin must confirm an authenticator at the first sign-in and can never remove the last
+ * one. Without it, `doctor` still warns while an administrator has no authenticator.
  */
 function mfaRequiredForRole(role) {
-  return role === 'admin';
+  return role === 'admin' && process.env.DAS_REQUIRE_ADMIN_2FA === '1';
 }
 
 
@@ -83,7 +83,7 @@ const LOGO_MAX_BYTES = 2 * 1024 * 1024;
  * session handling, serialize()'d responses, SSE, validated uploads -
  * just with real data models instead of the ASSETS stand-in above.
  */
-export function registerRoutes(app, { onLock = null, bans, db, authProvider, eventBus, moduleRegistry, uploadsDir, appConfig, migrationsDir, runBackupJob, emailService = null, logger = null, logDestination = null, vendorIdentity = null }) {
+export function registerRoutes(app, { onLock = null, bans, ipBan = null, db, authProvider, eventBus, moduleRegistry, uploadsDir, appConfig, migrationsDir, runBackupJob, emailService = null, logger = null, logDestination = null, vendorIdentity = null }) {
   // Which fields require which permission to see - the actual
   // zero-trust enforcement point, per core/http's serialize(). This
   // used to be a hardcoded ASSET_FIELD_PERMISSIONS constant right here;
@@ -99,7 +99,7 @@ export function registerRoutes(app, { onLock = null, bans, db, authProvider, eve
   // directory's default/mapped roles must be roles of this app.
   const directory = appConfig?.ldap?.enabled ? { authenticate: ldapModule.createLdapAuthenticator(appConfig.ldap).authenticate, source: 'ldap', allowedRoles: ROLES } : null;
   const accounts = accountsModule.mountAccountRoutes(app, {
-    db, authProvider, directory, appConfig, bans, onLock, emailService, logger,
+    db, authProvider, directory, appConfig, bans, ipBan, onLock, emailService, logger,
     permissionsForRole, mfaRequiredForRole,
     allowDuringPasswordChange: ['/ui', '/ui/account', '/ui/password'],
     appName: 'Workshop', vendorIdentity,

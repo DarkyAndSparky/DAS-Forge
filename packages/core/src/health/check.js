@@ -1,3 +1,5 @@
+import { asyncDb } from '../database/async.js';
+
 /**
  * `app health` / `GET /health` - "is the running process alive and
  * answering correctly" (§4.5). Must be cheap enough to call often (a
@@ -18,7 +20,21 @@ export function checkHealth(db, { version = null } = {}) {
   } catch {
     database = 'error';
   }
+  return healthOf(database, version);
+}
 
+/** `checkHealth` over `asyncDb` (SQLite or PostgreSQL): the same single `SELECT 1`. */
+export async function checkHealthAsync(db, { version = null } = {}) {
+  let database = 'ok';
+  try {
+    await asyncDb(db).get('SELECT 1 AS ok');
+  } catch {
+    database = 'error';
+  }
+  return healthOf(database, version);
+}
+
+function healthOf(database, version) {
   return {
     status: database === 'ok' ? 'ok' : 'degraded',
     database,

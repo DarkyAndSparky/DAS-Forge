@@ -80,3 +80,5 @@ npm install && npm run cli -- config check && npm start && npm test
 `examples/workshop/test/*.test.js`.
 
 **См. также:** [Быстрый старт](01-quick-start.md), [Модули ядра](02-modules.md), [Разработка](11-development.md).
+
+**Второй фактор администратора** в мастерской по умолчанию не навязывается; `DAS_REQUIRE_ADMIN_2FA=1` включает требование (первый вход ведёт на страницу «Аккаунт», последний фактор снять нельзя).

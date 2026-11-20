@@ -1,7 +1,9 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { hasColumnAsync } from '../database/helpers-async.js';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { asyncDb } from '../database/async.js';
 
 /**
  * Simple numbered-file migration runner. Migration files live in a
@@ -73,11 +75,64 @@ function findModified(appliedRows, files, migrationsDir) {
 }
 
 /**
+ * Checks shared by the synchronous and the asynchronous runner: refuses edited or out-of-order migrations and says what is
+ * pending and which applied rows still lack a checksum.
+ */
+function planMigrations(appliedRows, files, migrationsDir) {
+  // Editing an already-applied migration is invisible to the database and
+  // means other environments diverge silently (audit B05) - refuse.
+  const modified = findModified(appliedRows, files, migrationsDir);
+  if (modified.length > 0) {
+    throw new Error(
+      `Applied migration(s) were modified after being applied: ${modified.join(', ')}. ` +
+        'Never edit an applied migration - add a new one instead.'
+    );
+  }
+  // Databases from before checksums: record what is on disk now, once.
+  const needChecksum = files.filter(({ version }) => appliedRows.has(version) && !appliedRows.get(version));
+  // A pending migration numbered BELOW one already applied would run out
+  // of order against a schema that has moved on.
+  const maxApplied = Math.max(0, ...appliedRows.keys());
+  const gap = files.find((f) => !appliedRows.has(f.version) && f.version < maxApplied);
+  if (gap) {
+    throw new Error(
+      `Migration "${gap.file}" is pending but a later version (${maxApplied}) is already applied - ` +
+        'renumber it or apply it manually.'
+    );
+  }
+  return { needChecksum, pending: files.filter((f) => !appliedRows.has(f.version)), maxApplied };
+}
+
+/** The copy of the database made before the first pending migration (see `runMigrations`); `null` when none is made. */
+async function backupBefore(db, { pending, maxApplied, backupDir, keep, skipBackup, onBackup }) {
+  if (!(pending.length > 0 && backupDir)) return null;
+  if (skipBackup) {
+    onBackup({ status: 'skipped', pending: pending.length });
+    return null;
+  }
+  if (typeof db.snapshotToAsync !== 'function' && typeof db.snapshotTo !== 'function') return null;
+  try {
+    mkdirSync(backupDir, { recursive: true, mode: 0o700 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dest = path.join(backupDir, `pre-migrate-${stamp}-v${maxApplied}.db`);
+    if (typeof db.snapshotToAsync === 'function') await db.snapshotToAsync(dest, { check: true }).then((r) => { if (r.integrityOk === false) throw new Error('integrity check of the copy failed'); });
+    else db.snapshotTo(dest);
+    onBackup({ status: 'made', file: dest, pending: pending.length });
+    const old = readdirSync(backupDir).filter((f) => /^pre-migrate-.*\.db$/.test(f)).sort();
+    for (const f of old.slice(0, Math.max(0, old.length - Math.max(1, keep)))) rmSync(path.join(backupDir, f), { force: true });
+    return dest;
+  } catch (err) {
+    onBackup({ status: 'failed', error: String(err?.message ?? err).slice(0, 200), pending: pending.length });
+    throw new Error(`Pre-migration backup failed, nothing was migrated: ${err?.message ?? err}. Fix the cause or run with --no-backup.`, { cause: err });
+  }
+}
+
+/**
  * Applies all pending migrations in order, each inside its own
  * transaction. Stops at the first failure (does not attempt later
  * migrations out of order) and reports which version failed.
  *
- * @param {import('../database/adapter.js')} db
+ * @param {object} db
  * @param {string} migrationsDir
  * @param {object} [opts]
  * @param {string} [opts.backupDir] - when set and something is pending, a consistent copy of the database is made there BEFORE the
@@ -90,56 +145,11 @@ function findModified(appliedRows, files, migrationsDir) {
 export async function runMigrations(db, migrationsDir, { backupDir = null, keep = 5, skipBackup = false, onBackup = () => {} } = {}) {
   const files = listMigrationFiles(migrationsDir);
   const appliedRows = getAppliedRows(db);
-
-  // Editing an already-applied migration is invisible to the database and
-  // means other environments diverge silently (audit B05) - refuse.
-  const modified = findModified(appliedRows, files, migrationsDir);
-  if (modified.length > 0) {
-    throw new Error(
-      `Applied migration(s) were modified after being applied: ${modified.join(', ')}. ` +
-        'Never edit an applied migration - add a new one instead.'
-    );
+  const { needChecksum, pending, maxApplied } = planMigrations(appliedRows, files, migrationsDir);
+  for (const { file, version } of needChecksum) {
+    db.run('UPDATE schema_migrations SET checksum = ? WHERE version = ?', [fileChecksum(migrationsDir, file), version]);
   }
-  // Databases from before checksums: record what is on disk now, once.
-  for (const { file, version } of files) {
-    if (appliedRows.has(version) && !appliedRows.get(version)) {
-      db.run('UPDATE schema_migrations SET checksum = ? WHERE version = ?', [fileChecksum(migrationsDir, file), version]);
-    }
-  }
-
-  // A pending migration numbered BELOW one already applied would run out
-  // of order against a schema that has moved on.
-  const maxApplied = Math.max(0, ...appliedRows.keys());
-  const gap = files.find((f) => !appliedRows.has(f.version) && f.version < maxApplied);
-  if (gap) {
-    throw new Error(
-      `Migration "${gap.file}" is pending but a later version (${maxApplied}) is already applied - ` +
-        'renumber it or apply it manually.'
-    );
-  }
-
-  const pending = files.filter((f) => !appliedRows.has(f.version));
-  let backup = null;
-  if (pending.length > 0 && backupDir) {
-    if (skipBackup) {
-      onBackup({ status: 'skipped', pending: pending.length });
-    } else if (typeof db.snapshotToAsync === 'function' || typeof db.snapshotTo === 'function') {
-      try {
-        mkdirSync(backupDir, { recursive: true, mode: 0o700 });
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const dest = path.join(backupDir, `pre-migrate-${stamp}-v${maxApplied}.db`);
-        if (typeof db.snapshotToAsync === 'function') await db.snapshotToAsync(dest, { check: true }).then((r) => { if (r.integrityOk === false) throw new Error('integrity check of the copy failed'); });
-        else db.snapshotTo(dest);
-        backup = dest;
-        onBackup({ status: 'made', file: dest, pending: pending.length });
-        const old = readdirSync(backupDir).filter((f) => /^pre-migrate-.*\.db$/.test(f)).sort();
-        for (const f of old.slice(0, Math.max(0, old.length - Math.max(1, keep)))) rmSync(path.join(backupDir, f), { force: true });
-      } catch (err) {
-        onBackup({ status: 'failed', error: String(err?.message ?? err).slice(0, 200), pending: pending.length });
-        throw new Error(`Pre-migration backup failed, nothing was migrated: ${err?.message ?? err}. Fix the cause or run with --no-backup.`);
-      }
-    }
-  }
+  const backup = await backupBefore(db, { pending, maxApplied, backupDir, keep, skipBackup, onBackup });
 
   const results = [];
   for (const { file, version } of files) {
@@ -193,4 +203,72 @@ export function migrationStatus(db, migrationsDir) {
     applied: appliedRows.has(version),
     modified: modified.has(file),
   }));
+}
+
+const TABLE_DDL = {
+  sqlite: `CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+      checksum TEXT
+    )`,
+  postgres: `CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
+      checksum TEXT
+    )`,
+};
+
+async function ensureMigrationsTableAsync(adb) {
+  await adb.exec(TABLE_DDL[adb.dialect === 'postgres' ? 'postgres' : 'sqlite']);
+  if (!(await hasColumnAsync(adb, 'schema_migrations', 'checksum'))) await adb.exec('ALTER TABLE schema_migrations ADD COLUMN checksum TEXT');
+}
+
+async function getAppliedRowsAsync(adb) {
+  await ensureMigrationsTableAsync(adb);
+  return new Map((await adb.all('SELECT version, checksum FROM schema_migrations')).map((r) => [Number(r.version), r.checksum]));
+}
+
+/**
+ * `runMigrations` over `asyncDb` (any driver). `up(tx)` may return a Promise and is awaited: on a database that answers
+ * asynchronously a migration must `await tx.run(...)` / `await tx.exec(...)`. Migrations written without `await` keep working
+ * on SQLite, where each statement runs at once. Placeholders are `?` (the dialect layer rewrites them for PostgreSQL).
+ * The pre-migration copy uses `snapshotToAsync` / `snapshotTo` of the object given (a PostgreSQL driver brings `pg_dump`).
+ * @returns {Promise<{applied: Array<{version:number,name:string}>, backup?: string|null}>}
+ */
+export async function runMigrationsAsync(db, migrationsDir, { backupDir = null, keep = 5, skipBackup = false, onBackup = () => {} } = {}) {
+  const adb = asyncDb(db);
+  const files = listMigrationFiles(migrationsDir);
+  const appliedRows = await getAppliedRowsAsync(adb);
+  const { needChecksum, pending, maxApplied } = planMigrations(appliedRows, files, migrationsDir);
+  for (const { file, version } of needChecksum) {
+    await adb.run('UPDATE schema_migrations SET checksum = ? WHERE version = ?', [fileChecksum(migrationsDir, file), version]);
+  }
+  const backup = await backupBefore(db, { pending, maxApplied, backupDir, keep, skipBackup, onBackup });
+
+  const results = [];
+  for (const { file, version } of pending) {
+    const migration = await import(pathToFileURL(path.join(migrationsDir, file)).href);
+    if (typeof migration.up !== 'function') throw new Error(`Migration "${file}" does not export an "up(db)" function`);
+    const checksum = fileChecksum(migrationsDir, file);
+    let ran = false;
+    // IMMEDIATE: the write lock first, then re-read what is applied, so two processes cannot run the same migration.
+    await adb.transaction(async (tx) => {
+      if (await tx.get('SELECT 1 AS x FROM schema_migrations WHERE version = ?', [version])) return;
+      await migration.up(tx);
+      await tx.run('INSERT INTO schema_migrations (version, name, checksum) VALUES (?, ?, ?)', [version, file, checksum]);
+      ran = true;
+    }, { mode: 'immediate' });
+    if (ran) results.push({ version, name: file });
+  }
+  return backup ? { applied: results, backup } : { applied: results };
+}
+
+/** `migrationStatus` over `asyncDb`. */
+export async function migrationStatusAsync(db, migrationsDir) {
+  const appliedRows = await getAppliedRowsAsync(asyncDb(db));
+  const files = listMigrationFiles(migrationsDir);
+  const modified = new Set(findModified(appliedRows, files, migrationsDir));
+  return files.map(({ file, version }) => ({ version, name: file, applied: appliedRows.has(version), modified: modified.has(file) }));
 }

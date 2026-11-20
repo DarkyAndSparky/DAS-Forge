@@ -81,6 +81,8 @@ describe('the account page', () => {
     expect(ru).toContain('href="/ui/account?lang=en"');
     expect(ru).toContain('<strong>RU</strong>');
     expect(ru).toContain('data-theme-set="dark"');
+    expect(ru).toContain('data-theme-set="contrast"');
+    expect(ru).toContain('Высокая контрастность');
     expect(ru).toContain("localStorage.setItem('adm-theme'");
     const en = renderAccountBody({ ...args, l: l('en'), locale: 'en' });
     expect(en).toContain('Follow the system');
@@ -116,5 +118,21 @@ describe('password length shown on the pages', () => {
 
   it('the texts carry a {min} placeholder in both languages', () => {
     for (const lng of ['ru', 'en']) for (const k of ['forcedNewPassword', 'accountPwNew']) expect(ACCOUNT_TEXTS[lng][k]).toContain('{min}');
+  });
+});
+
+describe('account page when a second factor is required but not set up yet', () => {
+  const args = { user: { username: 'admin' }, authenticators: [], l: l('ru'), locale: 'ru' };
+  it('shows the notice above the tabs (not inside a hidden tab) and opens the two-factor tab first', () => {
+    const html = renderAccountBody({ ...args, mfaNotice: true });
+    const notice = html.indexOf('role="alert"');
+    expect(notice).toBeGreaterThan(-1);
+    expect(notice).toBeLessThan(html.indexOf('class="acc-nav"'));
+    expect(html).toContain("(location.hash || '#mfa')");
+  });
+  it('without the notice the password tab stays the first one and nothing is announced', () => {
+    const html = renderAccountBody({ ...args, mfaNotice: false });
+    expect(html).not.toContain('role="alert"');
+    expect(html).toContain("(location.hash || '#pw')");
   });
 });

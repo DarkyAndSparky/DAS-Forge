@@ -8,7 +8,7 @@ import { z } from 'zod';
 export const UserSchema = z.object({
   id: z.number().int().positive().optional(),
   username: z.string().min(1).max(190),
-  email: z.string().email().nullable().default(null),
+  email: z.email().nullable().default(null),
   passwordHash: z.string(),
   role: z.string().default('operator'),
   mustChangePassword: z.boolean().default(false),
@@ -67,7 +67,8 @@ export const RecoveryCodeSchema = z.object({
  * enough to serve all 4 apps - app-specific profile fields belong in a
  * separate app-owned table joined on userId, not bolted onto this one.
  */
-const sessionsPurged = new WeakSet();
+/** Databases whose raw-id sessions were already dropped; shared with the asynchronous twin so the purge happens once per process and database. */
+export const sessionsPurged = new WeakSet();
 
 export function ensureAuthTables(db) {
   db.exec(`

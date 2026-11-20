@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 
-import { CORE_VERSION, http, auth, audit, files, realtime, scheduler as schedulerModule, database as databaseModule, health, certs, logs, ui as uiModule, admin as adminModule, branding, maintenance as maintenanceModule, announcement as announcementModule, observability, privacy, policy as policyModule, security as securityModule, cli as cliModule, accounts as accountsModule, about as aboutModule, liveConsole } from '@das-forge/core';
+import { CORE_VERSION, http, auth, audit, files, realtime, scheduler as schedulerModule, database as databaseModule, health, certs, logs, ui as uiModule, admin as adminModule, branding, maintenance as maintenanceModule, announcement as announcementModule, observability, privacy, policy as policyModule, security as securityModule, cli as cliModule, about as aboutModule, liveConsole } from '@das-forge/core';
 import { buildContext, buildAlerts } from './context.js';
 import { formatStartBanner } from './banner.js';
 import { buildDoctorCategories } from './doctor-categories.js';
@@ -51,6 +51,7 @@ export function createApp(ctx) {
   // With server.admin.port set, the administration panel is served only on its own listener; elsewhere it answers 404.
   const adminListener = http.resolveAdminListener(serverConfig);
   if (adminListener) app.use(http.adminGate({ port: adminListener.port }));
+  if (serverConfig.admin?.allowedNets?.length) app.use(http.adminNets({ nets: serverConfig.admin.allowedNets }));
   // The brand block (the administrator's name and logo, else the app's own) shown on every page, read per request.
   const brand = () => branding.brandBlockHtml(db, vendorIdentity);
   // One interface language everywhere: ?lang=ru|en is remembered in a cookie and read by every page.
@@ -140,6 +141,7 @@ export function createApp(ctx) {
   );
   // Banned IPs / users are stopped here, after the session is attached so a banned user is recognised.
   const bans = ctx.bans ?? securityModule.createBans(db);
+  const ipBan = ctx.ipBan ?? securityModule.createIpBanPolicy({ db, bans, config: appConfig.security?.ipBan });
   app.use(bans.middleware());
   // Maintenance mode (admin panel -> Maintenance): visitors get the 503 page, administrators and sign-in pass.
   const maintenance = maintenanceModule.createMaintenance({ db });
@@ -156,7 +158,7 @@ export function createApp(ctx) {
 
   app.use(http.createRateLimiter(security.rateLimit));
 
-  const appRoutes = registerRoutes(app, { onLock: ctx.onLock ?? null, bans, db, authProvider, eventBus, moduleRegistry, uploadsDir, appConfig, migrationsDir, runBackupJob, emailService: ctx.emailService, logger, logDestination: ctx.logDestination, vendorIdentity });
+  const appRoutes = registerRoutes(app, { onLock: ctx.onLock ?? null, bans, ipBan, db, authProvider, eventBus, moduleRegistry, uploadsDir, appConfig, migrationsDir, runBackupJob, emailService: ctx.emailService, logger, logDestination: ctx.logDestination, vendorIdentity });
 
   policy.mount(app);
 
@@ -170,7 +172,7 @@ export function createApp(ctx) {
     stepUp: stepUp ? [stepUp.middleware] : [],
     incidents: privacy.createIncidentRegister(db),
     processingRegistry: () => privacy.buildProcessingRegistry({ moduleRegistry: ctx.moduleRegistry, config: ctx.appConfig }),
-    db, metrics, bans, policy, maintenance, announcement, vendorIdentity,
+    db, metrics, bans, ipBan, policy, maintenance, announcement, vendorIdentity,
     limits: { db: { max: 1024 ** 3 }, audit: { max: 5_000_000 }, sessions: { max: 10_000 } }, // overview: "of limit" bars; sample values for the demo
     controlPath: '/control', // backups, maintenance, announcement, tasks, mail: application operation, apart from /admin
     scheduler: ctx.schedulerHolder ? { listJobs: () => ctx.schedulerHolder.current?.listJobs() ?? [], runNow: (n) => ctx.schedulerHolder.current.runNow(n) } : null,
@@ -392,7 +394,7 @@ async function main() {
   // Standard housekeeping (sessions, audit rows, bans, metrics, spent tokens, finished mail): one call from the core,
   // so a forgotten line can no longer let a table grow without limit. The doctor warns if it is missing.
   schedulerModule.registerStandardJobs(jobScheduler, {
-    db, logger, sessionStore: ctx.sessionStore, bans: ctx.bans, metrics, emailQueue: ctx.emailQueue,
+    db, logger, sessionStore: ctx.sessionStore, bans: ctx.bans, ipBan: ctx.ipBan, metrics, emailQueue: ctx.emailQueue,
     auditRetentionDays: appConfig.audit.retentionDays, auditPersonalDataDays: appConfig.audit.personalDataDays, auditPurgeBatchSize: appConfig.audit.purgeBatchSize, auditArchiveDir: appConfig.audit.archiveDir,
     mailKeepFinishedDays: appConfig.email.queue.keepFinishedDays,
   });

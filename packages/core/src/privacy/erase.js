@@ -17,7 +17,7 @@ const VALID_MODES = new Set(['anonymize', 'delete']);
  * doesn't anonymize/delete the account out from under it first.
  *
  * @param {object} opts
- * @param {import('../database/adapter.js')} opts.db
+ * @param {object} opts.db
  * @param {(db, id:number) => object|null} opts.findUserByIdFn - core/auth's findUserById
  * @param {(db, id:number) => object|null} opts.anonymizeUserFn - core/auth's anonymizeUser
  * @param {(db, id:number) => boolean} opts.deleteUserFn - core/auth's deleteUser

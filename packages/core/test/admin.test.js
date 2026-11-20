@@ -112,22 +112,24 @@ describe('admin guard', () => {
   };
   const requireAuth = () => (req, res, next) => (req.user ? next() : res.status(401).end());
 
-  function run(chain, req) {
+  async function run(chain, req) {
     const res = { code: 200, body: '', set() { return this; }, type() { return this; }, status(c) { this.code = c; return this; }, end() { return this; }, send(b) { this.body = b; return this; }, locals: {} };
     let i = 0;
-    const next = () => { const h = chain[i++]; if (h) h(req, res, next); };
+    const pending = [];
+    const next = () => { const h = chain[i++]; if (h) pending.push(h(req, res, next)); };
     next();
+    for (let k = 0; k < pending.length; k++) await pending[k];
     return res;
   }
 
-  it('GET /admin needs login and admin.access, then renders the overview', () => {
+  it('GET /admin needs login and admin.access, then renders the overview', async () => {
     const db = createSqliteAdapter({ file: ':memory:' });
     const app = fakeApp();
     createAdmin({ db, metrics: createMetrics(db, { flushMs: 0 }) }).mount(app, { requireAuth, requirePermission });
     const route = app.routes.find((r) => r.path === '/admin');
-    expect(run(route.h, {}).code).toBe(401);
-    expect(run(route.h, { user: { permissions: ['read:basic'] } }).code).toBe(403);
-    const ok = run(route.h, { query: {}, user: { username: 'ann', permissions: ['admin.access'] } });
+    expect((await run(route.h, {})).code).toBe(401);
+    expect((await run(route.h, { user: { permissions: ['read:basic'] } })).code).toBe(403);
+    const ok = await run(route.h, { query: {}, user: { username: 'ann', permissions: ['admin.access'] } });
     expect(ok.code).toBe(200);
     expect(ok.body).toContain('Обзор');
     expect(ok.body).toContain('<svg');
@@ -135,8 +137,8 @@ describe('admin guard', () => {
     // period tabs and the wider set of charts
     expect(ok.body).toContain('href="/admin?period=7d"');
     expect((ok.body.match(/<svg/g) ?? []).length).toBeGreaterThanOrEqual(6);
-    const week = run(route.h, { query: { period: '7d' }, user: { username: 'ann', permissions: ['admin.access'] } });
+    const week = await run(route.h, { query: { period: '7d' }, user: { username: 'ann', permissions: ['admin.access'] } });
     expect(week.body).toMatch(/href="\/admin\?period=7d"[^>]*aria-current="page"/);
-    expect(run(route.h, { query: { period: '<script>' }, user: { username: 'ann', permissions: ['admin.access'] } }).body).toMatch(/href="\/admin\?period=24h"[^>]*aria-current="page"/);
+    expect((await run(route.h, { query: { period: '<script>' }, user: { username: 'ann', permissions: ['admin.access'] } })).body).toMatch(/href="\/admin\?period=24h"[^>]*aria-current="page"/);
   });
 });

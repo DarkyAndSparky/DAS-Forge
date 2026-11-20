@@ -12,7 +12,8 @@
 
 ```bash
 npm install
-npm install-scripts approve argon2 cpu-features ssh2   # один раз, из корня
+# одобрение скриптов установки (argon2, cpu-features, ssh2) уже записано в package.json (allowScripts);
+# если npm всё же предупредит о заблокированных скриптах: npm install-scripts approve argon2 cpu-features ssh2
 cd examples/workshop
 npm run cli -- config check
 npm run cli -- user create-admin      # пароль (24 символа) показывается один раз
@@ -33,6 +34,8 @@ import { config, database, auth, http, scheduler } from '@das-forge/core';
 const appConfig = await config.loadConfig();             // app.config.js + DAS_* переменные
 const db = await database.createSqliteAdapter(appConfig.database);
 ```
+
+Для PostgreSQL вместо этого — `database.createDatabase(appConfig.database)` с `database.driver: 'postgres'` (см. [Конфигурация](03-configuration.md), пакет `@das-forge/db-postgres`).
 
 Порядок сборки в `examples/workshop/src/context.js` (единая точка для сервера и CLI): конфигурация → база и миграции → брендинг → авторизация → планировщик с копиями. Затем `src/server.js`: `requestId()` → `securityHeaders()` → сессии → маршруты → `notFoundHandler()` и `errorPageHandler()` **последними** → `registerGracefulShutdown()`.
 

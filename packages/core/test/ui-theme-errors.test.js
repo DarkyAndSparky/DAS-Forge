@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tokenCss, themeHead, THEME_TOKENS } from '../src/ui/theme.js';
+import { tokenCss, themeHead, THEME_TOKENS, BASE_CSS } from '../src/ui/theme.js';
 import { renderAppShell } from '../src/ui/shell.js';
 import { ERROR_CATALOG, errorText, resolveLocale } from '../src/http/error-catalog.js';
 import { renderErrorPage, notFoundHandler, errorPageHandler } from '../src/http/error-pages.js';
@@ -115,5 +115,41 @@ describe('error pages', () => {
     handler(Object.assign(new Error('x'), { statusCode: 503 }), { id: 'r', headers: { accept: 'application/json' }, path: '/p' }, j, () => {});
     expect(j.headers['Retry-After']).toBe('5');
     expect(j.body.message).toBe(ERROR_CATALOG.ru[503].message);
+  });
+
+  describe('high-contrast theme', () => {
+    const lum = (h) => { const n = parseInt(h.slice(1), 16); const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+    it('every text and status colour is above 7:1 on the background and on the raised surface (WCAG AAA)', () => {
+      const t = THEME_TOKENS.contrast;
+      for (const k of ['text', 'text-dim', 'accent', 'ok', 'warn', 'danger', 'info', 'border', 'nav-text', 'nav-active']) {
+        expect(ratio(t[k], t.bg), k).toBeGreaterThan(7);
+        expect(ratio(t[k], t['surface-2']), `${k} on surface-2`).toBeGreaterThan(7);
+      }
+      expect(ratio(t['accent-text'], t.accent)).toBeGreaterThan(7);
+    });
+
+    it('is switched on by data-theme="contrast" and by the system request when no theme is chosen', () => {
+      const css = tokenCss();
+      expect(css).toContain(':root[data-theme="contrast"]{color-scheme:dark;');
+      expect(css).toContain('@media (prefers-contrast:more){:root:not([data-theme]){');
+      expect(css).toContain(`--adm-bg:${THEME_TOKENS.contrast.bg};`);
+    });
+
+    it('an app\'s brand tokens never reach it', () => {
+      const css = tokenCss({ tokens: { accent: '#c9a24b', bg: '#123456' }, darkTokens: { text: '#abcdef' } });
+      const part = css.slice(css.indexOf(':root[data-theme="contrast"]'));
+      expect(part).toContain('--adm-accent:#ffd400;');
+      expect(part).not.toContain('#c9a24b');
+      expect(part).not.toContain('#123456');
+      expect(part).not.toContain('#abcdef');
+    });
+
+    it('the base stylesheet gives it underlined links, a thick focus ring and no motion', () => {
+      expect(BASE_CSS).toContain(':root[data-theme="contrast"] a{text-decoration:underline');
+      expect(BASE_CSS).toContain(':root[data-theme="contrast"] :focus-visible{outline:3px solid');
+      expect(BASE_CSS).toContain('animation:none!important');
+    });
   });
 });

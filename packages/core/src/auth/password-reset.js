@@ -10,7 +10,7 @@ import { ensureAuthTables } from './schema.js';
  * issuing a new one cancels the user's earlier ones. The raw token exists
  * only in the e-mailed link.
  */
-const hash = (token) => createHash('sha256').update(String(token)).digest('hex');
+export const hashResetToken = (token) => createHash('sha256').update(String(token)).digest('hex');
 
 /**
  * @param {object} db
@@ -25,7 +25,7 @@ export function createPasswordResetToken(db, userId, { ttlMinutes = 30, now = Da
   db.run(`UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL`, [new Date(now).toISOString(), userId]);
   db.run(`INSERT INTO password_resets (user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?)`, [
     userId,
-    hash(token),
+    hashResetToken(token),
     new Date(now).toISOString(),
     expiresAt,
   ]);
@@ -36,7 +36,7 @@ export function createPasswordResetToken(db, userId, { ttlMinutes = 30, now = Da
 export function peekPasswordResetToken(db, token, { now = Date.now() } = {}) {
   ensureAuthTables(db);
   if (typeof token !== 'string' || token.length < 20 || token.length > 200) return null;
-  const row = db.get(`SELECT user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`, [hash(token), new Date(now).toISOString()]);
+  const row = db.get(`SELECT user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`, [hashResetToken(token), new Date(now).toISOString()]);
   return row ? { userId: row.user_id } : null;
 }
 
@@ -51,7 +51,7 @@ export function consumePasswordResetToken(db, token, { now = Date.now() } = {}) 
   ensureAuthTables(db);
   if (typeof token !== 'string' || token.length < 20 || token.length > 200) return null;
   const nowIso = new Date(now).toISOString();
-  const h = hash(token);
+  const h = hashResetToken(token);
   const row = db.get(`SELECT id, user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`, [h, nowIso]);
   if (!row) return null;
   const result = db.run(`UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL`, [nowIso, row.id]);

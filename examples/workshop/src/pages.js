@@ -15,7 +15,6 @@
  * not just a "QR didn't load" afterthought.
  */
 
-import { ui } from '@das-forge/core';
 import { translator, scriptTexts } from './messages.js';
 
 export function escapeHtml(str) {

@@ -93,7 +93,7 @@ describe('tasks section: schedule form', () => {
     expect(r.location).toBe('/admin/tasks?msg=bad&e=CRON_INVALID');
     r = await post('backup', 'schedule', { cron: '* * * * *' });
     expect(r.location).toBe('/admin/tasks?msg=bad&e=UNKNOWN');
-    r = await post('sessions-gc', 'schedule-reset', { x: '1' });
+    await post('sessions-gc', 'schedule-reset', { x: '1' });
     expect(scheduler.getJobStatus('sessions-gc').expression).toBe('15 * * * *');
   });
 });

@@ -1,7 +1,6 @@
+import { findUserByIdAsync, listAuthenticatorsAsync, verifyTotpLoginAsync } from '../auth/index.js';
 import { pageShell } from '../accounts/pages.js';
-import { findUserById } from '../auth/users.js';
-import { listAuthenticators, verifyTotpLogin } from '../auth/authenticators.js';
-import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
 import { contextFromRequest } from '../audit/context.js';
 import { readForm } from './sections.js';
 
@@ -47,10 +46,10 @@ export function createStepUp({ db, authProvider, totpKey = null, maxAgeMs = 600_
     return res.redirect(303, `${path}?next=${encodeURIComponent(back)}`);
   }
 
-  function render(req, res, { error = '', next: nx = '/' } = {}) {
+  async function render(req, res, { error = '', next: nx = '/' } = {}) {
     const locale = lang(req);
     const l = T[locale];
-    const needCode = listAuthenticators(db, req.user.id).some((a) => a.type === 'totp' && a.status === 'active');
+    const needCode = (await listAuthenticatorsAsync(db, req.user.id)).some((a) => a.type === 'totp' && a.status === 'active');
     res.set?.('Cache-Control', 'no-store');
     res.status(error === 'locked' ? 429 : 200).type('html').send(pageShell(l.title, `
       <h1>${esc(l.title)}</h1>
@@ -58,8 +57,8 @@ export function createStepUp({ db, authProvider, totpKey = null, maxAgeMs = 600_
       <form method="post" action="${esc(path)}">
         <input type="hidden" name="next" value="${esc(nx)}">
         <label for="password">${esc(l.password)}</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
-        ${needCode ? `<label for="code">${esc(l.code)}</label><input id="code" name="code" autocomplete="one-time-code" inputmode="numeric" required>` : ''}
+        <input id="password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required>
+        ${needCode ? `<label for="code">${esc(l.code)}</label><input id="code" name="code" autocomplete="one-time-code" inputmode="numeric" spellcheck="false" enterkeyhint="go" required>` : ''}
         <button type="submit">${esc(l.submit)}</button>
         ${error ? `<div class="error">${esc(error === 'locked' ? l.locked : l.bad)}</div>` : ''}
         <p class="hint"><a href="${esc(nx)}">${esc(l.cancel)}</a></p>
@@ -73,24 +72,24 @@ export function createStepUp({ db, authProvider, totpKey = null, maxAgeMs = 600_
       const nx = safeNext(form.next);
       const id = req.user.id;
       if (locked(id)) return render(req, res, { error: 'locked', next: nx });
-      const user = findUserById(db, id);
+      const user = await findUserByIdAsync(db, id);
       let ok = false;
       if (user && user.passwordHash) {
         const pw = await authProvider.verifyPassword(user.passwordHash, String(form.password ?? '').slice(0, 1024));
         ok = Boolean(pw.valid);
-        const hasTotp = listAuthenticators(db, id).some((a) => a.type === 'totp' && a.status === 'active');
-        if (ok && hasTotp) ok = Boolean(verifyTotpLogin(db, id, String(form.code ?? '').replace(/\s/g, '').slice(0, 12), { encryptionKey: totpKey }));
+        const hasTotp = (await listAuthenticatorsAsync(db, id)).some((a) => a.type === 'totp' && a.status === 'active');
+        if (ok && hasTotp) ok = Boolean(await verifyTotpLoginAsync(db, id, String(form.code ?? '').replace(/\s/g, '').slice(0, 12), { encryptionKey: totpKey }));
       }
       if (!ok) {
         const f = failures.get(id);
         failures.set(id, !f || now() - f.first >= lockMs ? { n: 1, first: now() } : { n: f.n + 1, first: f.first });
-        log(db, { ...contextFromRequest(req), action: 'admin.stepup', entity: 'user', entityId: String(id), result: 'failure' });
+        await logAsync(db, { ...contextFromRequest(req), action: 'admin.stepup', entity: 'user', entityId: String(id), result: 'failure' });
         return render(req, res, { error: 'bad', next: nx });
       }
       failures.delete(id);
       req.session.stepUpAt = now();
       req.session.stepUpUser = id;
-      log(db, { ...contextFromRequest(req), action: 'admin.stepup', entity: 'user', entityId: String(id), result: 'success' });
+      await logAsync(db, { ...contextFromRequest(req), action: 'admin.stepup', entity: 'user', entityId: String(id), result: 'success' });
       const go = () => res.redirect(303, nx);
       if (typeof req.session.save === 'function') req.session.save(() => go()); else go();
     });

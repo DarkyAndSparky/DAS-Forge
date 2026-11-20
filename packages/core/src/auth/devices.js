@@ -25,7 +25,7 @@ export function ensureDeviceTable(db) {
   `);
 }
 
-const hash = (value) => createHash('sha256').update(String(value)).digest('hex');
+export const hashDevice = (value) => createHash('sha256').update(String(value)).digest('hex');
 export const newDeviceId = () => randomBytes(24).toString('base64url');
 
 /**
@@ -38,13 +38,13 @@ export function recognizeDevice(db, { userId, deviceId = null, ip = null, userAg
   const t = new Date(now()).toISOString();
   const valid = typeof deviceId === 'string' && /^[A-Za-z0-9_-]{20,64}$/.test(deviceId);
   if (valid) {
-    const known = db.run('UPDATE login_devices SET last_seen_at = ? WHERE user_id = ? AND device_hash = ?', [t, userId, hash(deviceId)]);
+    const known = db.run('UPDATE login_devices SET last_seen_at = ? WHERE user_id = ? AND device_hash = ?', [t, userId, hashDevice(deviceId)]);
     if (Number(known.changes) > 0) return { deviceId, isNew: false, firstEver: false };
   }
   const id = valid ? deviceId : newDeviceId();
   const existing = Number(db.get('SELECT COUNT(*) AS n FROM login_devices WHERE user_id = ?', [userId]).n);
   db.run('INSERT OR IGNORE INTO login_devices (user_id, device_hash, first_seen_at, last_seen_at, first_ip, user_agent) VALUES (?, ?, ?, ?, ?, ?)',
-    [userId, hash(id), t, t, ip ? String(ip).slice(0, 64) : null, userAgent ? String(userAgent).slice(0, 300) : null]);
+    [userId, hashDevice(id), t, t, ip ? String(ip).slice(0, 64) : null, userAgent ? String(userAgent).slice(0, 300) : null]);
   return { deviceId: id, isNew: true, firstEver: existing === 0 };
 }
 

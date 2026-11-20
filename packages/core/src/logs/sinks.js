@@ -1,4 +1,5 @@
 import { assertOutboundUrl } from '../http/outbound.js';
+import { safeFetch } from '../http/safe-fetch.js';
 import dgram from 'node:dgram';
 import { appendFile, rename, rm, stat, mkdir } from 'node:fs/promises';
 import net from 'node:net';
@@ -353,7 +354,7 @@ export function createHttpSink({
   index = 'das-forge-logs',
   source = 'das-forge',
   timeoutMs = 5000,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = safeFetch,
   env = process.env,
   ...bufferOptions
 }) {
@@ -372,7 +373,7 @@ export function createHttpSink({
       try {
         res = await fetchImpl(url, { method: 'POST', redirect: 'error', headers: { 'content-type': type, ...resolved }, body, signal: AbortSignal.timeout(timeoutMs) }); // no redirects: a collector must not send the server on to another address
       } catch (err) {
-        throw new Error(`http sink: ${err?.cause?.code ?? err?.message ?? err}`);
+        throw new Error(`http sink: ${err?.cause?.code ?? err?.message ?? err}`, { cause: err });
       }
       if (res.ok) return;
       const err = new Error(`http sink: HTTP ${res.status}`);

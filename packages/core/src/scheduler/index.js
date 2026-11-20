@@ -1,8 +1,9 @@
 export { parseCron, getNextRun } from './cron-parse.js';
 export { createScheduler } from './scheduler.js';
 export { acquireFileLock, readLockOwner } from './file-lock.js';
-export { createDbLastRunStore } from './state.js';
+export { createDbLastRunStore, ensureSchedulerStateTableAsync } from './state.js';
 export { createBackupJob } from './backup-job.js';
+export { createBackupVerifyJob } from './backup-verify-job.js';
 export { createMountTarget, createSftpTarget, listRemoteBackups, normalizeFingerprint } from './backup-remote.js';
 export { listBackups, verifyBackupFile, restoreBackup } from './backup-ops.js';
 export { encryptBackupFile, decryptBackupFile, isEncryptedBackup, BackupCryptoError, MIN_BACKUP_KEY_LENGTH } from './backup-crypto.js';

@@ -9,7 +9,7 @@
  * framework"), not by stubbing checks for infrastructure that isn't
  * there.
  */
-import { KNOWN_PLACEHOLDER_SECRETS } from '../../config/secrets.js';
+import { KNOWN_PLACEHOLDER_SECRETS, checkSecretStrength } from '../../config/secrets.js';
 import { resolveRedirectPort } from '../../http/server.js';
 
 /**
@@ -41,8 +41,16 @@ export function securityChecks(appConfig, { now = () => Date.now() } = {}) {
       status: 'fail',
       message: 'auth.sessionSecret is a known placeholder value - replace it before going live',
     });
+  } else if (!checkSecretStrength(secret).ok) {
+    results.push({ name: 'Session secret', status: 'warn', message: `auth.sessionSecret looks guessable (${checkSecretStrength(secret).reason}) - generate one with "secret generate"` });
   } else {
     results.push({ name: 'Session secret', status: 'ok', message: 'configured, not a known placeholder' });
+  }
+
+  const bk = appConfig?.backup?.encryptionKey;
+  if (typeof bk === 'string' && bk && !/^env:|^file:/.test(bk)) {
+    const weak = bk.length < 20 ? 'shorter than 20 characters' : checkSecretStrength(bk).reason;
+    if (weak) results.push({ name: 'Backup key strength', status: 'warn', message: `the backup passphrase looks guessable (${weak}) - copies leave the server, so a weak phrase is the only lock on them; generate one with "secret generate"` });
   }
 
   const httpsMode = appConfig?.server?.https?.mode ?? 'self-signed';

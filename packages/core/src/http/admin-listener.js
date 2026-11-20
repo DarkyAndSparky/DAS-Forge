@@ -1,5 +1,7 @@
 import { sendError } from './respond.js';
 import { listenServer } from './server.js';
+import { ipInNets, parseCidr } from '../security/bans.js';
+import { isIP } from 'node:net';
 
 /**
  * Where the administration panel listens. With `server.admin.port` set the panel gets a listener of its own
@@ -71,6 +73,29 @@ export function adminGate({ port, prefixes = ['/admin'] } = {}) {
     const path = String(req.path ?? req.url ?? '').split('?')[0];
     const local = req.socket?.localPort;
     if (hit(path) && local !== port) return sendError(req, res, 404, { error: 'NOT_FOUND', fields: [] });
+    return next();
+  };
+}
+
+/**
+ * The administration panel only from the given networks (`server.admin.allowedNets`): a request for `prefixes` from any other
+ * address answers 404, like a page that does not exist. An empty list lets everyone through. A wrong entry is a startup error,
+ * not a silently ignored one. Needs a correct `trust proxy` setting behind a proxy, otherwise every request looks like the proxy's.
+ *
+ * @param {object} o
+ * @param {string[]} o.nets - "10.0.5.0/24", "2001:db8::/32" or single addresses
+ * @param {string[]} [o.prefixes=['/admin']]
+ */
+export function adminNets({ nets = [], prefixes = ['/admin'] } = {}) {
+  for (const n of nets) {
+    const bad = String(n).includes('/') ? !parseCidr(n) : !isIP(String(n));
+    if (bad) throw new TypeError(`adminNets: not a network or address: ${n}`);
+  }
+  const hit = (p) => prefixes.some((x) => p === x || p.startsWith(`${x}/`));
+  return (req, res, next) => {
+    if (nets.length === 0) return next();
+    const path = String(req.path ?? req.url ?? '').split('?')[0];
+    if (hit(path) && !ipInNets(nets, req.ip)) return sendError(req, res, 404, { error: 'NOT_FOUND', fields: [] });
     return next();
   };
 }

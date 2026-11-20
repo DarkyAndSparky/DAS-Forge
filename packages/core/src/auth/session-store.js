@@ -11,7 +11,7 @@ export function loadExpressSession() {
   try {
     return createRequire(import.meta.url)('express-session');
   } catch (err) {
-    throw new Error(`express-session is not installed (npm install express-session): ${err?.message ?? err}`);
+    throw new Error(`express-session is not installed (npm install express-session): ${err?.message ?? err}`, { cause: err });
   }
 }
 
@@ -65,7 +65,14 @@ export function createSessionStore({ db, ttlMs = 8 * 60 * 60 * 1000, idleTimeout
             db.run(`DELETE FROM sessions WHERE id = ?`, [key]);
             return cb(null, null);
           }
-          return cb(null, JSON.parse(row.data));
+          // a row that is not a JSON object (damaged or edited) is no session: it is removed and the visitor signs in again
+          let data = null;
+          try { data = JSON.parse(row.data); } catch { /* handled below */ }
+          if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+            db.run(`DELETE FROM sessions WHERE id = ?`, [key]);
+            return cb(null, null);
+          }
+          return cb(null, data);
         } catch (err) {
           return cb(err);
         }

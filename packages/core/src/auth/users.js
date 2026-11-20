@@ -3,7 +3,7 @@ import { ensureAuthTables } from './schema.js';
 import { destroyUserSessions } from './sessions.js';
 import { recordPassword } from './password-history.js';
 
-function rowToUser(row) {
+export function rowToUser(row) {
   if (!row) return null;
   return {
     id: row.id,

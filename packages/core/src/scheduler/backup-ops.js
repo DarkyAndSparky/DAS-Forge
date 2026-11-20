@@ -77,7 +77,7 @@ function integrityCheckFile(createAdapterFn, filePath) {
  * is also exposed standalone as `backup verify <file>` so an operator can
  * sanity-check a backup at any time, not only mid-restore.
  *
- * @param {(opts:object) => import('../database/adapter.js')} createAdapterFn - core/database's createSqliteAdapter
+ * @param {(opts:object) => object} createAdapterFn - core/database's createSqliteAdapter
  * @returns {Promise<{ok: boolean, message: string}>}
  */
 async function verifyPlainBackupFile(createAdapterFn, filePath) {
@@ -137,7 +137,7 @@ async function verifyPlainBackupFile(createAdapterFn, filePath) {
  * @param {string} opts.dbFilePath - path to the LIVE database file (already closed by the caller)
  * @param {string} opts.backupFilePath - the backup archive (`backup-<ts>.zip`) to restore
  * @param {string} [opts.migrationsDir]
- * @param {(opts:object) => import('../database/adapter.js')} opts.createAdapterFn
+ * @param {(opts:object) => object} opts.createAdapterFn
  * @param {(db, entry:object) => void} [opts.auditLogFn] - core/audit's log(), optional
  * @param {string|null} [opts.actor]
  * @param {string|null} [opts.uploadsDir] - live uploads directory; if the archive contains uploads they replace this directory (the old one is kept as `<uploadsDir>.pre-restore-<ms>`)

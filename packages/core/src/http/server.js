@@ -3,6 +3,8 @@ import https from 'node:https';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { setOutboundPolicy, outboundPolicyFromConfig } from './safe-fetch.js';
+
 /**
  * Server construction that actually honours `server.*` config - audit
  * findings A04/C05: host, https.mode, trustProxy, requestTimeoutMs were
@@ -98,6 +100,7 @@ export async function loadOrCreateTls({ serverConfig, certDir, certs, commonName
  * @param {{cert: any, key: any} | null} [opts.tls] - from loadOrCreateTls()
  */
 export function createHttpServer(app, { serverConfig, tls = null }) {
+  setOutboundPolicy(outboundPolicyFromConfig(serverConfig)); // the policy of every outgoing request of the core
   const mode = serverConfig.https?.mode ?? 'self-signed';
   const requestTimeout = serverConfig.requestTimeoutMs ?? 30_000;
   // Node rejects headersTimeout > requestTimeout at construction time.

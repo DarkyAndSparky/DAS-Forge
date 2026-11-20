@@ -6,6 +6,7 @@ import { createAdmin } from '../src/admin/index.js';
 import { createPasswordPolicy, PasswordPolicyError } from '../src/auth/password-policy-store.js';
 import { checkPasswordPolicy, characterClasses } from '../src/auth/password-policy.js';
 import { query } from '../src/audit/index.js';
+import { createMfaRoleStore } from '../src/auth/mfa-roles.js';
 
 function setup() {
   const db = createSqliteAdapter({ file: ':memory:' });
@@ -92,31 +93,63 @@ describe('createPasswordPolicy', () => {
 });
 
 describe('admin section "Password policy"', () => {
-  it('shows the page and saves a profile with an audit entry', async () => {
+  it('shows the page without profiles and saves the numbers with an audit entry', async () => {
     const { db, policy, routes } = setup();
     createUser(db, { username: 'root', passwordHash: 'h', role: 'admin' });
     const page = await call(routes['GET /admin/password-policy'], { user: admin, query: {} });
     expect(page.body).toContain('name="minLength"');
-    const r = await call(routes['POST /admin/password-policy'], { user: admin, body: { profile: 'fstec', minLength: '12', adminMinLength: '12', requireClasses: '0' } });
+    expect(page.body).not.toContain('name="profile"');
+    expect(page.body).not.toMatch(/ФСТЭК|FSTEC/);
+    expect(page.body).toContain('argon2id');
+    const r = await call(routes['POST /admin/password-policy'], { user: admin, body: { minLength: '13', adminMinLength: '14', requireClasses: '1', maxAgeDays: '0', historyCount: '0' } });
     expect(r.location).toBe('/admin/password-policy?msg=ok');
-    expect(policy.get().profile).toBe('fstec');
+    expect(policy.get()).toMatchObject({ minLength: 13, adminMinLength: 14, requireClasses: 1 });
     expect(query(db, { action: 'admin.passwordpolicy.set' }).length).toBe(1);
   });
 
-  it('numbers typed by hand win over the unchanged profile; bad numbers are reported', async () => {
+  it('bad numbers are reported and nothing is saved', async () => {
     const { policy, routes } = setup();
-    await call(routes['POST /admin/password-policy'], { user: admin, body: { profile: 'nist', minLength: '15', adminMinLength: '15', requireClasses: '2' } });
-    expect(policy.get()).toMatchObject({ profile: 'custom', minLength: 15, requireClasses: 2 });
-    const bad = await call(routes['POST /admin/password-policy'], { user: admin, body: { profile: 'custom', minLength: '3', adminMinLength: '12', requireClasses: '0' } });
+    const bad = await call(routes['POST /admin/password-policy'], { user: admin, body: { minLength: '3', adminMinLength: '12', requireClasses: '0' } });
     expect(bad.location).toBe('/admin/password-policy?msg=bad&e=MIN_LENGTH_INVALID');
+    expect(policy.get().minLength).toBe(12);
   });
 
   it('resets to the configured values', async () => {
     const { policy, routes } = setup();
-    policy.set({ profile: 'fstec' });
+    policy.set({ minLength: 15, adminMinLength: 15 });
     const r = await call(routes['POST /admin/password-policy/reset'], { user: admin });
     expect(r.code).toBe(303);
-    expect(policy.get().profile).toBe('nist');
+    expect(policy.get().minLength).toBe(12);
+  });
+
+  it('MFA by role: a switch is saved, audited, shown and refuses unknown roles', async () => {
+    const { db, routes } = setup();
+    const store = createMfaRoleStore({ db });
+    expect(store.list()).toEqual([]);
+    let r = await call(routes['POST /admin/password-policy/mfa-roles'], { user: admin, body: { role: 'operator', required: '1' } });
+    expect(r.location).toBe('/admin/password-policy?msg=ok&n=0');
+    expect(store.list()).toEqual(['operator']);
+    expect(query(db, { action: 'admin.mfaroles.set' }).length).toBe(1);
+    const page = await call(routes['GET /admin/password-policy'], { user: admin, query: {} });
+    expect(page.body).toContain('value="operator"');
+    r = await call(routes['POST /admin/password-policy/mfa-roles'], { user: admin, body: { role: 'ghost', required: '1' } });
+    expect(r.location).toBe('/admin/password-policy?msg=bad');
+    expect(store.list()).toEqual(['operator']);
+    await call(routes['POST /admin/password-policy/mfa-roles'], { user: admin, body: { role: 'operator', required: '0' } });
+    expect(store.list()).toEqual([]);
+    // repeating the same state writes nothing to the audit log
+    await call(routes['POST /admin/password-policy/mfa-roles'], { user: admin, body: { role: 'operator', required: '0' } });
+    expect(query(db, { action: 'admin.mfaroles.set' }).length).toBe(2);
+  });
+
+  it('createMfaRoleStore ignores a damaged row and bad names', () => {
+    const { db } = setup();
+    const store = createMfaRoleStore({ db });
+    expect(() => store.setRole('bad name!', true)).toThrow(TypeError);
+    store.setRole('a', true);
+    db.run(`UPDATE app_settings SET value = ? WHERE key = 'mfa_required_roles'`, ['{"x":1}']);
+    expect(store.list()).toEqual([]);
+    expect(store.has('a')).toBe(false);
   });
 
   it('requires a new password for everyone but yourself, or for administrators only, and signs them out', async () => {
@@ -234,10 +267,26 @@ describe('password policy page: two administrators (G-03)', () => {
     const { routes, policy } = setup();
     const page = await call(routes['GET /admin/password-policy'], { user: admin, query: {} });
     const v = /name="_v" value="([0-9a-f]+)"/.exec(page.body)[1]; // both administrators opened this page
-    let r = await call(routes['POST /admin/password-policy'], { user: admin, body: { profile: 'custom', minLength: '14', adminMinLength: '14', requireClasses: '1', _v: v } });
+    let r = await call(routes['POST /admin/password-policy'], { user: admin, body: { minLength: '14', adminMinLength: '14', requireClasses: '1', _v: v } });
     expect(r.location).toBe('/admin/password-policy?msg=ok');
-    r = await call(routes['POST /admin/password-policy'], { user: admin, body: { profile: 'custom', minLength: '9', adminMinLength: '9', requireClasses: '0', _v: v } });
+    r = await call(routes['POST /admin/password-policy'], { user: admin, body: { minLength: '9', adminMinLength: '9', requireClasses: '0', _v: v } });
     expect(r.location).toBe('/admin/password-policy?msg=bad&e=CONFLICT');
     expect(policy.get().minLength).toBe(14);
+  });
+});
+
+describe('stored policy is read inside the limits set() enforces (zero-trust)', () => {
+  it('a damaged row (out-of-range numbers) falls back to the configuration instead of weakening the rules', () => {
+    const db = createSqliteAdapter({ file: ':memory:' });
+    const policy = createPasswordPolicy({ db, config: { minLength: 12 } });
+    policy.set({ minLength: 14, adminMinLength: 14, requireClasses: 2 });
+    expect(policy.get().minLength).toBe(14);
+    db.run(`UPDATE app_settings SET value = ? WHERE key = 'password_policy'`, [JSON.stringify({ minLength: 1, adminMinLength: 2, requireClasses: 99, maxAgeDays: -5, historyCount: 1000 })]);
+    const v = policy.get();
+    expect(v.minLength).toBe(12);
+    expect(v.requireClasses).toBe(0);
+    expect(v.maxAgeDays).toBe(0);
+    expect(v.historyCount).toBe(0);
+    expect(v.adminMinLength).toBeGreaterThanOrEqual(12);
   });
 });

@@ -71,16 +71,23 @@ const config = await loadConfig({ schema: Schema });
 | `bodyLimit` | лимит тела запроса (`1mb`) |
 | `requestTimeoutMs` | таймаут запроса (30000) |
 | `shutdownDrainTimeoutMs` | время на завершение запросов при остановке (10000) |
+| `outbound.allowPrivate`, `outbound.allowHosts` | исходящие запросы ядра на приватные сети: по умолчанию разрешены для `lan`, запрещены для `internet`; `allowHosts` — исключения (имена, адреса, CIDR). См. «Исходящие запросы» в разделе «Безопасность» |
+| `exposure` | `lan` (по умолчанию) или `internet`: при `internet` команда `doctor` показывает ошибками (не подсказками) самоподписанный сертификат, прокси без `trustProxy`, админку без `admin.allowedNets` и регистрацию без подтверждения почты |
 | `admin.port`, `admin.host` | отдельный слушатель для админки (по умолчанию не задан: админка на адресе приложения). С `admin.port` панель отвечает только там (на адресе приложения — 404), `admin.host` по умолчанию `127.0.0.1`, и тогда панель слушает ещё и `::1`, поэтому `localhost` открывается при любом разрешении имени: доступ с самой машины, через SSH-туннель или VPN; порт не должен совпадать с портом приложения; см. [безопасность](04-security.md) |
+| `admin.allowedNets` | сети, из которых открывается админка: `['10.0.5.0/24', '2001:db8::/32', '10.0.7.3']`; из остальных адресов 404 (пусто — всем, кто достучался). За прокси нужен верный `trust proxy`; в приложении — `http.adminNets({ nets })` |
 
 ### database
 
 | Ключ | Описание |
 |---|---|
-| `driver` | только `node:sqlite` |
+| `driver` | `node:sqlite` (по умолчанию) или `postgres`; базу открывает `database.createDatabase(config.database)`. Мастерская (workshop) пока работает только на SQLite: она переходит на асинхронный доступ отдельным этапом |
 | `file` | путь к файлу (`data/app.db`) |
 | `walMode` | журнал WAL (`true`) |
 | `normalizeValues` | даты и булевы приводятся к типам при чтении (`false`) |
+| `url` | для `postgres`: ссылка `env:ИМЯ` на переменную окружения со строкой подключения (сама строка в конфигурации не пишется) |
+| `poolSize` | для `postgres`: размер пула соединений (`10`) |
+| `ssl` | для `postgres`: включить TLS с проверкой сертификата (`false`) |
+| `statementTimeoutMs` | для `postgres`: предельное время запроса |
 
 ### backup
 
@@ -176,13 +183,14 @@ const config = await loadConfig({ schema: Schema });
 | `csp` | `reportOnly` (`false`) и `reportPath` (`/csp-report`): строгая политика CSP в режиме отчёта, см. [безопасность](04-security.md) |
 | `rateLimit` | общий лимит: 300 запросов за 60 с (страницы админки и фоновые запросы тоже считаются) |
 | `loginRateLimit` | лимит для `/login`, `/login/totp`, `/login/recovery`: 10 за 60 с |
-| `lockout` | блокировка после `maxFailures` (5) неудач на `baseLockMs` (5 мин), каждая следующая удваивает до `maxLockMs` (24 ч); `resetAfterMs` (24 ч) — через сколько тишины счётчик неудач обнуляется |
+| `lockout` | блокировка после `maxFailures` (5) неудач на `baseLockMs` (5 мин), каждая следующая удваивает до `maxLockMs` (24 ч); `resetAfterMs` (24 ч) — через сколько тишины счётчик неудач обнуляется; `persist` (true) — хранить счётчики в базе, `syncMs` (5000, не меньше 1000) — как часто подхватывать блокировки других процессов |
 | `incidentContacts` | адреса, на которые уходят письма-алерты (см. `alerts`) |
 | `dependencyAudit.enabled` | проверка известных уязвимостей зависимостей в диагностике (`true`) |
 | `dependencyAudit.ignore` | принятые на время уязвимости: `[{ id: 'GHSA-xxxx-xxxx-xxxx', reason: '…', until: '2026-12-31' }]`; после `until` снова считаются; `until` можно не указывать |
 | `securityTxt.contact` | адреса для сообщений об уязвимостях (`mailto:`, `https://`, `tel:`; голый адрес становится `mailto:`); пока список пуст, `/.well-known/security.txt` не отдаётся |
 | `securityTxt.policy` / `canonical` | ссылка на политику раскрытия (например `SECURITY.md` в репозитории) / канонический адрес файла |
 | `securityTxt.expires` | срок действия (дата-время ISO); без значения — 180 дней от запроса |
+| `ipBan.*` | начальные значения автобана адресов (все необязательны): `enabled`, `maxFailures`, `findTimeMs`, `baseBanMs`, `factor`, `maxBanMs`, `recidiveCount`, `recidiveWindowMs`, `recidiveBanMs`, `historyRetentionMs`, `ignore` (массив адресов и сетей); дальше значения меняет администратор |
 | `stepUp.enabled` / `stepUp.maxAgeMinutes` | повторное подтверждение (пароль и код TOTP) перед опасными действиями администратора, срок действия 1–120 минут (10 по умолчанию). Само подключение делает приложение (`admin.createStepUp`); doctor в production предупреждает, если выключено |
 | `secretsRotation.maxAgeDays` | предельный возраст ключа, дней (30–3650, по умолчанию 365); старше — предупреждение в doctor |
 | `secretsRotation.sessionSecretCreatedAt` / `totpKeyCreatedAt` / `backupKeyCreatedAt` | дата создания ключа (`ГГГГ-ММ-ДД`); без неё возраст не проверяется, doctor пишет «дата не записана». Проверяются только заданные ключи |
@@ -197,6 +205,8 @@ const config = await loadConfig({ schema: Schema });
 | `previousSessionSecrets` | старые секреты после ротации: cookie с ними ещё принимаются и перевыпускаются |
 | `totpEncryptionKey` / `previousTotpEncryptionKeys` | ключ шифрования секретов TOTP в базе; без него выводится из `sessionSecret` (ротация тогда ломает вход по TOTP — задайте отдельный) |
 | `sessionTtlMs` | жизнь сессии (8 ч) |
+| `sessionWarnMs` | за сколько до конца сессии спросить «Продолжить?» (по умолчанию 2 мин; 0 — выключено, иначе не меньше 20 с) |
+| `sessionMaxExtensions` | сколько раз можно продлить сессию из этого окна (не меньше 10) |
 | `registration` | самостоятельная регистрация (по умолчанию выключена): `enabled`, `requireEmailConfirmation` (true: учётная запись создаётся только после перехода по ссылке из письма, это и есть защита от ботов; false: сразу, для закрытых сетей), `role` (`operator`), `ttlHours` (24, срок ссылки), `minFillMs` (2000, быстрее форма не принимается) |
 | `hostCookiePrefix` | cookie сессии называется `__Host-das_session` (`false`): браузер не примет её с соседнего поддомена и не разрешит перезаписать; только HTTPS, при входе по обычному HTTP сессия не сохранится |
 | `newDeviceNotice` | письмо владельцу при входе с браузера, которого не было раньше (`true`; нужны включённая почта и адрес в учётной записи) |

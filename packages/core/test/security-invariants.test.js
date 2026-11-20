@@ -21,7 +21,8 @@ const uniq = (a) => [...new Set(a)].sort();
 describe('dangerous constructs', () => {
   it('no eval, new Function or child_process', () => {
     expect(hits(/\beval\(|new Function\(/g)).toEqual([]);
-    expect(hits(/child_process/g)).toEqual([]);
+    // child_process only in media/probe.js: execFile of ffprobe by an absolute path, no shell, fixed argument list, timeout, output limit, reduced environment.
+    expect(hits(/child_process/g)).toEqual(['media/probe.js']);
   });
   it('no md5 / sha1 digests', () => {
     // SHA-1 only to look a password up in a leaked-password list that is published as SHA-1 hashes (never to store or sign anything).
@@ -46,6 +47,7 @@ describe('SQL is not built from values', () => {
   const re = /\bdb\.(?:run|get|all|exec|prepare)\(\s*`[^`]*\$\{/g;
   const allowed = {
     'audit/query.js': 'where-clause assembled from fixed fragments, values bound',
+    'audit/schema.js': 'column names come from the fixed AUDIT_HASH_COLUMNS list',
     'auth/user-admin.js': 'where-clause assembled from fixed fragments, values bound',
     'branding/company-branding.js': 'constant table name',
     'database/fts.js': 'identifiers pass assertSafeIdentifier',
@@ -73,5 +75,18 @@ describe('file names that come from outside', () => {
       if (m[1].trim() === 'cfg.markerFile' || m[1].trim() === 'name') continue; // marker: from the configuration; name: list() entries filtered by isBackupFileName
       expect(m[1]).toContain('assertPlainName(');
     }
+  });
+});
+
+describe('request bodies are read in one reviewed way (audit V-08)', () => {
+  it('req.body is touched only by the form reader, the validation middleware, the CSP report endpoint and accounts', () => {
+    const allowed = ['accounts/index.js', 'admin/sections.js', 'http/csp-report.js', 'http/validation-middleware.js'];
+    expect(uniq(hits(/\breq\.body\b/g)).filter((f) => !allowed.includes(f))).toEqual([]);
+  });
+  it('in accounts every POST route that reads req.body goes through validateBody first', () => {
+    const text = files.find((f) => f.rel === 'accounts/index.js').text;
+    const parts = text.split(/\n\s*app\.post\(/).slice(1);
+    const bad = parts.filter((p) => /\breq\.body\b/.test(p.split(/\n\s*app\.(?:get|post|use)\(/)[0]) && !/validateBody\(/.test(p.split('\n')[0]));
+    expect(bad.map((p) => p.split('\n')[0].slice(0, 80))).toEqual([]);
   });
 });

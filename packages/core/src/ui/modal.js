@@ -18,21 +18,22 @@ var T=__TEXTS__;
 var L=(document.documentElement.lang||'ru').slice(0,2)==='en'?T.en:T.ru;
 function open(kind,message,o){o=o||{};
 return new Promise(function(resolve){
-var d=document.createElement('dialog');d.className='adm-dialog';d.setAttribute('aria-modal','true');
+var d=document.createElement('dialog');d.className='adm-dialog';d.setAttribute('aria-modal','true');var uid='adm-dlg-'+(++window.__admDlg||(window.__admDlg=1));
 var f=document.createElement('form');f.method='dialog';
-if(o.title){var h=document.createElement('h2');h.textContent=o.title;f.appendChild(h)}
-var p=document.createElement('p');p.textContent=message;f.appendChild(p);
+if(o.title){var h=document.createElement('h2');h.id=uid+'-t';h.textContent=o.title;d.setAttribute('aria-labelledby',h.id);f.appendChild(h)}
+var p=document.createElement('p');p.id=uid+'-d';p.textContent=message;d.setAttribute('aria-describedby',p.id);f.appendChild(p);
 var input=null;
 if(kind==='prompt'){input=document.createElement('input');input.className='adm-input';input.type=o.type||'text';input.value=o.value||'';input.style.width='100%';f.appendChild(input)}
 var row=document.createElement('div');row.className='adm-dialog-actions';
 var done=false;function finish(v){if(done)return;done=true;d.close();d.remove();resolve(v)}
-if(kind!=='alert'){var c=document.createElement('button');c.type='button';c.className='adm-btn';c.textContent=o.cancelText||L.cancel;c.onclick=function(){finish(kind==='prompt'?null:false)};row.appendChild(c)}
+var c=null;if(kind!=='alert'){c=document.createElement('button');c.type='button';c.className='adm-btn';c.textContent=o.cancelText||L.cancel;c.onclick=function(){finish(kind==='prompt'?null:false)};row.appendChild(c)}
 var ok=document.createElement('button');ok.type='submit';ok.className='adm-btn '+(o.danger?'danger solid':'primary');ok.textContent=o.okText||(kind==='confirm'?L.yes:L.ok);row.appendChild(ok);
 f.appendChild(row);d.appendChild(f);
 f.addEventListener('submit',function(e){e.preventDefault();finish(kind==='prompt'?input.value:true)});
+d.addEventListener('keydown',function(e){if(e.key!=='Tab')return;var q=d.querySelectorAll('button:not([disabled]),input,select,textarea,a[href]');if(!q.length)return;var a=q[0],z=q[q.length-1];if(e.shiftKey&&document.activeElement===a){e.preventDefault();z.focus()}else if(!e.shiftKey&&document.activeElement===z){e.preventDefault();a.focus()}});
 d.addEventListener('cancel',function(e){e.preventDefault();finish(kind==='alert'?true:kind==='prompt'?null:false)});
 d.addEventListener('click',function(e){if(e.target===d)finish(kind==='alert'?true:kind==='prompt'?null:false)});
-document.body.appendChild(d);d.showModal();(input||ok).focus();if(input)input.select()})}
+document.body.appendChild(d);d.showModal();(input||(o.danger&&c?c:ok)).focus();if(input)input.select()})}
 window.admDialog={alert:function(m,o){return open('alert',m,o)},confirm:function(m,o){return open('confirm',m,o)},prompt:function(m,o){return open('prompt',m,o)}};
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-confirm]');if(!b||b.dataset.confirmed)return;e.preventDefault();
 open('confirm',b.getAttribute('data-confirm'),{danger:b.classList.contains('danger')}).then(function(y){if(!y)return;b.dataset.confirmed='1';b.click();delete b.dataset.confirmed})});

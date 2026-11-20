@@ -34,9 +34,19 @@
     "docker:stop": "node scripts/docker-start.mjs stop",
     "docker:logs": "node scripts/docker-start.mjs logs",
     "test:e2e": "npm run test:e2e --workspace=workshop",
-    "test:template": "node scripts/test-template.mjs"
+    "test:template": "node scripts/test-template.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "sync-db": "node scripts/sync-db-report.mjs",
+    "sync-db:check": "node scripts/sync-db-report.mjs --check"
   },
   "devDependencies": {
-    "eslint": "^10.14.0"
+    "@types/node": "^26.0.0",
+    "eslint": "^10.15.0",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "argon2@0.45.2": true,
+    "cpu-features@0.0.10": true,
+    "ssh2@1.17.0": true
   }
 }

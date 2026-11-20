@@ -1,8 +1,11 @@
 /**
  * Admin / app theme: one small stylesheet built on semantic tokens (`--adm-*`), no framework, no
  * external fonts or CDN (works in a closed network, passes the CSP). Light and dark come from
- * `prefers-color-scheme` and can be forced with `data-theme="light|dark"` on <html> (the toggle in
- * the shell stores the choice in localStorage).
+ * `prefers-color-scheme` and can be forced with `data-theme="light|dark|contrast"` on <html> (the toggle in
+ * the shell stores the choice in localStorage). `contrast` is the high-contrast theme for low vision: black and white with
+ * a yellow accent, every text pair above 7:1 (WCAG AAA), thick borders and focus ring, underlined links, no motion. It is
+ * also what the system's own request (`prefers-contrast: more`) gets while the user has not chosen a theme. An app's
+ * `tokens` never reach it: a brand colour must not weaken it.
  *
  * Each application brings its own look WITHOUT forking the core CSS:
  *   - `tokens`: { accent: '#c9a24b', surface: 'var(--void-1)' } overrides tokens (applies to both
@@ -26,7 +29,24 @@ export const THEME_TOKENS = {
     accent: '#5b9bff', 'accent-text': '#0b1220', ok: '#4cc27d', warn: '#e0a63a', danger: '#ef6670', info: '#4fb3d9',
     nav: '#0c0e12', 'nav-text': '#b4b9c4', 'nav-active': '#f0975c',
   },
+  // High contrast: contrast against `bg` is 21:1 for text, 15.9:1 for dim text, 9.6:1 or more for every status colour.
+  contrast: {
+    bg: '#000000', surface: '#000000', 'surface-2': '#0d0d0d', border: '#ffffff', text: '#ffffff', 'text-dim': '#e0e0e0',
+    accent: '#ffd400', 'accent-text': '#000000', ok: '#5cff8f', warn: '#ffd400', danger: '#ff8f8f', info: '#6fdcff',
+    nav: '#000000', 'nav-text': '#ffffff', 'nav-active': '#ffd400',
+  },
 };
+
+/** Everything the high-contrast theme changes beyond colours; `sel` is the selector prefix that switches it on. */
+const contrastRules = (sel) => `${sel} a{text-decoration:underline;text-underline-offset:.15em;text-decoration-thickness:2px}
+${sel} *,${sel} *::before,${sel} *::after{transition:none!important;animation:none!important;text-shadow:none!important;box-shadow:none!important}
+${sel} :focus-visible{outline:3px solid var(--adm-accent)!important;outline-offset:2px!important}
+${sel} .adm-card,${sel} .adm-btn,${sel} .adm-input,${sel} .adm-theme-btn,${sel} dialog.adm-dialog,${sel} .adm-content input,${sel} .adm-content select,${sel} .adm-content textarea{border:2px solid var(--adm-border)!important}
+${sel} .adm-nav a.nav-item.active{background:transparent;outline:2px solid var(--adm-nav-active);outline-offset:-2px}
+${sel} .adm-content th,${sel} .adm-content td{border-bottom:1px solid var(--adm-border)}
+${sel} ::selection{background:var(--adm-accent);color:var(--adm-accent-text)}
+`;
+
 
 const KEY = /^[a-z0-9-]{1,40}$/;
 const VALUE = /^[#a-zA-Z0-9\s().,%/_'"+-]{1,200}$/;
@@ -50,17 +70,26 @@ function declarations(tokens) {
 export function tokenCss({ tokens = {}, darkTokens = {} } = {}) {
   const light = declarations({ ...THEME_TOKENS.light, ...tokens });
   const dark = declarations({ ...THEME_TOKENS.dark, ...tokens, ...darkTokens });
+  const contrast = declarations(THEME_TOKENS.contrast); // not overridable, on purpose
   return (
     `:root{color-scheme:light dark;${light}}` +
     `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${dark}}}` +
     `:root[data-theme="dark"]{color-scheme:dark;${dark}}` +
-    `:root[data-theme="light"]{color-scheme:light;${light}}`
+    `:root[data-theme="light"]{color-scheme:light;${light}}` +
+    // The system asks for more contrast and the user has not picked a theme: give it the high-contrast one.
+    `@media (prefers-contrast:more){:root:not([data-theme]){color-scheme:dark;${contrast}}}` +
+    `:root[data-theme="contrast"]{color-scheme:dark;${contrast}}`
   );
 }
 
 /** Component styles (shell, cards, tables, badges, buttons, forms, dialog, toast). Uses only tokens. */
 export const BASE_CSS = `
 *{box-sizing:border-box}
+html{scrollbar-gutter:stable;scroll-padding-top:4.5rem}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+html:has(dialog:modal){overflow:hidden}
+dialog.adm-dialog{overscroll-behavior:contain}
+:where(.adm) img{max-width:100%;height:auto;aspect-ratio:var(--adm-img-ratio,auto);object-fit:var(--adm-img-fit,fill);object-position:var(--adm-img-position,50% 50%)}
 body.adm{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--adm-bg);color:var(--adm-text);display:flex;min-height:100vh}
 .adm a{color:var(--adm-accent)}
 .adm h1,.adm h2,.adm h3{line-height:1.25}
@@ -89,6 +118,7 @@ body.adm{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-s
 .adm-content>p:first-child{color:var(--adm-text-dim)}
 .adm-content input:not([type=checkbox]):not([type=radio]):not([type=file]),.adm-content select,.adm-content textarea{font:inherit;padding:.4rem .65rem;border-radius:6px;border:1px solid var(--adm-border);background:var(--adm-surface);color:var(--adm-text);max-width:100%}
 .adm-content input:focus,.adm-content select:focus,.adm-content textarea:focus{border-color:var(--adm-accent)}
+[hidden]{display:none!important}
 .adm-content button,.adm-btn{font:inherit;padding:.4rem .9rem;border-radius:6px;border:1px solid var(--adm-border);background:var(--adm-surface);color:var(--adm-text);cursor:pointer;transition:border-color .12s,background .12s,box-shadow .12s;box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .adm-content button:hover,.adm-btn:hover{border-color:var(--adm-accent);background:var(--adm-surface-2)}
 .adm-content button:active,.adm-btn:active{transform:translateY(1px)}
@@ -149,20 +179,22 @@ dialog.adm-chart-dialog{width:min(1100px,calc(100vw - 2rem))}
 dialog.adm-dialog::backdrop{background:rgba(10,12,16,.55);backdrop-filter:blur(2px)}
 .adm-dialog-actions{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1rem}
 @keyframes adm-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){dialog.adm-dialog{animation:none}.adm-btn,.adm-content button{transition:none}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 .adm-toast{position:fixed;right:1rem;bottom:1rem;background:var(--adm-surface);border:1px solid var(--adm-border);border-left:4px solid var(--adm-accent);padding:.6rem .9rem;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .adm-muted{color:var(--adm-text-dim)}
 .adm-foot{padding:0 1.5rem 5rem;font-size:.85rem}
 @media (max-width:760px){body.adm{flex-direction:column}.adm-nav{width:auto;height:auto;position:static;display:flex;flex-wrap:wrap;padding:.25rem;border-right:0;border-bottom:1px solid var(--adm-border)}.adm-content{padding:1rem}}
+${contrastRules(':root[data-theme="contrast"]')}@media (prefers-contrast:more){${contrastRules(':root:not([data-theme])')}}
 `;
 
-/** Icon button for the theme toggle (light <-> dark); which icon shows follows <html data-theme>. */
+/** Icon button for the theme toggle (light -> dark -> high contrast); which icon shows follows <html data-theme>. */
 /** Logo switching for light/dark (kept here so the UI layer has no dependency on branding). */
 const LOGO_CSS_INLINE = `
 .adm-logo{max-height:34px;max-width:160px;width:auto;object-fit:contain}
 .adm-logo-dark{display:none}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .adm-logo-dark{display:inline}:root:not([data-theme="light"]) .adm-logo-light{display:none}}
-:root[data-theme="dark"] .adm-logo-dark{display:inline}:root[data-theme="dark"] .adm-logo-light{display:none}
+:root[data-theme="dark"] .adm-logo-dark,:root[data-theme="contrast"] .adm-logo-dark{display:inline}:root[data-theme="dark"] .adm-logo-light,:root[data-theme="contrast"] .adm-logo-light{display:none}
+@media (prefers-contrast:more){:root:not([data-theme]) .adm-logo-dark{display:inline}:root:not([data-theme]) .adm-logo-light{display:none}}
 `;
 
 /** The "Powered by" line (ui/powered-by.js): small, muted, the core's mark switches with the theme. */
@@ -172,7 +204,8 @@ a.adm-created:hover{color:var(--adm-text)}
 .adm-created-logo{height:16px;width:auto;display:block}
 .adm-created-dark{display:none}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .adm-created-dark{display:block}:root:not([data-theme="light"]) .adm-created-light{display:none}}
-:root[data-theme="dark"] .adm-created-dark{display:block}:root[data-theme="dark"] .adm-created-light{display:none}
+:root[data-theme="dark"] .adm-created-dark,:root[data-theme="contrast"] .adm-created-dark{display:block}:root[data-theme="dark"] .adm-created-light,:root[data-theme="contrast"] .adm-created-light{display:none}
+@media (prefers-contrast:more){:root:not([data-theme]) .adm-created-dark{display:block}:root:not([data-theme]) .adm-created-light{display:none}}
 `;
 
 /** Logo switching for light/dark pages that have no shell (exported for the error and maintenance pages). */
@@ -182,20 +215,21 @@ export const THEME_BUTTON_CSS = `
 .adm-theme-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border-radius:8px;border:1px solid var(--adm-border);background:var(--adm-surface);color:var(--adm-text);cursor:pointer}
 .adm-theme-btn:hover{border-color:var(--adm-accent)}
 .adm-theme-btn svg{width:18px;height:18px;display:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-:root:not([data-theme]) .adm-theme-btn .i-light,:root[data-theme="light"] .adm-theme-btn .i-light,:root[data-theme="dark"] .adm-theme-btn .i-dark{display:block}
+:root:not([data-theme]) .adm-theme-btn .i-light,:root[data-theme="light"] .adm-theme-btn .i-light,:root[data-theme="dark"] .adm-theme-btn .i-dark,:root[data-theme="contrast"] .adm-theme-btn .i-contrast{display:block}
 @media (prefers-color-scheme:dark){:root:not([data-theme]) .adm-theme-btn .i-light{display:none}:root:not([data-theme]) .adm-theme-btn .i-dark{display:block}}
+@media (prefers-contrast:more){:root:not([data-theme]) .adm-theme-btn .i-light,:root:not([data-theme]) .adm-theme-btn .i-dark{display:none}:root:not([data-theme]) .adm-theme-btn .i-contrast{display:block}}
 `;
 
 
 /** The toggle button markup (two inline SVG icons, no fonts). `locale` only picks the tooltip language. */
 export function themeToggleHtml(locale = 'ru') {
   const title = escapeAttr(uiTexts(locale).themeToggle);
-  return `<button type="button" class="adm-theme-btn" data-adm-theme-toggle title="${title}" aria-label="${title}"><svg class="i-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg class="i-dark" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>`;
+  return `<button type="button" class="adm-theme-btn" data-adm-theme-toggle title="${title}" aria-label="${title}"><svg class="i-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg class="i-dark" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="i-contrast" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor"/></svg></button>`;
 }
 
-/** Toggle: switches between light and dark (the system choice is made on the account page), remembered in localStorage (never required to work). */
-export const THEME_SCRIPT = `(function(){var r=document.documentElement;try{var s=localStorage.getItem('adm-theme');if(s==='light'||s==='dark')r.setAttribute('data-theme',s)}catch(e){}
-document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-adm-theme-toggle]');if(!b)return;var c=r.getAttribute('data-theme')||(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');var n=c==='dark'?'light':'dark';
+/** Toggle: light, then dark, then high contrast, then light again (the system choice is made on the account page), remembered in localStorage (never required to work). */
+export const THEME_SCRIPT = `(function(){var r=document.documentElement;try{var s=localStorage.getItem('adm-theme');if(s==='light'||s==='dark'||s==='contrast')r.setAttribute('data-theme',s)}catch(e){}
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-adm-theme-toggle]');if(!b)return;var m=function(q){return window.matchMedia&&matchMedia(q).matches};var c=r.getAttribute('data-theme')||(m('(prefers-contrast: more)')?'contrast':m('(prefers-color-scheme: dark)')?'dark':'light');var n=c==='light'?'dark':c==='dark'?'contrast':'light';
 r.setAttribute('data-theme',n);try{localStorage.setItem('adm-theme',n)}catch(e){}})})();`;
 
 function escapeAttr(s) {

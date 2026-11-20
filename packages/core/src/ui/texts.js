@@ -10,15 +10,17 @@ export const UI_TEXTS = {
   ru: {
     skip: 'К содержимому', mainNav: 'Основное', noNav: '(навигация не задана)', back: 'Назад',
     switchToEn: 'Switch to English', switchToRu: 'Переключить на русский',
-    themeToggle: 'Тема: светлая / тёмная',
+    themeToggle: 'Тема: светлая / тёмная / высокая контрастность',
     dialogOk: 'OK', dialogCancel: 'Отмена', dialogYes: 'Да', dialogClose: 'Закрыть',
+    sessionTitle: 'Сессия скоро закончится', sessionText: 'Через {s} с вы будете выведены из системы. Продолжить работу?', sessionExtend: 'Продолжить',
     poweredBy: 'Powered by', signOut: 'Выйти', signOutFailed: 'Не удалось выйти. Проверьте соединение и повторите.',
   },
   en: {
     skip: 'Skip to content', mainNav: 'Main', noNav: '(no navigation registered)', back: 'Back',
     switchToEn: 'Switch to English', switchToRu: 'Переключить на русский',
-    themeToggle: 'Theme: light / dark',
+    themeToggle: 'Theme: light / dark / high contrast',
     dialogOk: 'OK', dialogCancel: 'Cancel', dialogYes: 'Yes', dialogClose: 'Close',
+    sessionTitle: 'Your session is about to end', sessionText: 'You will be signed out in {s} s. Stay signed in?', sessionExtend: 'Stay signed in',
     poweredBy: 'Powered by', signOut: 'Sign out', signOutFailed: 'Could not sign out. Check the connection and try again.',
   },
 };

@@ -16,6 +16,20 @@ function setup(sendImpl, opts = {}) {
   return { db, clock, sent, queue };
 }
 
+describe('email queue: a damaged stored letter (zero-trust read)', () => {
+  it('fails at once, without trying to send and without retries', async () => {
+    const { db, queue, sent } = setup();
+    queue.enqueue(mail(), { scenario: 'passwordReset' });
+    db.run(`UPDATE email_queue SET payload = ?`, ['not json {']);
+    expect(await queue.processDue()).toEqual({ sent: 0, retried: 0, failed: 1 });
+    queue.enqueue(mail(), { scenario: 'passwordReset' });
+    db.run(`UPDATE email_queue SET payload = '[1,2]' WHERE status = 'pending'`);
+    expect(await queue.processDue()).toEqual({ sent: 0, retried: 0, failed: 1 });
+    expect(sent.length).toBe(0);
+    expect(db.get(`SELECT last_error FROM email_queue ORDER BY id LIMIT 1`).last_error).toBe('BAD_PAYLOAD');
+  });
+});
+
 describe('email queue', () => {
   it('stores first, sends on processDue, and wipes the body afterwards', async () => {
     const { db, queue, sent } = setup();

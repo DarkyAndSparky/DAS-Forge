@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createSqliteAdapter } from '../src/database/index.js';
 import { ensureAuditTable } from '../src/audit/schema.js';
 
-// G-12: the filters admins use most must stay on an index. Measured on 1M rows (docs/performance-budget.md):
+// G-12: the filters admins use most must stay on an index. Measured on 1M rows (docs/internal/performance-budget.md):
 // these four answer in under ~170 ms; a full scan would be seconds. If a refactor changes a WHERE clause
 // so the planner stops using the index, this test fails before a big installation notices.
 const ISO = `(CASE WHEN created_at LIKE '____-__-__ %' THEN replace(created_at, ' ', 'T') || '.000Z' ELSE created_at END)`;

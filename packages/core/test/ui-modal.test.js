@@ -8,6 +8,20 @@ describe('modal dialogs', () => {
     expect(() => new Function(MODAL_SCRIPT)).not.toThrow();
     for (const s of ['admDialog', 'alert:', 'confirm:', 'prompt:', 'data-confirm', 'showModal']) expect(MODAL_SCRIPT).toContain(s);
   });
+  it('a dangerous confirm focuses Cancel; the script still parses', () => {
+    expect(MODAL_SCRIPT).toContain('o.danger&&c?c:ok');
+    expect(() => new Function(MODAL_SCRIPT)).not.toThrow();
+  });
+  it('dialogs are named for screen readers, keep Tab inside, and the page does not jump or scroll under them (B1, B2, C1, C3, C4)', () => {
+    for (const s of ['aria-labelledby', 'aria-describedby', "e.key!=='Tab'"]) expect(MODAL_SCRIPT).toContain(s);
+    expect(() => new Function(MODAL_SCRIPT)).not.toThrow();
+    const css = themeHead({});
+    for (const s of ['scrollbar-gutter:stable', 'scroll-padding-top:4.5rem', 'prefers-reduced-motion:no-preference', 'html:has(dialog:modal){overflow:hidden}', 'overscroll-behavior:contain', ':where(.adm) img', '--adm-img-ratio']) expect(css).toContain(s);
+  });
+  it('B5: with reduced motion requested, every animation and transition is cut short', () => {
+    const css = themeHead({});
+    expect(css).toMatch(/prefers-reduced-motion:reduce\)\{\*,\*::before,\*::after\{animation-duration:\.01ms!important/);
+  });
   it('text is set through textContent, never innerHTML', () => {
     expect(MODAL_SCRIPT).not.toContain('innerHTML');
   });

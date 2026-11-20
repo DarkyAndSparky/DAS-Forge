@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Workshop: README — DAS-Forge 0.1.283</title>
+<title>Workshop: README — DAS-Forge 0.1.367</title>
 <style>
 :root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
 @media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
@@ -44,7 +44,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
         fill="#0d0f12" text-anchor="middle">WS</text>
 </svg></div>
-<div><h1>Workshop: README</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.283 · <code>examples/workshop/README.md</code></p></div>
+<div><h1>Workshop: README</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.367 · <code>examples/workshop/README.md</code></p></div>
 </header>
 <main class="page">
 <h1 id="workshop">workshop</h1>
@@ -60,6 +60,9 @@ npm test</code></pre>
 <p>Миграции применяются при каждом старте сервера; отдельно — <code>npm run cli -- migrate</code>.</p>
 <h2 id="что-где-подключено">Что где подключено</h2>
 <div class="tbl"><table><thead><tr><th>Файл</th><th>Что показывает</th></tr></thead><tbody><tr><td><code>app.config.js</code></td><td>Реальный <code>app.config.js</code>, который читает <code>core/config</code></td></tr><tr><td><code>src/context.js</code></td><td><strong>Единая точка bootstrap</strong> — config → database → branding → auth → backup job, в этом порядке (каждый следующий шаг нуждается в результате предыдущего). И HTTP-сервер, и CLI используют один и тот же <code>buildContext()</code>, чтобы не было двух слегка разных способов инициализации</td></tr><tr><td><code>src/server.js</code></td><td>Express-обвязка: <code>requestId()</code> → <code>securityHeaders()</code> → <code>sessionMiddleware()</code> → роуты → <code>notFoundHandler()</code>/<code>errorPageHandler()</code> <strong>последними</strong> → <code>registerGracefulShutdown()</code>. Планировщик с бэкап-джобом стартует рядом с сервером</td></tr><tr><td><code>src/routes.js</code></td><td><code>/login</code> (verify + lazy legacy rehash + session cookie) + TOTP/recovery-code step-up login, смена пароля, enroll/remove аутентификаторов, QR для enroll (<code>POST /totp/enroll/qr.svg</code>), admin-only роут. <code>/assets</code> CRUD (<code>serialize()</code> с <code>fieldPermissions</code> — zero-trust), <code>/assets/:id/cost</code> (<code>requirePermission()</code>, не флаг в теле запроса), <code>/assets/:id/qr.svg</code> (инвентарный QR-тег), <code>/events/assets</code> (SSE), <code>/assets/:id/logo</code> (<code>validateUpload()</code> — magic-bytes, не доверяет имени файла)</td></tr><tr><td><code>src/pages.js</code></td><td>Server-rendered HTML без клиентского фреймворка: <code>renderLoginPage()</code> (двухшаговая форма), <code>renderAccountBody()</code> (смена пароля, enroll/remove аутентификаторов с реальным QR, recovery-коды)</td></tr><tr><td><code>src/records.js</code></td><td>CRUD для таблицы <code>assets</code> — чистый SQL, без ORM; <code>seedAssetsIfEmpty()</code> для demo-данных на свежей БД</td></tr><tr><td><code>test/routes.test.js</code></td><td>полный HTTP-цикл через <code>registerRoutes()</code> — login/logout, TOTP step-up (успех/неверный код/нет pending-сессии), recovery-коды, смена пароля, enroll/remove аутентификатора (политика <code>mfaRequired</code> для admin), роль-ограничение <code>/admin/users</code>, негативные сценарии везде</td></tr><tr><td><code>migrations/001_init.js</code>, <code>002_assets.js</code></td><td>Формат миграции: <strong>синхронный</strong> <code>up(db)</code>. Применяются автоматически при <code>npm start</code> и вручную через <code>npm run cli -- migrate</code></td></tr><tr><td><code>bin/app.js</code></td><td>CLI-бинарник — просто регистрирует готовые команды из <code>core/cli</code> поверх того же <code>buildContext()</code></td></tr><tr><td><code>assets/brand/logo.svg</code></td><td>Vendor identity этого примера (неизменяемый, из <code>core/branding</code>)</td></tr></tbody></table></div>
+<h2 id="второй-фактор-администратора">Второй фактор администратора</h2>
+<p>По умолчанию второй фактор в мастерской <strong>не навязывается</strong>: мастерская часто пересоздаётся, а выбор политики — дело разработчика приложения. Пока у администратора нет аутентификатора, <code>doctor</code> показывает предупреждение «Administrators: second factor».</p>
+<p>Чтобы потребовать его, запустите с <code>DAS_REQUIRE_ADMIN_2FA=1</code>: после первого входа откроется страница «Аккаунт» на вкладке «Двухфакторная аутентификация», остальные страницы закрыты, пока не подключено приложение-аутентификатор (Google Authenticator, Aegis, 2FAS и подобные); последний фактор снять нельзя. В своём приложении то же задаёт функция <code>mfaRequiredForRole</code>.</p>
 <p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/examples/workshop/README.md">examples/workshop/README.md на GitHub</a></p>
 </main>
 </body>

@@ -39,7 +39,7 @@ function listEntries(zipfile, limit) {
  * @param {Buffer} buffer
  * @param {object} [opts]
  * @param {number} [opts.maxEntries=2000]
- * @param {number} [opts.maxUncompressedTotal=500 MiB] - real bytes, all entries together
+ * @param {number} [opts.maxUncompressedTotal=524288000] - 500 MiB, real bytes, all entries together
  * @returns {Promise<{ok: true, files: number, totalUncompressed: number} | {ok: false, reason: string}>}
  */
 export async function verifyZipData(buffer, { maxEntries = 2000, maxUncompressedTotal = 500 * 1024 * 1024 } = {}) {

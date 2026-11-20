@@ -67,4 +67,16 @@ describe('SSE authorize / per-user limit / ids (C06)', () => {
     expect(res.chunks[0]).toBe('id: 1\ndata: {"missed":1}\n\n');
     expect(res.chunks[1]).toBe('id: 2\ndata: {"live":true}\n\n');
   });
+
+  it('hands the replay callback at most 128 characters of Last-Event-ID (the header is client input)', async () => {
+    const bus = createEventBus();
+    const seen = [];
+    const h = createSseHandler({
+      eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000,
+      getReplay: (req, last) => { seen.push(last); return []; },
+    });
+    const { req, res } = mk(1, { 'last-event-id': 'x'.repeat(5000) });
+    await h(req, res);
+    expect(seen[0]).toHaveLength(128);
+  });
 });

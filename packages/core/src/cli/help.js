@@ -28,6 +28,7 @@ c('backup list', 'Список известных файлов копий', { us
 c('backup verify', 'Проверить целостность файла копии', { usage: '<file> [--json]', flags: [JSON_F], examples: ['backup verify data/backups/app-2026-11-01.zip'] });
 c('backup restore', 'Восстановить базу из копии поверх текущей (только при остановленном сервере)', { usage: '<file> --yes [--json]', flags: [['--yes', 'Required: the live database is replaced', 'Обязательно: текущая база будет заменена'], JSON_F], examples: ['backup restore data/backups/app-2026-11-01.zip --yes'] });
 
+c('secret generate', 'Вывести новый случайный секрет (для sessionSecret, totpEncryptionKey, ключа копий)', { usage: '[--bytes n] [--count n]', flags: [['--bytes n', 'Random bytes, 16..128 (default 32)', 'Число случайных байт, 16..128 (по умолчанию 32)'], ['--count n', 'How many secrets, 1..20 (default 1)', 'Сколько секретов, 1..20 (по умолчанию 1)']], examples: ['secret generate', 'secret generate --count 3'] });
 c('cert info', 'Показать срок действия, SAN и признак самоподписанного сертификата', { usage: '[--json]', flags: [JSON_F], examples: ['cert info'] });
 c('cert generate', 'Создать новый самоподписанный сертификат', {
   usage: '[--force] [--common-name cn] [--alt-names a,b] [--days n]',
@@ -46,6 +47,9 @@ c('ban add', 'Заблокировать адрес или логин', { usage:
 c('ban lift', 'Снять блокировку', { usage: '<ip|user> <value>', examples: ['ban lift ip 203.0.113.7'] });
 c('ban list', 'Список блокировок', { usage: '[--all] [--json]', flags: [['--all', 'Include expired and lifted bans', 'Включая истёкшие и снятые'], JSON_F], examples: ['ban list', 'ban list --all --json'] });
 
+c('tasks list', 'Список задач по расписанию: расписание и последний запуск', { usage: '[--json]', flags: [JSON_F], examples: ['tasks list', 'tasks list --json'] });
+c('tasks run', 'Запустить задачу сейчас, не дожидаясь расписания', { usage: '<name>', examples: ['tasks run sessions-gc'] });
+
 c('maintenance status', 'Показать, включён ли режим обслуживания', { usage: '[--json]', flags: [JSON_F], examples: ['maintenance status'] });
 c('maintenance on', 'Включить режим обслуживания', { usage: '[--message text] [--until 2030-01-01T10:00:00Z]', flags: [['--message text', 'Text shown to visitors', 'Текст для посетителей'], ['--until date', 'Expected end (ISO date)', 'Ожидаемое окончание (дата ISO)']], examples: ['maintenance on --message "Обновление"'] });
 c('maintenance off', 'Выключить режим обслуживания', { usage: '', examples: ['maintenance off'] });
@@ -61,6 +65,7 @@ c('audit purge', 'Удалить записи аудита старше даты
 
 c('db status', 'Сводка по базе: соединение, миграции, размер файла', { usage: '[--json]', flags: [JSON_F], examples: ['db status'] });
 c('db integrity', 'Проверка PRAGMA integrity_check', { usage: '[--repair]', flags: [['--repair', 'Also run VACUUM (does not fix structural corruption)', 'Дополнительно выполнить VACUUM (структурные повреждения не исправляет)']], examples: ['db integrity'] });
+c('db copy', 'Перенос всех таблиц из этой базы SQLite в пустую базу PostgreSQL', { usage: '--to ENV_NAME [--dry-run] [--tables a,b] [--skip a,b] [--json]', flags: [['--to', 'Name of the environment variable that holds the PostgreSQL connection string (not the string itself)', 'Имя переменной окружения со строкой подключения к PostgreSQL (не сама строка)'], ['--dry-run', 'Check only, write nothing', 'Только проверка, ничего не записывается'], ['--tables', 'Only these tables (comma-separated)', 'Только эти таблицы (через запятую)'], ['--skip', 'Leave these tables out (comma-separated)', 'Пропустить эти таблицы (через запятую)'], ['--json', 'Print the report as JSON', 'Отчёт в виде JSON']], examples: ['db copy --to DATABASE_URL --dry-run', 'db copy --to DATABASE_URL'] });
 
 c('deps list', 'Список установленных пакетов по lock-файлу', { usage: '[--dev] [--json]', flags: [['--dev', 'Include development packages', 'Включая пакеты для разработки'], JSON_F], examples: ['deps list'] });
 c('deps licenses', 'Проверить лицензии зависимостей (код 3, если что-то требует внимания)', { usage: '[--allow MPL-2.0,...] [--dev] [--json]', flags: [['--allow list', 'Extra licenses to accept, comma-separated', 'Дополнительно допустимые лицензии через запятую'], ['--dev', 'Include development packages', 'Включая пакеты для разработки'], JSON_F], examples: ['deps licenses', 'deps licenses --allow MPL-2.0'] });

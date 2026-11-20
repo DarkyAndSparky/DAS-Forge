@@ -5,7 +5,7 @@ import { localizeDoctor } from '../health/localize.js';
 import { pickTexts } from '../i18n/overrides.js';
 import { timeHtml } from '../ui/time.js';
 import path from 'node:path';
-import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
 import { contextFromRequest } from '../audit/context.js';
 import { readForm, emptyRow } from './sections.js';
 import { pageParams, pagerFor } from './paging.js';
@@ -26,7 +26,7 @@ const L = {
     find: 'Найти', total: 'Всего', created: 'Создан', done: 'Готово', bad: 'Не удалось', file: 'Файл', size: 'Размер', dest: 'Хранилище',
     date: 'Дата', run: 'Запустить копию сейчас', none: 'нет данных', sink: 'Приёмник', sent: 'Отправлено', dropped: 'Потеряно',
     spilled: 'В резервный файл', queued: 'В очереди', failures: 'Сбоев', lastError: 'Последняя ошибка', lastOk: 'Последний успех',
-    target: 'Куда пишет', filter: 'Что принимает', status: 'Состояние', stOk: 'работает', stFailing: 'сбой, копится очередь', stLosing: 'теряет строки', allStreams: 'все потоки', testRun: 'Проверить приёмники', testHint: 'Тестовая строка уйдёт в каждый приёмник напрямую, в обход фильтров; результат покажем здесь. Адреса и ключи приёмников задаются в конфигурации (logs.sinks), из интерфейса они не меняются.', testResult: 'Результат проверки', testOk: 'доставлено', testFail: 'не доставлено', sinksHint: 'Приёмники и их фильтры задаются в конфигурации (logs.sinks); изменение требует перезапуска.',
+    target: 'Куда пишет', filter: 'Что принимает', state: 'Состояние', stOk: 'работает', stFailing: 'сбой, копится очередь', stLosing: 'теряет строки', allStreams: 'все потоки', testRun: 'Проверить приёмники', testHint: 'Тестовая строка уйдёт в каждый приёмник напрямую, в обход фильтров; результат покажем здесь. Адреса и ключи приёмников задаются в конфигурации (logs.sinks), из интерфейса они не меняются.', testResult: 'Результат проверки', testOk: 'доставлено', testFail: 'не доставлено', sinksHint: 'Приёмники и их фильтры задаются в конфигурации (logs.sinks); изменение требует перезапуска.',
     noSinks: 'Приёмники логов не настроены (вывод идёт только в stdout).', app: 'Приложение', core: 'Ядро', node: 'Node.js',
     platform: 'Платформа', deps: 'Зависимости', pkg: 'Пакет', range: 'Требуется', installed: 'Установлена', depState: 'Состояние', latest: 'Последняя',
     groupApp: 'Зависимости приложения', groupCore: 'Зависимости ядра (@das-forge/core)', purpose: 'Назначение', peerTag: 'peer', optTag: 'необязательна', notInstalled: 'не установлена', coreUpdHint: 'Зависимости ядра обновляются вместе с ним: обновите @das-forge/core.',
@@ -43,7 +43,7 @@ const L = {
     resetMfa: 'Сбросить второй фактор', resetMfaHint: 'Удаляет приложение-аутентификатор и коды восстановления и завершает все сессии. Пользователь настроит второй фактор заново при входе. Выполняйте, только убедившись, что это действительно он.', newCodes: 'Выпустить новые коды восстановления', newCodesHint: 'Прежние коды перестанут действовать. Новые будут показаны один раз.', codesTitle: 'Новые коды восстановления', codesShown: 'Передайте коды пользователю безопасным способом. Они показаны один раз и нигде не сохранены в открытом виде.', e_NO_MFA: 'У пользователя нет второго фактора', e_NO_ACTIVE_MFA: 'Нет подтверждённого приложения-аутентификатора: коды восстановления не нужны',
     mailBanReason: 'Учётная запись отключена администратором.', mailRoleSubject: 'Изменена ваша роль', mailRoleBody: 'Администратор изменил вашу роль: {from} → {to}. Если вы этого не ожидали, свяжитесь с администратором.', mailResetSubject: 'Пароль сброшен администратором', mailResetBody: 'Администратор выдал вам временный пароль. Войдите с ним и задайте свой. Если вы этого не просили, сообщите администратору.', mailLogoutSubject: 'Вас вышли из системы', mailLogoutBody: 'Администратор завершил все ваши сессии. Войдите заново. Если вы этого не ожидали, сообщите администратору.', mailMfaSubject: 'Второй фактор сброшен', mailMfaBody: 'Администратор сбросил ваш второй фактор (приложение-аутентификатор и коды восстановления). Настройте его заново при следующем входе. Если вы этого не просили, сообщите администратору.', mailCodesSubject: 'Выпущены новые коды восстановления', mailCodesBody: 'Прежние коды восстановления больше не действуют. Новые вам передаст администратор.',
     cardTitle: 'Карточка пользователя', lastLogin: 'Последний вход', lastActivity: 'Последняя активность', pwdChanged: 'Пароль сменён', never: 'не было', factorsLbl: 'Второй фактор', factorsOn: 'включён', factorsOff: 'нет', cardSessions: 'Сессии', cardDevices: 'Устройства', cardEvents: 'Последние события', firstSeen: 'Впервые', lastSeenLbl: 'Последний раз', expiresLbl: 'Истекает', deviceLbl: 'Устройство', ipLbl: 'IP', actionLbl: 'Событие', resultLbl: 'Результат', noRows: 'нет записей', inactiveLink: 'Не входили давно', inactiveTitle: 'Давно не входили', inactiveHint: 'Активные учётные записи без входов и активности за выбранный срок (или ни разу не входившие и созданные раньше). Отключение закрывает сессии; включить обратно можно в списке пользователей.', daysLbl: 'Дней', idleLbl: 'Бездействует, дн.', disableAll: 'Отключить всех из списка', inactiveNone: 'Таких учётных записей нет', disabledN: 'Отключено учётных записей:', skippedN: 'пропущено (последний администратор или вы):', toList: 'К списку', card: 'Карточка',
-    lockoutsLink: 'Блокировки входа', lockoutsTitle: 'Блокировки входа', lockoutsHint: 'Счётчики держатся в памяти работающего приложения: перезапуск их обнуляет. Здесь видны только действующие блокировки.', lockKind: 'Тип', lockKey: 'Ключ', lockFails: 'Попыток', lockLeft: 'Осталось, с', lockNone: 'Действующих блокировок нет', lockLift: 'Снять', lockKinds: { pair: 'имя + адрес', user: 'имя', ip: 'адрес', mfa: 'второй фактор' }, lockLifted: 'Блокировка снята',
+    lockoutsLink: 'Блокировки входа', lockoutsTitle: 'Блокировки входа', lockoutsHint: 'Счётчики хранятся в базе (`security.lockout.persist`): перезапуск блокировки не снимает, другие процессы на той же базе их видят. Здесь видны только действующие блокировки.', lockKind: 'Тип', lockKey: 'Ключ', lockFails: 'Попыток', lockLeft: 'Осталось, с', lockNone: 'Действующих блокировок нет', lockLift: 'Снять', lockKinds: { pair: 'имя + адрес', user: 'имя', ip: 'адрес', mfa: 'второй фактор' }, lockLifted: 'Блокировка снята',
     forceOut: 'Завершить все сессии', requireChange: 'Потребовать смену пароля при следующем входе', removeUser: 'Удалить учётную запись',
     modeAnon: 'Обезличить (запись остаётся для аудита)', modeDel: 'Удалить полностью', confirmBox: 'Подтверждаю', back: 'К списку',
     tempTitle: 'Временный пароль', tempShown: 'Показан один раз и нигде не хранится. Передайте его пользователю безопасным способом: при входе потребуется выбрать новый.',
@@ -68,7 +68,7 @@ const L = {
     find: 'Find', total: 'Total', created: 'Created', done: 'Done', bad: 'Failed', file: 'File', size: 'Size', dest: 'Destination',
     date: 'Date', run: 'Run a backup now', none: 'no data', sink: 'Sink', sent: 'Sent', dropped: 'Dropped', spilled: 'Spilled to file',
     queued: 'Queued', failures: 'Failures', lastError: 'Last error', lastOk: 'Last success',
-    target: 'Writes to', filter: 'Accepts', status: 'State', stOk: 'working', stFailing: 'failing, queue growing', stLosing: 'losing lines', allStreams: 'all streams', testRun: 'Test the sinks', testHint: 'A test line goes straight into every sink, bypassing the filters; the result is shown here. Addresses and keys are set in the configuration (logs.sinks) and are not changed from the interface.', testResult: 'Test result', testOk: 'delivered', testFail: 'not delivered', sinksHint: 'Sinks and their filters are set in the configuration (logs.sinks); a change needs a restart.',
+    target: 'Writes to', filter: 'Accepts', state: 'State', stOk: 'working', stFailing: 'failing, queue growing', stLosing: 'losing lines', allStreams: 'all streams', testRun: 'Test the sinks', testHint: 'A test line goes straight into every sink, bypassing the filters; the result is shown here. Addresses and keys are set in the configuration (logs.sinks) and are not changed from the interface.', testResult: 'Test result', testOk: 'delivered', testFail: 'not delivered', sinksHint: 'Sinks and their filters are set in the configuration (logs.sinks); a change needs a restart.',
     noSinks: 'No log sinks configured (output goes to stdout only).', app: 'Application', core: 'Core', node: 'Node.js',
     platform: 'Platform', deps: 'Dependencies', pkg: 'Package', range: 'Required', installed: 'Installed', depState: 'Status', latest: 'Latest',
     groupApp: 'Application dependencies', groupCore: 'Core dependencies (@das-forge/core)', purpose: 'Purpose', peerTag: 'peer', optTag: 'optional', notInstalled: 'not installed', coreUpdHint: 'Core dependencies are updated with the core: update @das-forge/core.',
@@ -85,7 +85,7 @@ const L = {
     resetMfa: 'Reset the second factor', resetMfaHint: 'Removes the authenticator app and the recovery codes and ends every session. The user sets the second factor up again at sign-in. Do it only after making sure it really is them.', newCodes: 'Issue new recovery codes', newCodesHint: 'The old codes stop working. The new ones are shown once.', codesTitle: 'New recovery codes', codesShown: 'Hand the codes to the user in a safe way. They are shown once and are not stored in plain text.', e_NO_MFA: 'The user has no second factor', e_NO_ACTIVE_MFA: 'There is no confirmed authenticator app: recovery codes are not needed',
     mailBanReason: 'The account was disabled by an administrator.', mailRoleSubject: 'Your role was changed', mailRoleBody: 'An administrator changed your role: {from} → {to}. If you did not expect this, contact the administrator.', mailResetSubject: 'Password reset by an administrator', mailResetBody: 'An administrator issued you a temporary password. Sign in with it and choose your own. If you did not ask for this, tell the administrator.', mailLogoutSubject: 'You were signed out', mailLogoutBody: 'An administrator ended all your sessions. Sign in again. If you did not expect this, tell the administrator.', mailMfaSubject: 'Second factor reset', mailMfaBody: 'An administrator reset your second factor (authenticator app and recovery codes). Set it up again at your next sign-in. If you did not ask for this, tell the administrator.', mailCodesSubject: 'New recovery codes issued', mailCodesBody: 'Your old recovery codes no longer work. The administrator will hand you the new ones.',
     cardTitle: 'User card', lastLogin: 'Last sign-in', lastActivity: 'Last activity', pwdChanged: 'Password changed', never: 'never', factorsLbl: 'Second factor', factorsOn: 'on', factorsOff: 'none', cardSessions: 'Sessions', cardDevices: 'Devices', cardEvents: 'Recent events', firstSeen: 'First seen', lastSeenLbl: 'Last seen', expiresLbl: 'Expires', deviceLbl: 'Device', ipLbl: 'IP', actionLbl: 'Event', resultLbl: 'Result', noRows: 'no records', inactiveLink: 'Not signed in for long', inactiveTitle: 'Not signed in for long', inactiveHint: 'Active accounts with no sign-in or activity for the chosen period (or never signed in and created earlier). Disabling ends their sessions; they can be enabled again in the users list.', daysLbl: 'Days', idleLbl: 'Idle, days', disableAll: 'Disable everyone in the list', inactiveNone: 'No such accounts', disabledN: 'Accounts disabled:', skippedN: 'skipped (the last administrator or yourself):', toList: 'To the list', card: 'Card',
-    lockoutsLink: 'Sign-in lockouts', lockoutsTitle: 'Sign-in lockouts', lockoutsHint: 'The counters live in the memory of the running application: a restart clears them. Only active lockouts are listed.', lockKind: 'Kind', lockKey: 'Key', lockFails: 'Attempts', lockLeft: 'Left, s', lockNone: 'No active lockouts', lockLift: 'Lift', lockKinds: { pair: 'name + address', user: 'name', ip: 'address', mfa: 'second factor' }, lockLifted: 'Lockout lifted',
+    lockoutsLink: 'Sign-in lockouts', lockoutsTitle: 'Sign-in lockouts', lockoutsHint: 'The counters are kept in the database (`security.lockout.persist`): a restart does not lift a lockout and other processes on the same database see it. Only active lockouts are listed.', lockKind: 'Kind', lockKey: 'Key', lockFails: 'Attempts', lockLeft: 'Left, s', lockNone: 'No active lockouts', lockLift: 'Lift', lockKinds: { pair: 'name + address', user: 'name', ip: 'address', mfa: 'second factor' }, lockLifted: 'Lockout lifted',
     forceOut: 'Sign out of all sessions', requireChange: 'Require a new password at the next sign-in', removeUser: 'Remove account',
     modeAnon: 'Anonymize (the record stays for the audit trail)', modeDel: 'Delete completely', confirmBox: 'I confirm', back: 'Back to the list',
     tempTitle: 'Temporary password', tempShown: 'Shown once and stored nowhere. Hand it to the user in a safe way: they must choose a new one when signing in.',
@@ -156,19 +156,19 @@ export function mountBackupsSection({ app, db, guard, page: render, basePath, lo
   const p = `${basePath}/backups`;
   app.get(p, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-ops'], localeOf(req), 'admin-ops');
-    let list = [];
+    let list;
     try { list = await backups.list(); } catch { list = []; }
     const msg = req.query?.msg === 'ok' ? `<div class="adm-toast">${esc(req.query.e === 'VERIFIED' ? l.verified : l.done)}</div>` : req.query?.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc((l[`eb_${String(req.query.e ?? '')}`] ?? l[`e_${String(req.query.e ?? '')}`] ?? l.bad))}</div>` : '';
     const rows = list.filter((b) => b.file).map((b) => `<tr><td>${esc(b.destinationId ?? '')}</td><td>${esc(b.file)}</td><td>${esc(human(b.sizeBytes))}</td><td>${timeHtml(b.createdAt, localeOf(req))}</td>${backups.verify ? `<td>${b.path && b.supported !== false ? `<form method="post" action="${p}/verify" style="margin:0"><input type="hidden" name="file" value="${esc(b.path)}"><button class="adm-btn" type="submit">${esc(l.verify)}</button></form>` : ''}</td>` : ''}</tr>`).join('') || emptyRow(backups.verify ? 5 : 4, l.emptyBackups);
     const auto = backups.schedule ? `<div class="adm-card" style="margin-bottom:1rem"><h2>${esc(l.backupAuto)}</h2><p class="adm-muted">${esc(l.backupAutoHint)}</p>${scheduleFormHtml({ l, st: backups.schedule.get(), action: `${p}/schedule`, locale: localeOf(req) })}${backups.info ? `<p class="adm-muted">${esc(l.backupRetention)}: <strong>${esc(backups.info.retentionDays ?? '—')}</strong>${backups.info.destinations?.length ? ` · ${esc(l.backupDest)}: ${esc(backups.info.destinations.join(', '))}` : ''}</p>` : ''}</div>` : '';
-    render(req, res, { active: p, title: l.backups, bodyHtml: `${msg}${auto}${backups.run ? `<form method="post" action="${p}/run" style="margin-bottom:1rem"><button class="adm-btn primary" type="submit">${esc(l.run)}</button></form>` : ''}<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.dest)}</th><th>${esc(l.file)}</th><th>${esc(l.size)}</th><th>${esc(l.date)}</th>${backups.verify ? '<th></th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>` });
+    await render(req, res, { active: p, title: l.backups, bodyHtml: `${msg}${auto}${backups.run ? `<form method="post" action="${p}/run" style="margin-bottom:1rem"><button class="adm-btn primary" type="submit">${esc(l.run)}</button></form>` : ''}<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.dest)}</th><th>${esc(l.file)}</th><th>${esc(l.size)}</th><th>${esc(l.date)}</th>${backups.verify ? '<th></th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>` });
   });
   if (backups.schedule) {
     app.post(`${p}/schedule`, ...guard, ...stepUp, async (req, res, next) => {
       try {
         const form = await readForm(req);
         const state = backups.schedule.set({ enabled: form.enabled === '1', time: String(form.time ?? '').trim() || undefined });
-        log(db, { ...contextFromRequest(req), action: 'admin.backup.schedule', entity: 'backup', meta: { enabled: state.enabled, schedule: state.schedule } });
+        await logAsync(db, { ...contextFromRequest(req), action: 'admin.backup.schedule', entity: 'backup', meta: { enabled: state.enabled, schedule: state.schedule } });
         res.redirect(303, `${p}?msg=ok`);
       } catch (err) {
         if (err?.code === 'TIME_INVALID') return res.redirect(303, `${p}?msg=bad&e=TIME_INVALID`);
@@ -180,12 +180,12 @@ export function mountBackupsSection({ app, db, guard, page: render, basePath, lo
     app.post(`${p}/verify`, ...guard, ...stepUp, async (req, res) => {
       const form = await readForm(req);
       const file = String(form.file ?? '');
-      let known = false;
+      let known;
       try { known = (await backups.list()).some((b) => b.supported !== false && b.path === file); } catch { known = false; }
       if (!known) return res.redirect(303, `${p}?msg=bad&e=NOT_FOUND`); // never open a path the list did not hand out
       let result;
       try { result = await backups.verify(file); } catch (err) { result = { ok: false, message: String(err?.message ?? err) }; }
-      log(db, { ...contextFromRequest(req), action: 'admin.backup.verify', entity: 'backup', meta: { file: file.split(/[\\/]/).pop(), message: String(result?.message ?? '').slice(0, 200) }, result: result?.ok ? 'success' : 'failure' });
+      await logAsync(db, { ...contextFromRequest(req), action: 'admin.backup.verify', entity: 'backup', meta: { file: file.split(/[\\/]/).pop(), message: String(result?.message ?? '').slice(0, 200) }, result: result?.ok ? 'success' : 'failure' });
       res.redirect(303, result?.ok ? `${p}?msg=ok&e=VERIFIED` : `${p}?msg=bad&e=VERIFY_FAILED`);
     });
   }
@@ -193,7 +193,7 @@ export function mountBackupsSection({ app, db, guard, page: render, basePath, lo
     app.post(`${p}/run`, ...guard, ...stepUp, async (req, res) => {
       try {
         await backups.run();
-        log(db, { ...contextFromRequest(req), action: 'admin.backup.run', entity: 'backup' });
+        await logAsync(db, { ...contextFromRequest(req), action: 'admin.backup.run', entity: 'backup' });
         res.redirect(303, `${p}?msg=ok`);
       } catch { res.redirect(303, `${p}?msg=bad`); }
     });
@@ -202,7 +202,7 @@ export function mountBackupsSection({ app, db, guard, page: render, basePath, lo
 
 export function mountLogsSection({ app, db, guard, page: render, basePath, localeOf, texts = {}, logDestination, stepUp = [] }) {
   const p = `${basePath}/logs`;
-  const view = (req, res, results = null) => {
+  const view = async (req, res, results = null) => {
     const l = pickTexts(L, texts['admin-ops'], localeOf(req), 'admin-ops');
     const stats = logDestination?.stats?.() ?? [];
     const info = logDestination?.describe?.() ?? [];
@@ -214,20 +214,20 @@ export function mountLogsSection({ app, db, guard, page: render, basePath, local
       const filter = `${d.streams ? d.streams.join(', ') : l.allStreams}${d.minLevel ? ` · ≥ ${d.minLevel}` : ''}`;
       return `<tr><td>${esc(s.type)}</td><td>${esc(d.target ?? '')}</td><td>${esc(filter)}</td><td><span class="adm-badge ${cls}">${esc(label)}</span></td><td>${esc(s.sent)}</td><td>${esc(s.dropped)}</td><td>${esc(s.spilled)}</td><td>${esc(s.queued)}</td><td>${esc(s.failures)}</td><td>${s.lastSuccessAt ? timeHtml(s.lastSuccessAt, localeOf(req)) : esc(l.unknown)}</td><td>${esc(s.lastError ?? '')}</td></tr>`;
     }).join('');
-    const table = `<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.sink)}</th><th>${esc(l.target)}</th><th>${esc(l.filter)}</th><th>${esc(l.status)}</th><th>${esc(l.sent)}</th><th>${esc(l.dropped)}</th><th>${esc(l.spilled)}</th><th>${esc(l.queued)}</th><th>${esc(l.failures)}</th><th>${esc(l.lastOk)}</th><th>${esc(l.lastError)}</th></tr></thead><tbody>${rows}</tbody></table></div>${pagerFor({ req, res, path: p, name: 'logs', page: pg.page, size: pg.size, count: Math.min(pg.size, Math.max(0, stats.length - pg.offset)), total: stats.length, locale: localeOf(req) })}`;
+    const table = `<div class="adm-card"><table class="adm-table"><thead><tr><th>${esc(l.sink)}</th><th>${esc(l.target)}</th><th>${esc(l.filter)}</th><th>${esc(l.state)}</th><th>${esc(l.sent)}</th><th>${esc(l.dropped)}</th><th>${esc(l.spilled)}</th><th>${esc(l.queued)}</th><th>${esc(l.failures)}</th><th>${esc(l.lastOk)}</th><th>${esc(l.lastError)}</th></tr></thead><tbody>${rows}</tbody></table></div>${pagerFor({ req, res, path: p, name: 'logs', page: pg.page, size: pg.size, count: Math.min(pg.size, Math.max(0, stats.length - pg.offset)), total: stats.length, locale: localeOf(req) })}`;
     const resultCard = results
       ? `<div class="adm-card" style="margin-bottom:1rem"><h2>${esc(l.testResult)}</h2><table class="adm-table"><tbody>${results.map((r) => `<tr><td>${esc(r.type)}</td><td>${esc(r.target)}</td><td><span class="adm-badge ${r.ok ? 'ok' : 'danger'}">${esc(r.ok ? l.testOk : l.testFail)}</span></td><td>${esc(r.error ?? '')}</td></tr>`).join('')}</tbody></table></div>`
       : '';
     const testForm = logDestination?.test ? `<div class="adm-card" style="margin-bottom:1rem"><p class="adm-muted">${esc(l.testHint)}</p><form method="post" action="${p}/test"><button class="adm-btn" type="submit">${esc(l.testRun)}</button></form></div>` : '';
-    render(req, res, { active: p, title: l.logs, bodyHtml: stats.length ? `${resultCard}${testForm}${table}<p class="adm-muted">${esc(l.sinksHint)}</p>` : `<div class="adm-card"><p class="adm-muted">${esc(l.noSinks)}</p></div>` });
+    await render(req, res, { active: p, title: l.logs, bodyHtml: stats.length ? `${resultCard}${testForm}${table}<p class="adm-muted">${esc(l.sinksHint)}</p>` : `<div class="adm-card"><p class="adm-muted">${esc(l.noSinks)}</p></div>` });
   };
-  app.get(p, ...guard, (req, res) => view(req, res));
+  app.get(p, ...guard, async (req, res) => await view(req, res));
 
   if (logDestination?.test) {
     app.post(`${p}/test`, ...guard, ...stepUp, async (req, res) => {
       const results = await logDestination.test();
-      if (db) log(db, { ...contextFromRequest(req), action: 'admin.logs.test', entity: 'logs', meta: { sinks: results.length, failed: results.filter((r) => !r.ok).length }, result: results.every((r) => r.ok) ? 'success' : 'failure' });
-      view(req, res, results);
+      if (db) await logAsync(db, { ...contextFromRequest(req), action: 'admin.logs.test', entity: 'logs', meta: { sinks: results.length, failed: results.filter((r) => !r.ok).length }, result: results.every((r) => r.ok) ? 'success' : 'failure' });
+      await view(req, res, results);
     });
   }
 }
@@ -246,7 +246,7 @@ export function mountAboutSection({ app, db, guard, page: render, basePath, loca
   const badgeOf = (st, l) => `<span class="adm-badge ${st === 'ok' ? 'ok' : st === 'warn' ? 'warn' : 'danger'}">${esc(st === 'ok' ? l.sOk : st === 'warn' ? l.sWarn : l.sFail)}</span>`;
 
   function healthCard(l) {
-    let h = null;
+    let h;
     try { h = about.health?.() ?? null; } catch { h = null; }
     if (!h) return '';
     const ok = h.status === 'ok';
@@ -266,7 +266,7 @@ export function mountAboutSection({ app, db, guard, page: render, basePath, loca
     return `<div class="adm-card" style="margin-top:1rem"><h2>${esc(l.doctor)}</h2><form method="post" action="${p}/doctor" style="margin-bottom:.75rem"><button class="adm-btn primary" type="submit">${esc(l.runDoctor)}</button></form>${sched}${body}</div>`;
   }
 
-  app.get(p, ...guard, (req, res) => {
+  app.get(p, ...guard, async (req, res) => {
     const l = pickTexts(L, texts['admin-ops'], localeOf(req), 'admin-ops');
     const outdated = [];
     let coreOutdated = 0;
@@ -297,14 +297,14 @@ export function mountAboutSection({ app, db, guard, page: render, basePath, loca
     const info = [[l.app, `${about.appName ?? ''} ${about.appVersion ?? ''}`.trim() || l.unknown], [l.core, about.coreVersion ?? CORE_VERSION ?? l.unknown], [l.node, process.version], [l.platform, `${process.platform} ${process.arch}`]]
       .map(([k, v]) => `<div class="adm-card"><h2>${esc(k)}</h2><div class="adm-stat" style="font-size:1.2rem">${esc(v)}</div></div>`).join('');
     const toast = req.query?.msg === 'ok' ? `<div class="adm-toast">${esc(l.done)}</div>` : req.query?.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(l[`e_${String(req.query.e ?? '')}`] ?? l.bad)}</div>` : '';
-    render(req, res, { active: p, title: l.about, bodyHtml: `${toast}<div class="adm-grid">${info}</div>${healthCard(l)}${doctorCard(l, localeOf(req))}<div class="adm-card" style="margin-top:1rem"><h2>${esc(l.deps)}</h2><form method="post" action="${p}/check" style="margin-bottom:.75rem"><button class="adm-btn primary" type="submit">${esc(l.check)}</button>${latest ? ` <span class="adm-muted">${esc(l.checked)}: ${timeHtml(latest.at, localeOf(req))}</span>` : ''}</form>${upd}${tables}</div>` });
+    await render(req, res, { active: p, title: l.about, bodyHtml: `${toast}<div class="adm-grid">${info}</div>${healthCard(l)}${doctorCard(l, localeOf(req))}<div class="adm-card" style="margin-top:1rem"><h2>${esc(l.deps)}</h2><form method="post" action="${p}/check" style="margin-bottom:.75rem"><button class="adm-btn primary" type="submit">${esc(l.check)}</button>${latest ? ` <span class="adm-muted">${esc(l.checked)}: ${timeHtml(latest.at, localeOf(req))}</span>` : ''}</form>${upd}${tables}</div>` });
   });
 
   app.post(`${p}/check`, ...guard, ...stepUp, async (req, res) => {
     await readForm(req); // drain
     const errors = {};
     latest = { at: new Date().toISOString(), versions: await checkLatest([...new Set(deps.map((d) => d.name))], { fetchFn, errors }), errors };
-    log(db, { ...contextFromRequest(req), action: 'admin.about.check-updates', entity: 'system' });
+    await logAsync(db, { ...contextFromRequest(req), action: 'admin.about.check-updates', entity: 'system' });
     res.redirect(303, p);
   });
 
@@ -313,7 +313,7 @@ export function mountAboutSection({ app, db, guard, page: render, basePath, loca
       try {
         const form = await readForm(req);
         const state = about.doctorSchedule.set({ enabled: form.enabled === '1', time: String(form.time ?? '').trim() || undefined });
-        log(db, { ...contextFromRequest(req), action: 'admin.doctor.schedule', entity: 'system', meta: { enabled: state.enabled, schedule: state.schedule } });
+        await logAsync(db, { ...contextFromRequest(req), action: 'admin.doctor.schedule', entity: 'system', meta: { enabled: state.enabled, schedule: state.schedule } });
         res.redirect(303, `${p}?msg=ok`);
       } catch (err) {
         if (err?.code === 'TIME_INVALID') return res.redirect(303, `${p}?msg=bad&e=TIME_INVALID`);
@@ -328,7 +328,7 @@ export function mountAboutSection({ app, db, guard, page: render, basePath, loca
       let report;
       try { report = await about.doctor(); } catch (err) { report = { categories: [{ name: 'doctor', checks: [{ name: 'run', status: 'fail', message: String(err?.message ?? err) }] }], summary: { ok: 0, warn: 0, fail: 1 } }; }
       doctorReport = { at: new Date().toISOString(), report };
-      log(db, { ...contextFromRequest(req), action: 'admin.about.doctor', entity: 'system' });
+      await logAsync(db, { ...contextFromRequest(req), action: 'admin.about.doctor', entity: 'system' });
       res.redirect(303, p);
     });
   }

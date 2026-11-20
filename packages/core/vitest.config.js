@@ -1,5 +1,5 @@
 // node:sqlite support requires vitest >=3.0.0 (see package.json and
-// docs/roadmap.md §12-15) - no special config needed here once that
+// docs/internal/roadmap.md §12-15) - no special config needed here once that
 // version requirement is met; the bug was in vite-node itself, not
 // something fixable from a consuming project's config.
 export default {

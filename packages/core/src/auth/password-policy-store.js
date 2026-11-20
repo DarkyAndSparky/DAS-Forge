@@ -1,7 +1,7 @@
 import { ensureSettingsTable } from '../branding/company-branding.js';
 import { checkPasswordPolicy } from './password-policy.js';
 import { recentPasswordHashes, passwordExpired } from './password-history.js';
-import { createPasswordBlocklist } from './password-blocklist.js';
+import { createPasswordDictionary } from './password-dictionary.js';
 
 const KEY = 'password_policy';
 
@@ -22,6 +22,66 @@ export class PasswordPolicyError extends Error {
 
 const int = (v) => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v);
 
+/** The configuration's values (`auth.passwordPolicy`) with their defaults. */
+export function baseRules(config = {}) {
+  return {
+    minLength: config.minLength ?? PASSWORD_PROFILES.nist.minLength,
+    adminMinLength: config.adminMinLength ?? config.minLength ?? PASSWORD_PROFILES.nist.adminMinLength,
+    requireClasses: config.requireClasses ?? 0,
+    maxAgeDays: config.maxAgeDays ?? 0,
+    historyCount: config.historyCount ?? 0,
+    maxLength: config.maxLength ?? 128,
+  };
+}
+
+function profileOf(v) {
+  for (const [name, p] of Object.entries(PASSWORD_PROFILES)) {
+    if (p.minLength === v.minLength && p.adminMinLength === v.adminMinLength && p.requireClasses === v.requireClasses && p.maxAgeDays === v.maxAgeDays && p.historyCount === v.historyCount) return name;
+  }
+  return 'custom';
+}
+
+/**
+ * The rules in force from the configuration (`b`, see baseRules) and the saved row (`s`, or null). A stored number counts only inside the
+ * same limits `set()` enforces: a damaged or edited row (minLength 1, say) must not quietly weaken the rules.
+ */
+export function effectiveRules(b, s) {
+  const st = s ?? {};
+  const within = (x, lo, hi, fallback) => (Number.isInteger(x) && x >= lo && x <= hi ? x : fallback);
+  const v = {
+    minLength: within(st.minLength, 8, b.maxLength, b.minLength),
+    adminMinLength: within(st.adminMinLength, 8, b.maxLength, b.adminMinLength),
+    requireClasses: within(st.requireClasses, 0, 4, b.requireClasses),
+    maxAgeDays: within(st.maxAgeDays, 0, 3650, b.maxAgeDays),
+    historyCount: within(st.historyCount, 0, 24, b.historyCount),
+    maxLength: b.maxLength,
+  };
+  v.adminMinLength = Math.max(v.adminMinLength, v.minLength);
+  return { profile: profileOf(v), ...v };
+}
+
+/** The rules a `set()` call would save on top of the current ones `cur`; throws PasswordPolicyError for a bad value. */
+export function nextRules(cur, { profile, minLength, adminMinLength, requireClasses, maxAgeDays, historyCount } = {}) {
+  let next = { minLength: cur.minLength, adminMinLength: cur.adminMinLength, requireClasses: cur.requireClasses, maxAgeDays: cur.maxAgeDays, historyCount: cur.historyCount };
+  if (profile !== undefined && profile !== '' && profile !== 'custom') {
+    if (!PASSWORD_PROFILES[profile]) throw new PasswordPolicyError('PROFILE_UNKNOWN');
+    next = { ...PASSWORD_PROFILES[profile] };
+  }
+  if (minLength !== undefined) next.minLength = int(minLength);
+  if (adminMinLength !== undefined) next.adminMinLength = int(adminMinLength);
+  if (requireClasses !== undefined) next.requireClasses = int(requireClasses);
+  if (maxAgeDays !== undefined) next.maxAgeDays = int(maxAgeDays);
+  if (historyCount !== undefined) next.historyCount = int(historyCount);
+  if (!Number.isInteger(next.minLength) || next.minLength < 8 || next.minLength > cur.maxLength) throw new PasswordPolicyError('MIN_LENGTH_INVALID');
+  if (!Number.isInteger(next.adminMinLength) || next.adminMinLength < next.minLength || next.adminMinLength > cur.maxLength) throw new PasswordPolicyError('ADMIN_MIN_LENGTH_INVALID');
+  if (!Number.isInteger(next.requireClasses) || next.requireClasses < 0 || next.requireClasses > 4) throw new PasswordPolicyError('CLASSES_INVALID');
+  if (!Number.isInteger(next.maxAgeDays) || next.maxAgeDays < 0 || next.maxAgeDays > 3650) throw new PasswordPolicyError('MAX_AGE_INVALID');
+  if (!Number.isInteger(next.historyCount) || next.historyCount < 0 || next.historyCount > 24) throw new PasswordPolicyError('HISTORY_INVALID');
+  return next;
+}
+
+export { KEY as PASSWORD_POLICY_KEY };
+
 /**
  * The password rules an administrator can change at run time. Until something is saved the values come from the
  * configuration (`auth.passwordPolicy`); a saved policy lives in `app_settings` and applies at once to every process
@@ -34,16 +94,9 @@ const int = (v) => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v);
  * @param {string} [o.blocklistFile] - leaked-password list ("Pwned Passwords" format, sorted by hash); a password found in it is refused
  */
 export function createPasswordPolicy({ db, config = {}, appName = '', blocklistFile = null } = {}) {
-  const blocklist = blocklistFile ? createPasswordBlocklist(blocklistFile) : null;
   if (!db) throw new TypeError('createPasswordPolicy: db is required');
-  const base = () => ({
-    minLength: config.minLength ?? PASSWORD_PROFILES.nist.minLength,
-    adminMinLength: config.adminMinLength ?? config.minLength ?? PASSWORD_PROFILES.nist.adminMinLength,
-    requireClasses: config.requireClasses ?? 0,
-    maxAgeDays: config.maxAgeDays ?? 0,
-    historyCount: config.historyCount ?? 0,
-    maxLength: config.maxLength ?? 128,
-  });
+  const dictionary = createPasswordDictionary({ db, configFile: blocklistFile });
+  const base = () => baseRules(config);
 
   function stored() {
     try {
@@ -55,27 +108,9 @@ export function createPasswordPolicy({ db, config = {}, appName = '', blocklistF
     }
   }
 
-  function profileOf(v) {
-    for (const [name, p] of Object.entries(PASSWORD_PROFILES)) {
-      if (p.minLength === v.minLength && p.adminMinLength === v.adminMinLength && p.requireClasses === v.requireClasses && p.maxAgeDays === v.maxAgeDays && p.historyCount === v.historyCount) return name;
-    }
-    return 'custom';
-  }
-
   /** The rules in force: `{ profile, minLength, adminMinLength, requireClasses, maxLength }`. */
   function get() {
-    const b = base();
-    const s = stored() ?? {};
-    const v = {
-      minLength: Number.isInteger(s.minLength) ? s.minLength : b.minLength,
-      adminMinLength: Number.isInteger(s.adminMinLength) ? s.adminMinLength : b.adminMinLength,
-      requireClasses: Number.isInteger(s.requireClasses) ? s.requireClasses : b.requireClasses,
-      maxAgeDays: Number.isInteger(s.maxAgeDays) ? s.maxAgeDays : b.maxAgeDays,
-      historyCount: Number.isInteger(s.historyCount) ? s.historyCount : b.historyCount,
-      maxLength: b.maxLength,
-    };
-    v.adminMinLength = Math.max(v.adminMinLength, v.minLength);
-    return { profile: profileOf(v), ...v };
+    return effectiveRules(base(), stored());
   }
 
   /**
@@ -83,22 +118,7 @@ export function createPasswordPolicy({ db, config = {}, appName = '', blocklistF
    * @returns {object} what `get()` now returns
    */
   function set({ profile, minLength, adminMinLength, requireClasses, maxAgeDays, historyCount } = {}) {
-    const cur = get();
-    let next = { minLength: cur.minLength, adminMinLength: cur.adminMinLength, requireClasses: cur.requireClasses, maxAgeDays: cur.maxAgeDays, historyCount: cur.historyCount };
-    if (profile !== undefined && profile !== '' && profile !== 'custom') {
-      if (!PASSWORD_PROFILES[profile]) throw new PasswordPolicyError('PROFILE_UNKNOWN');
-      next = { ...PASSWORD_PROFILES[profile] };
-    }
-    if (minLength !== undefined) next.minLength = int(minLength);
-    if (adminMinLength !== undefined) next.adminMinLength = int(adminMinLength);
-    if (requireClasses !== undefined) next.requireClasses = int(requireClasses);
-    if (maxAgeDays !== undefined) next.maxAgeDays = int(maxAgeDays);
-    if (historyCount !== undefined) next.historyCount = int(historyCount);
-    if (!Number.isInteger(next.minLength) || next.minLength < 8 || next.minLength > cur.maxLength) throw new PasswordPolicyError('MIN_LENGTH_INVALID');
-    if (!Number.isInteger(next.adminMinLength) || next.adminMinLength < next.minLength || next.adminMinLength > cur.maxLength) throw new PasswordPolicyError('ADMIN_MIN_LENGTH_INVALID');
-    if (!Number.isInteger(next.requireClasses) || next.requireClasses < 0 || next.requireClasses > 4) throw new PasswordPolicyError('CLASSES_INVALID');
-    if (!Number.isInteger(next.maxAgeDays) || next.maxAgeDays < 0 || next.maxAgeDays > 3650) throw new PasswordPolicyError('MAX_AGE_INVALID');
-    if (!Number.isInteger(next.historyCount) || next.historyCount < 0 || next.historyCount > 24) throw new PasswordPolicyError('HISTORY_INVALID');
+    const next = nextRules(get(), { profile, minLength, adminMinLength, requireClasses, maxAgeDays, historyCount });
     ensureSettingsTable(db);
     db.run(`INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [KEY, JSON.stringify(next)]);
     return get();
@@ -123,7 +143,7 @@ export function createPasswordPolicy({ db, config = {}, appName = '', blocklistF
       minLength: isAdmin ? v.adminMinLength : v.minLength,
       maxLength: v.maxLength,
       requireClasses: v.requireClasses,
-      username, currentPassword, context,
+      username, currentPassword, context, words: dictionary.words(),
     });
   }
 
@@ -143,7 +163,7 @@ export function createPasswordPolicy({ db, config = {}, appName = '', blocklistF
         if ((await verify(h, plain)).valid) { problems.push('REUSED'); break; }
       }
     }
-    if (blocklist && await blocklist.has(plain)) problems.push('LEAKED');
+    if (await dictionary.fileHas(plain)) problems.push('LEAKED');
     return { ok: problems.length === 0, problems };
   }
 
@@ -152,5 +172,5 @@ export function createPasswordPolicy({ db, config = {}, appName = '', blocklistF
     return passwordExpired(db, userId, get().maxAgeDays);
   }
 
-  return { get, set, reset, check, checkFull, isExpired, profiles: PASSWORD_PROFILES };
+  return { get, set, reset, check, checkFull, isExpired, dictionary, profiles: PASSWORD_PROFILES };
 }

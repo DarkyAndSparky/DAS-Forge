@@ -43,11 +43,11 @@ describe('one theme everywhere', () => {
     expect(head).toContain(THEME_SCRIPT);
     expect(head).toContain('.adm-theme-btn');
   });
-  it('the toggle is an icon button with light/dark icons, no text label', () => {
+  it('the toggle is an icon button with light, dark and high-contrast icons, no text label', () => {
     const b = themeToggleHtml('en');
-    expect((b.match(/<svg/g) || []).length).toBe(2);
+    expect((b.match(/<svg/g) || []).length).toBe(3);
     expect(b).toContain('data-adm-theme-toggle');
-    expect(b).toContain('Theme: light / dark');
+    expect(b).toContain('Theme: light / dark / high contrast');
     expect(b).not.toContain('i-auto');
     expect(THEME_SCRIPT).not.toContain("?'':'dark'");
     expect(b.replace(/<[^>]+>/g, '')).toBe('');

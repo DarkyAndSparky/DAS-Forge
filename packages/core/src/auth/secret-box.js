@@ -9,7 +9,7 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
 const PREFIX = 'enc:v1:';
 
 /** A key argument may be one string or a list: the FIRST encrypts, every entry can decrypt (key rotation). */
-const keyList = (k) => (Array.isArray(k) ? k : k ? [k] : []).filter(Boolean);
+export const keyList = (k) => (Array.isArray(k) ? k : k ? [k] : []).filter(Boolean);
 const INFO = 'das-forge/totp/v1';
 
 function deriveKey(secret) {
@@ -49,7 +49,7 @@ export function openSecret(stored, encryptionKey) {
   throw lastError;
 }
 
-function openWith(stored, encryptionKey) {
+export function openWith(stored, encryptionKey) {
   const [iv, tag, ct] = stored.slice(PREFIX.length).split(':');
   if (!iv || !tag || !ct) throw new Error('Malformed encrypted TOTP secret');
   const decipher = createDecipheriv('aes-256-gcm', deriveKey(encryptionKey), Buffer.from(iv, 'base64url'));

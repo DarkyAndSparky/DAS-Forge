@@ -1,4 +1,5 @@
 import { DEFAULT_TEXTS, KINDS, PLATFORM_LICENSE, MIT_TEXT } from './defaults.js';
+import { isAsyncOnly } from '../database/async.js';
 import { renderPolicyText } from './render.js';
 import { pickTexts } from '../i18n/overrides.js';
 import { themeHead } from '../ui/theme.js';
@@ -9,6 +10,7 @@ import { resolveLocale } from '../http/error-catalog.js';
 import { readDependencies } from '../admin/sections-ops.js';
 import { readForm } from '../admin/sections.js';
 import { log } from '../audit/log.js';
+import { asyncDb } from '../database/async.js';
 import { contextFromRequest } from '../audit/context.js';
 export { DEFAULT_TEXTS, KINDS, PLATFORM_LICENSE, MIT_TEXT } from './defaults.js';
 export { renderPolicyText } from './render.js';
@@ -48,10 +50,50 @@ function safeBack(v) {
   return /^\/(?![/\\])[^\s\u0000-\u001f]{0,500}$/.test(s) ? s : '/';
 }
 
+const POLICY_DDL = `CREATE TABLE IF NOT EXISTS policy_texts (
+    locale TEXT NOT NULL CHECK (locale IN ('ru','en')),
+    kind TEXT NOT NULL CHECK (kind IN ('usage','cookies','license')),
+    body TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by TEXT,
+    PRIMARY KEY (locale, kind)
+  )`;
+const SELECT_TEXT_SQL = 'SELECT body, updated_at, updated_by FROM policy_texts WHERE locale = ? AND kind = ?';
+const UPSERT_TEXT_SQL = `INSERT INTO policy_texts (locale, kind, body, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(locale, kind) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
+const needsRebuild = (sql) => Boolean(sql) && !sql.includes("'license'");
+const textOf = (row, locale, kind) => (row
+  ? { body: row.body, custom: true, updatedAt: row.updated_at, updatedBy: row.updated_by }
+  : { body: DEFAULT_TEXTS[locale][kind], custom: false, updatedAt: null, updatedBy: null });
+/** Validates a text before it is saved; returns the text to store. */
+function checkText(locale, kind, body) {
+  if (!['ru', 'en'].includes(locale) || !KINDS.includes(kind)) throw new TypeError('policy: bad locale or kind');
+  const text = String(body ?? '');
+  if (text.trim() === '') throw new TypeError('policy: empty text (use reset to return to the default)');
+  if (text.length > MAX_BODY) throw new TypeError(`policy: text is longer than ${MAX_BODY} characters`);
+  return text;
+}
+
+/** `ensurePolicyTable` over `asyncDb` (SQLite for now). Call once at start-up, outside a transaction. */
+export async function ensurePolicyTableAsync(db) {
+  const a = asyncDb(db);
+  // the old CHECK constraint exists only in SQLite databases made by earlier versions
+  const old = a.dialect === 'postgres' ? undefined : (await a.get(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'policy_texts'`))?.sql;
+  if (needsRebuild(old)) {
+    await a.transaction(async (tx) => {
+      await tx.exec('ALTER TABLE policy_texts RENAME TO policy_texts_old');
+      await tx.exec(POLICY_DDL.replace('IF NOT EXISTS ', ''));
+      await tx.exec('INSERT INTO policy_texts SELECT locale, kind, body, updated_at, updated_by FROM policy_texts_old');
+      await tx.exec('DROP TABLE policy_texts_old');
+    });
+  }
+  await a.exec(POLICY_DDL);
+}
+
 export function ensurePolicyTable(db) {
   // A table made before the licence agreement existed only allows two kinds: rebuild it once, keeping the rows.
   const old = db.get(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'policy_texts'`)?.sql;
-  if (old && !old.includes("'license'")) {
+  if (needsRebuild(old)) {
     db.exec('BEGIN');
     try {
       db.exec('ALTER TABLE policy_texts RENAME TO policy_texts_old');
@@ -68,14 +110,7 @@ export function ensurePolicyTable(db) {
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
-  db.exec(`CREATE TABLE IF NOT EXISTS policy_texts (
-    locale TEXT NOT NULL CHECK (locale IN ('ru','en')),
-    kind TEXT NOT NULL CHECK (kind IN ('usage','cookies','license')),
-    body TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    updated_by TEXT,
-    PRIMARY KEY (locale, kind)
-  )`);
+  db.exec(POLICY_DDL);
 }
 
 /**
@@ -93,25 +128,16 @@ export function ensurePolicyTable(db) {
  * @param {boolean} [o.secureCookie] - force the Secure flag (default: from req.secure)
  */
 export function createPolicy({ db, appName = 'DAS-Forge', theme = {}, dependencySources = [], basePath = '/policy', secureCookie, platformCopyright = 'DAS-Forge contributors' } = {}) {
-  ensurePolicyTable(db);
+  if (!isAsyncOnly(db)) ensurePolicyTable(db);
   const localeOf = (req) => (req.query?.lang === 'en' ? 'en' : req.query?.lang === 'ru' ? 'ru' : resolveLocale(req, 'ru'));
 
   function getText(locale, kind) {
-    const row = db.get(`SELECT body, updated_at, updated_by FROM policy_texts WHERE locale = ? AND kind = ?`, [locale, kind]);
-    if (row) return { body: row.body, custom: true, updatedAt: row.updated_at, updatedBy: row.updated_by };
-    return { body: DEFAULT_TEXTS[locale][kind], custom: false, updatedAt: null, updatedBy: null };
+    return textOf(db.get(SELECT_TEXT_SQL, [locale, kind]), locale, kind);
   }
 
   function setText(locale, kind, body, by = null) {
-    if (!['ru', 'en'].includes(locale) || !KINDS.includes(kind)) throw new TypeError('policy: bad locale or kind');
-    const text = String(body ?? '');
-    if (text.trim() === '') throw new TypeError('policy: empty text (use reset to return to the default)');
-    if (text.length > MAX_BODY) throw new TypeError(`policy: text is longer than ${MAX_BODY} characters`);
-    db.run(
-      `INSERT INTO policy_texts (locale, kind, body, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(locale, kind) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
-      [locale, kind, text, new Date().toISOString(), by]
-    );
+    const text = checkText(locale, kind, body);
+    db.run(UPSERT_TEXT_SQL, [locale, kind, text, new Date().toISOString(), by]);
   }
 
   function resetText(locale, kind) {
@@ -242,7 +268,18 @@ ${themeHead({ ...theme, nonce: res.locals?.cspNonce })}
     });
   }
 
-  return { mount, mountAdmin, getText, setText, resetText, consentOf, bannerHtml, pageEnd, basePath };
+  const a = asyncDb(db);
+  /** `getText` over `asyncDb`. */
+  async function getTextAsync(locale, kind) { return textOf(await a.get(SELECT_TEXT_SQL, [locale, kind]), locale, kind); }
+  /** `setText` over `asyncDb`. */
+  async function setTextAsync(locale, kind, body, by = null) {
+    const text = checkText(locale, kind, body);
+    await a.run(UPSERT_TEXT_SQL, [locale, kind, text, new Date().toISOString(), by]);
+  }
+  /** `resetText` over `asyncDb`. */
+  async function resetTextAsync(locale, kind) { return Number((await a.run('DELETE FROM policy_texts WHERE locale = ? AND kind = ?', [locale, kind])).changes); }
+
+  return { mount, mountAdmin, getText, setText, resetText, getTextAsync, setTextAsync, resetTextAsync, consentOf, bannerHtml, pageEnd, basePath };
 }
 
 export { UI as POLICY_UI_TEXTS };

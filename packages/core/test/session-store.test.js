@@ -28,6 +28,16 @@ describe('SQLite session store for express-session', () => {
 
   const sess = (extra = {}) => ({ cookie: { expires: new Date(Date.now() + 60_000).toISOString(), httpOnly: true }, ...extra });
 
+  it('a stored session that is not a JSON object is no session: it is removed and the visitor signs in again', async () => {
+    await p((cb) => store.set('sid-bad', sess({ userId: alice.id }), cb));
+    for (const garbage of ['not json {', 'null', '[1]', '"text"']) {
+      db.run('UPDATE sessions SET data = ?', [garbage]);
+      expect(await p((cb) => store.get('sid-bad', cb))).toBe(null);
+      expect(db.all('SELECT id FROM sessions').length).toBe(0);
+      await p((cb) => store.set('sid-bad', sess({ userId: alice.id }), cb));
+    }
+  });
+
   it('round-trips a session; the row is keyed by the hash and carries the user id', async () => {
     await p((cb) => store.set('sid-1', sess({ userId: alice.id, user: { id: alice.id, role: 'admin' } }), cb));
     const back = await p((cb) => store.get('sid-1', cb));

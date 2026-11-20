@@ -1,6 +1,9 @@
 import { ensureSettingsTable } from '../branding/company-branding.js';
 import { renderErrorPage, catalogForMaintenance } from './page.js';
 import { log } from '../audit/log.js';
+import { logAsync } from '../audit/async.js';
+import { asyncDb } from '../database/async.js';
+import { ensureSettingsTableAsync } from '../branding/company-branding.js';
 
 const KEY = 'maintenance';
 const MESSAGE_MAX = 500;
@@ -13,7 +16,11 @@ const OFF = Object.freeze({ enabled: false, message: null, until: null, startedA
 
 function readState(db) {
   ensureSettingsTable(db);
-  const row = db.get(`SELECT value FROM app_settings WHERE key = ?`, [KEY]);
+  return parseState(db.get(`SELECT value FROM app_settings WHERE key = ?`, [KEY]));
+}
+
+/** The stored row (or undefined) as a state; a damaged row reads as "off". */
+export function parseState(row) {
   if (!row) return { ...OFF };
   try {
     const v = JSON.parse(row.value);
@@ -41,6 +48,19 @@ export class MaintenanceError extends Error {
     this.name = 'MaintenanceError';
     this.code = code;
   }
+}
+
+/** The state `enable()` would save, with its validation (throws MaintenanceError). */
+export function planEnable({ message = null, until = null, by = null } = {}, t = Date.now()) {
+  const text = message === null || message === undefined ? '' : String(message).trim();
+  if (text.length > MESSAGE_MAX) throw new MaintenanceError('MESSAGE_TOO_LONG', `message must be at most ${MESSAGE_MAX} characters`);
+  let end = null;
+  if (until !== null && until !== undefined && until !== '') {
+    const ms = Date.parse(until);
+    if (Number.isNaN(ms)) throw new MaintenanceError('UNTIL_INVALID', 'until must be a date');
+    end = new Date(ms).toISOString();
+  }
+  return { enabled: true, message: text || null, until: end, startedAt: new Date(t).toISOString(), startedBy: by };
 }
 
 /**
@@ -72,16 +92,8 @@ export function createMaintenance({ db, cacheMs = 2000, now = () => Date.now() }
    * Switches the mode on. `until` (ISO date, optional) is shown to visitors as the expected end and sets
    * Retry-After; it does NOT switch the mode off by itself.
    */
-  function enable({ message = null, until = null, by = null } = {}) {
-    const text = message === null || message === undefined ? '' : String(message).trim();
-    if (text.length > MESSAGE_MAX) throw new MaintenanceError('MESSAGE_TOO_LONG', `message must be at most ${MESSAGE_MAX} characters`);
-    let end = null;
-    if (until !== null && until !== undefined && until !== '') {
-      const ms = Date.parse(until);
-      if (Number.isNaN(ms)) throw new MaintenanceError('UNTIL_INVALID', 'until must be a date');
-      end = new Date(ms).toISOString();
-    }
-    const state = { enabled: true, message: text || null, until: end, startedAt: new Date(now()).toISOString(), startedBy: by };
+  function enable(input = {}) {
+    const state = planEnable(input, now());
     writeState(db, state);
     cached = state;
     cachedAt = now();
@@ -114,8 +126,7 @@ export function createMaintenance({ db, cacheMs = 2000, now = () => Date.now() }
    * @param {object} [o.theme]
    */
   function middleware({ vendorIdentity, permission = 'admin.access', allowPaths = ['/health', '/login', '/logout', '/branding/logo', '/policy'], bypass = null, brand = null, bodyEnd = null, theme = {} } = {}) {
-    return (req, res, next) => {
-      const state = get();
+    const respond = (req, res, next, state) => {
       if (!state.enabled) return next();
       const path = String(req.path ?? req.url ?? '');
       if (allowPaths.some((p) => path === p || path.startsWith(`${p}/`))) return next();
@@ -135,13 +146,24 @@ export function createMaintenance({ db, cacheMs = 2000, now = () => Date.now() }
       const parts = [];
       if (state.message) parts.push(`<div>${escapeHtml(state.message)}</div>`);
       if (state.until) parts.push(`<div class="adm-muted" style="margin-top:.4rem">${escapeHtml(text.until)}: <time datetime="${escapeHtml(state.until)}">${escapeHtml(state.until.slice(0, 16).replace('T', ' '))} UTC</time></div>`);
-      let brandHtml = '';
+      let brandHtml;
       try { brandHtml = typeof brand === 'function' ? String(brand(req) ?? '') : ''; } catch { brandHtml = ''; }
       return res.status(503).type('html').send(renderErrorPage({
         vendorIdentity, statusCode: 503, title: text.title, message: text.message, hint: text.hint, locale, theme,
         requestId: undefined, brandHtml, extraHtml: parts.join(''), refreshSec: 30, nonce: res.locals?.cspNonce,
         bodyEndHtml: bodyEnd?.(req, res, locale) ?? '',
       }));
+    };
+    return Object.assign((req, res, next) => respond(req, res, next, get()), { respond });
+  }
+
+  /** The same middleware over `asyncDb`: reads the state (cached for `cacheMs`) with a Promise; a failing read lets the request through as "not in maintenance". */
+  function middlewareAsync(options = {}) {
+    const sync = middleware(options);
+    return async (req, res, next) => {
+      let state;
+      try { state = await getAsync(); } catch { state = get(); }
+      return sync.respond(req, res, next, state);
     };
   }
 
@@ -150,5 +172,33 @@ export function createMaintenance({ db, cacheMs = 2000, now = () => Date.now() }
     try { log(db, { actor: req?.user?.username ?? null, action, entity: 'maintenance', requestId: req?.id, ip: req?.ip, meta: { message: message ?? null, until: until ?? null } }); } catch { /* best effort */ }
   }
 
-  return { get, enable, disable, retryAfterSec, middleware, audited };
+  // ---- the same over `asyncDb`; they read and write the same row and share the in-memory cache with the synchronous methods ----
+  const a = asyncDb(db);
+
+  async function getAsync({ fresh = false } = {}) {
+    const t = now();
+    if (!fresh && cached && t - cachedAt < cacheMs) return cached;
+    try {
+      await ensureSettingsTableAsync(a);
+      cached = parseState(await a.get('SELECT value FROM app_settings WHERE key = ?', [KEY]));
+    } catch { cached = cached ?? { ...OFF }; }
+    cachedAt = t;
+    return cached;
+  }
+
+  async function writeAsync(state) {
+    await ensureSettingsTableAsync(a);
+    await a.run('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [KEY, JSON.stringify(state)]);
+    cached = state;
+    cachedAt = now();
+    return state;
+  }
+  const enableAsync = async (input = {}) => writeAsync(planEnable(input, now()));
+  const disableAsync = () => writeAsync({ ...OFF });
+
+  async function auditedAsync(req, action, { message, until } = {}) {
+    try { await logAsync(a, { actor: req?.user?.username ?? null, action, entity: 'maintenance', requestId: req?.id, ip: req?.ip, meta: { message: message ?? null, until: until ?? null } }); } catch { /* best effort */ }
+  }
+
+  return { get, enable, disable, retryAfterSec, middleware, audited, getAsync, enableAsync, disableAsync, middlewareAsync, auditedAsync };
 }

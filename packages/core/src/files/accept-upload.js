@@ -59,7 +59,7 @@ export async function acceptUpload(buffer, { allowedTypes, maxBytes, svgMaxBytes
         result = await fn(out, imageOptions);
       } catch (err) {
         if (err?.code === 'IMAGE_BUSY') throw err; // overload is not a bad upload: let the caller answer 503
-        throw new Error(`Image could not be decoded safely - upload rejected (${err.message})`);
+        throw new Error(`Image could not be decoded safely - upload rejected (${err.message})`, { cause: err });
       }
       out = result.buffer;
       // The re-encoded bytes may be a different format (outputFormat option):

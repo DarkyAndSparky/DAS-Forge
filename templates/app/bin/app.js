@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 
-import { cli as cliModule, privacy, config, auth, health, scheduler, audit, database, certs } from '@das-forge/core';
+import { cli as cliModule, privacy, config, auth, scheduler, audit, database, certs } from '@das-forge/core';
 import { buildContext } from '../src/context.js';
 import { buildDoctorCategories } from '../src/doctor-categories.js';
 import { ROLES, ADMIN_ROLE } from '../src/roles.js';

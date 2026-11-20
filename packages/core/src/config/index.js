@@ -1,5 +1,6 @@
 export { loadConfig, validateConfig } from './load.js';
 export { ConfigValidationError } from './errors.js';
+export { applyExposureProfile } from './profile.js';
 export {
   ApplicationConfigSchema,
   ServerConfigSchema,

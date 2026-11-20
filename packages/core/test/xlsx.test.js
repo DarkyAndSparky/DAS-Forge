@@ -173,7 +173,7 @@ describe('xlsx: mapping rows to records', () => {
 });
 
 // The real archive libraries (yauzl and yazl): runs where they are installed.
-let real = true;
+let real;
 try { await import('yauzl'); const y = await import('yazl'); real = typeof new y.default.ZipFile().addBuffer === 'function'; } catch { real = false; }
 (real ? describe : () => {})('xlsx: with the real archive libraries', () => {
   it('writes a workbook and reads it back', async () => {
@@ -250,7 +250,6 @@ describe('xlsx: files from real programs', () => {
 });
 
 describe('xlsx: stricter reading and a fuller writer', () => {
-  const row1 = '<row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row>';
 
   it('reads a file whose elements use a namespace prefix and whose cells have no address', async () => {
     const xml = '<x:worksheet xmlns:x="m"><x:sheetData><x:row><x:c t="inlineStr"><x:is><x:t>a</x:t></x:is></x:c><x:c><x:v>2</x:v></x:c></x:row><x:row r="3"><x:c r="B3"><x:v>7</x:v></x:c></x:row></x:sheetData></x:worksheet>';
@@ -633,7 +632,6 @@ function cfbFile(streams, extraDirs = []) {
   for (let i = ents.length; i < dirSectors * 4; i++) dir.writeUInt32LE(FREE, i * 128 + 68), dir.writeUInt32LE(FREE, i * 128 + 72), dir.writeUInt32LE(FREE, i * 128 + 76);
   return Buffer.concat([head, fatBuf, dir, ...bodies]);
 }
-const b16 = (n) => u16(n);
 const brec = (id, ...data) => { const d = Buffer.concat(data); return Buffer.concat([u16(id), u16(d.length), d]); };
 const bof = (type) => brec(0x809, u16(0x600), u16(type), Buffer.alloc(12));
 const eof = () => brec(0x0a);

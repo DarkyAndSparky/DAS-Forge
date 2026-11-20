@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>README репозитория — DAS-Forge 0.1.283</title>
+<title>README репозитория — DAS-Forge 0.1.367</title>
 <style>
 :root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
 @media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
@@ -44,7 +44,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
         fill="#0d0f12" text-anchor="middle">WS</text>
 </svg></div>
-<div><h1>README репозитория</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.283 · <code>README.md</code></p></div>
+<div><h1>README репозитория</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.367 · <code>README.md</code></p></div>
 </header>
 <main class="page">
 <p align="center">
@@ -53,7 +53,7 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
 <h1 align="center">DAS-Forge</h1>
 <p align="center">
   Общая платформа для внутренних приложений: безопасность, администрирование, переводы и оформление — один раз, в ядре.<br>
-  Документация для версии ядра <b><!--core-version-->0.1.283<!--/core-version--></b>
+  Документация для версии ядра <b><!--core-version-->0.1.367<!--/core-version--></b>
 </p>
 <p align="center">
   <img alt="node" src="https://img.shields.io/badge/node-%3E%3D26-5fa06a?style=flat-square">
@@ -65,10 +65,12 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <img alt="stack" src="https://skillicons.dev/icons?i=nodejs,express,sqlite,docker,vitest&perline=5">
 </p>
 <h2 id="что-это">Что это</h2>
-<p>Монорепозиторий: ядро <code>@das-forge/core</code> (<code>packages/core</code>), эталонное приложение <code>examples/workshop</code> и приложения платформы в <code>apps/</code>. Ядро даёт рабочее поведение по умолчанию; приложения настраивают его через опции и коннекторы (темы, переводы, роли, проверки).</p>
+<p>Ядро (<code>@das-forge/core</code>) для внутренних веб-приложений на Node.js и Express: всё, что обычно пишут заново в каждом проекте, уже работает «из коробки». Приложение подключает ядро и настраивает его опциями, а не переписывает.</p>
+<p><strong>Что внутри</strong></p>
+<ul><li><strong>Вход и защита:</strong> пароли (argon2id), второй фактор (TOTP, коды восстановления), сессии, блокировка перебора, баны по адресу и сети, ограничение админки по сетям, журнал аудита с цепочкой хешей.</li><li><strong>Администрирование:</strong> готовая панель — пользователи, журнал, копии, почта, задачи, обслуживание, оформление, проверка состояния (<code>doctor</code>).</li><li><strong>Данные:</strong> SQLite и PostgreSQL, миграции, резервные копии (в том числе шифрованные и на удалённые хранилища), загрузка и проверка файлов, чтение электронных таблиц.</li><li><strong>Интерфейс:</strong> русский и английский, светлая, тёмная и высококонтрастная темы, доступность по WCAG 2.2.</li><li><strong>Эксплуатация:</strong> планировщик, очередь почты, события в реальном времени, метрики, командная строка, Docker.</li></ul>
+<p><strong>Состав репозитория:</strong> <code>packages/core</code> — ядро; <code>packages/db-postgres</code> — драйвер PostgreSQL; <code>examples/workshop</code> — эталонное приложение; <code>templates/</code> — шаблон нового приложения; <code>docs/</code> — руководство.</p>
 <h2 id="быстрый-старт">Быстрый старт</h2>
 <pre><code class="lang-bash">npm install
-npm install-scripts approve argon2 cpu-features ssh2
 cd examples/workshop
 npm run cli -- user create-admin
 npm start            # https://127.0.0.1:9002 (HTTP на 9001 перенаправляет)</code></pre>

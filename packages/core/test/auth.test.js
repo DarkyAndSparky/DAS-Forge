@@ -7,7 +7,6 @@ import {
   verifyPassword,
   pbkdf2Scheme,
   scryptScheme,
-  createUser,
   findUserByUsername,
   updatePasswordHash,
   countUsers,

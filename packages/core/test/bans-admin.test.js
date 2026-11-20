@@ -14,6 +14,21 @@ function setup() {
 }
 
 describe('security_bans', () => {
+  it('bans a whole network (CIDR, IPv4 and IPv6); lifting it frees every address in it', () => {
+    const { bans } = setup();
+    expect(bans.ban({ kind: 'ip', value: '10.1.2.0/24', reason: 'botnet' }).value).toBe('10.1.2.0/24');
+    expect(bans.check({ ip: '10.1.2.77' })?.reason).toBe('botnet');
+    expect(bans.check({ ip: '::ffff:10.1.2.9' })?.reason).toBe('botnet');
+    expect(bans.check({ ip: '10.1.3.1' })).toBe(null);
+    bans.ban({ kind: 'ip', value: '2001:DB8::/32' });
+    expect(bans.check({ ip: '2001:db8:1::5' })).not.toBe(null);
+    expect(bans.check({ ip: '2001:db9::1' })).toBe(null);
+    expect(() => bans.ban({ kind: 'ip', value: '10.0.0.0/33' })).toThrow(/not a network/);
+    expect(() => bans.ban({ kind: 'ip', value: 'abc/8' })).toThrow(/not a network/);
+    expect(bans.lift({ kind: 'ip', value: '10.1.2.0/24' })).toBe(1);
+    expect(bans.check({ ip: '10.1.2.77' })).toBe(null);
+  });
+
   it('bans an ip (IPv4-mapped is the same client), lifts it, keeps history and audits both', () => {
     const { db, bans } = setup();
     const r = bans.ban({ kind: 'ip', value: '::ffff:10.0.0.5', reason: 'scan', by: 'ann' });
@@ -86,7 +101,6 @@ describe('admin sections', () => {
   const admin = { username: 'root', permissions: ['admin.access'] };
   function call(chain, req) {
     return new Promise((resolve) => {
-      const done = (res) => () => { resolve(res); return res; };
       const res = { code: 200, body: '', headers: {}, locals: {}, set(k, v) { if (typeof k === 'string') this.headers[k] = v; return this; }, type() { return this; }, status(c) { this.code = c; return this; } };
       res.write = (c) => { res.body += String(c); return true; };
       res.end = (c) => { if (c) res.body += String(c); resolve(res); return res; };

@@ -61,7 +61,7 @@ describe('admin appearance section', () => {
     expect(getCompanyBranding(db).name).toBe('ACME Corp');
     r = await call(routes['POST /admin/appearance/name'], { body: { name: 'x'.repeat(101) } });
     expect(r.location).toBe('/admin/appearance?msg=bad');
-    r = await call(routes['POST /admin/appearance/name'], { body: { name: '' } });
+    await call(routes['POST /admin/appearance/name'], { body: { name: '' } });
     expect(getCompanyBranding(db).name).toBe(null);
   });
 

@@ -11,6 +11,9 @@ import { database, auth, config, branding, modules, audit } from '@das-forge/cor
 import { createApp } from '../src/server.js';
 import { createReportingModule } from '../src/modules/reporting-module.js';
 import { seedAssetsIfEmpty } from '../src/records.js';
+
+// the second factor for administrators is opt-in (see mfaRequiredForRole); these tests exercise the strict policy
+process.env.DAS_REQUIRE_ADMIN_2FA = '1';
 import { up as upAssetsTable } from '../migrations/002_assets.js';
 
 /**
@@ -392,7 +395,8 @@ describe('workshop over real HTTP (real Express, real middleware stack)', () => 
 
   describe('SSE', () => {
     it('streams text/event-stream with an initial "connected" event and cleans up on close', async () => {
-      const cookie = sessionCookie(await login('root', 'admin-password-1'));
+      // an operator: an admin without a confirmed second factor may only open the setup pages (MFA_ENROLL_REQUIRED)
+      const cookie = sessionCookie(await login('alice', 'op-password-1'));
       const firstChunk = await new Promise((resolve, reject) => {
         const req = nodeHttp.get(
           { host: '127.0.0.1', port, path: '/events/lab', headers: { cookie: `das_session=${cookie}`, accept: 'text/event-stream' } },

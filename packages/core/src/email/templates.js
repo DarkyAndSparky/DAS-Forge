@@ -15,6 +15,7 @@ export const SCENARIOS = {
   alert: { fields: { title: 'text', message: 'text', severity: 'severity' } },
   passwordReset: { fields: { resetUrl: 'url', expiresInMinutes: 'number' } },
   passwordChanged: { fields: {} },
+  mfaRequired: { fields: {} },
   emailVerification: { fields: { verifyUrl: 'url' } },
   accountBanned: { fields: { reason: 'text', until: 'optionalText' } },
   accountUnbanned: { fields: {} },
@@ -31,6 +32,11 @@ const TEXT = {
       lead: 'Вы запросили сброс пароля.',
       body: `Ссылка действует ${d.expiresInMinutes} мин. Если это были не вы, просто проигнорируйте письмо.`,
       link: [d.resetUrl, 'Задать новый пароль'],
+    }),
+    mfaRequired: () => ({
+      subject: 'Нужно настроить второй фактор',
+      lead: 'Для вашей роли теперь обязательна двухфакторная защита.',
+      body: 'При следующем входе вас переведут на страницу настройки: подключите приложение-аутентификатор и подтвердите код. Пока это не сделано, другие страницы будут недоступны.',
     }),
     passwordChanged: () => ({
       subject: 'Пароль изменён',
@@ -63,6 +69,11 @@ const TEXT = {
       lead: 'You asked to reset your password.',
       body: `The link is valid for ${d.expiresInMinutes} minutes. If this was not you, ignore this message.`,
       link: [d.resetUrl, 'Choose a new password'],
+    }),
+    mfaRequired: () => ({
+      subject: 'A second factor must be set up',
+      lead: 'Two-factor protection is now required for your role.',
+      body: 'At your next sign-in you will be taken to a setup page: connect an authenticator app and confirm a code. Other pages stay closed until this is done.',
     }),
     passwordChanged: () => ({
       subject: 'Your password was changed',

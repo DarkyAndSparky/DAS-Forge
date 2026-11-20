@@ -1,0 +1,33 @@
+{
+  "name": "@das-forge/db-postgres",
+  "version": "0.1.367",
+  "description": "PostgreSQL driver for DAS-Forge (ADR-0010): the asynchronous database contract over a `pg` pool.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
+  },
+  "peerDependencies": {
+    "@das-forge/core": ">=0.1.324",
+    "pg": "^8.13.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    }
+  }
+}

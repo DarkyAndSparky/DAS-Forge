@@ -49,11 +49,11 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
   const toast = (l, req) => (req.query?.msg === 'ok' ? `<div class="adm-toast">${esc(l.done)}</div>` : req.query?.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(l[`e_${String(req.query.e ?? '')}`] ?? l.bad)}</div>` : '');
   const field = 'height:2.4rem;box-sizing:border-box';
 
-  app.get(p, ...guard, (req, res) => {
+  app.get(p, ...guard, async (req, res) => {
     const l = tx(req);
     const pg = pageParams(req);
-    const rows = incidents.list({ limit: pg.size, offset: pg.offset });
-    const total = incidents.count();
+    const rows = await incidents.list({ limit: pg.size, offset: pg.offset });
+    const total = await incidents.count();
     const body = rows.length ? rows.map((i) => `<tr><td>${i.id}</td><td><a href="${p}/${i.id}">${esc(i.title)}</a></td><td>${sevBadge(l, i.severity)}</td><td>${esc(st(l, i.status))}</td><td>${esc(i.detectedAt.slice(0, 16))}</td><td>${dueCell(l, i.firstNoticeDue, i.firstNoticeAt)}</td><td>${dueCell(l, i.detailsDue, i.detailsNoticeAt)}</td></tr>`).join('') : emptyRow(7, l.empty);
     const opt = (v, label, cur) => `<option value="${v}"${cur === v ? ' selected' : ''}>${esc(label)}</option>`;
     const form = `<form method="post" action="${p}/declare" class="adm-card" style="display:flex;flex-direction:column;gap:.75rem;max-width:36rem;margin-top:1rem"><h2>${esc(l.declare)}</h2>
@@ -63,12 +63,12 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
 <label><input type="checkbox" name="personalData" value="1"> ${esc(l.personal)}</label>
 <label class="adm-field">${esc(l.detected)}<input class="adm-input" type="datetime-local" name="detectedAt" style="${field}"></label>
 <div><button class="adm-btn primary" type="submit">${esc(l.declare)}</button></div></form>`;
-    render(req, res, { active: p, title: l.incidents, bodyHtml: `${toast(l, req)}<div class="adm-card"><p class="adm-muted">${esc(l.hint)}</p></div><div class="adm-card" style="margin-top:1rem;overflow:auto"><table class="adm-table"><thead><tr><th>${esc(l.colId)}</th><th>${esc(l.colTitle)}</th><th>${esc(l.colSeverity)}</th><th>${esc(l.colStatus)}</th><th>${esc(l.colDetected)}</th><th>${esc(l.colFirst)}</th><th>${esc(l.colDetails)}</th></tr></thead><tbody data-paged="incidents">${body}</tbody></table>${pagerFor({ req, res, path: p, name: 'incidents', ...pg, count: rows.length, total, locale: localeOf(req) })}</div>${form}` });
+    await render(req, res, { active: p, title: l.incidents, bodyHtml: `${toast(l, req)}<div class="adm-card"><p class="adm-muted">${esc(l.hint)}</p></div><div class="adm-card" style="margin-top:1rem;overflow:auto"><table class="adm-table"><thead><tr><th>${esc(l.colId)}</th><th>${esc(l.colTitle)}</th><th>${esc(l.colSeverity)}</th><th>${esc(l.colStatus)}</th><th>${esc(l.colDetected)}</th><th>${esc(l.colFirst)}</th><th>${esc(l.colDetails)}</th></tr></thead><tbody data-paged="incidents">${body}</tbody></table>${pagerFor({ req, res, path: p, name: 'incidents', ...pg, count: rows.length, total, locale: localeOf(req) })}</div>${form}` });
   });
 
-  app.get(`${p}/:id`, ...guard, (req, res) => {
+  app.get(`${p}/:id`, ...guard, async (req, res) => {
     const l = tx(req);
-    const i = incidents.get(req.params.id);
+    const i = await incidents.get(req.params.id);
     if (!i) return res.redirect(303, `${p}?msg=bad&e=NOT_FOUND`);
     const opt = (v, label) => `<option value="${v}"${i.status === v ? ' selected' : ''}>${esc(label)}</option>`;
     const sopt = (v, label) => `<option value="${v}"${i.severity === v ? ' selected' : ''}>${esc(label)}</option>`;
@@ -79,7 +79,7 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
 <label class="adm-field">${esc(l.detailsAt)}<input class="adm-input" type="datetime-local" name="detailsNoticeAt" value="${esc(localInput(i.detailsNoticeAt))}" style="${field}"></label>
 <label class="adm-field">${esc(l.measures)}<textarea class="adm-input" name="measures" rows="5" maxlength="4000">${esc(i.measures)}</textarea></label>
 <div><button class="adm-btn primary" type="submit">${esc(l.save)}</button> <a class="adm-btn" href="${p}">${esc(l.incidents)}</a></div></form>`;
-    render(req, res, { active: p, title: `${l.incidents} #${i.id}`, bodyHtml: `${toast(l, req)}<div class="adm-card"><h2>${esc(i.title)}</h2><p>${esc(i.description)}</p><p class="adm-muted">${esc(l.detected)}: ${esc(i.detectedAt.slice(0, 16))} · ${esc(l.colFirst)}: ${dueCell(l, i.firstNoticeDue, i.firstNoticeAt)} · ${esc(l.colDetails)}: ${dueCell(l, i.detailsDue, i.detailsNoticeAt)}</p></div>${form}` });
+    await render(req, res, { active: p, title: `${l.incidents} #${i.id}`, bodyHtml: `${toast(l, req)}<div class="adm-card"><h2>${esc(i.title)}</h2><p>${esc(i.description)}</p><p class="adm-muted">${esc(l.detected)}: ${esc(i.detectedAt.slice(0, 16))} · ${esc(l.colFirst)}: ${dueCell(l, i.firstNoticeDue, i.firstNoticeAt)} · ${esc(l.colDetails)}: ${dueCell(l, i.detailsDue, i.detailsNoticeAt)}</p></div>${form}` });
   });
 
   const fail = (res, err, back, next) => (err instanceof IncidentError ? res.redirect(303, `${back}?msg=bad&e=${encodeURIComponent(err.code)}`) : next(err));
@@ -87,7 +87,7 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
   app.post(`${p}/declare`, ...guard, ...stepUp, async (req, res, next) => {
     try {
       const f = await readForm(req);
-      const i = incidents.declare({ title: f.title, description: f.description, severity: String(f.severity ?? 'medium'), personalData: f.personalData === '1', detectedAt: fromInput(f.detectedAt), actor: actorOf(req) });
+      const i = await incidents.declare({ title: f.title, description: f.description, severity: String(f.severity ?? 'medium'), personalData: f.personalData === '1', detectedAt: fromInput(f.detectedAt), actor: actorOf(req) });
       res.redirect(303, `${p}/${i.id}?msg=ok`);
     } catch (err) { fail(res, err, p, next); }
   });
@@ -97,7 +97,7 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
     try {
       const f = await readForm(req);
       const pick = (k) => (f[k] === undefined ? undefined : fromInput(f[k]));
-      incidents.update(req.params.id, { status: f.status, severity: f.severity, firstNoticeAt: pick('firstNoticeAt'), detailsNoticeAt: pick('detailsNoticeAt'), measures: f.measures, actor: actorOf(req) });
+      await incidents.update(req.params.id, { status: f.status, severity: f.severity, firstNoticeAt: pick('firstNoticeAt'), detailsNoticeAt: pick('detailsNoticeAt'), measures: f.measures, actor: actorOf(req) });
       res.redirect(303, `${back}?msg=ok`);
     } catch (err) { fail(res, err, back, next); }
   });

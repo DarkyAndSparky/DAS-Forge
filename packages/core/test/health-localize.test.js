@@ -16,6 +16,9 @@ const SAMPLES = [
   '120 packages checked: 1 high, 2 moderate, 3 accepted', '26.1.0: no newer security release in line 26.x',
   'creation date not recorded (security.secretsRotation)', '400 days old (more than 365) - rotate the key', '12 days old',
   'dangerous administration actions run without a fresh confirmation (security.stepUp.enabled is false)',
+  'the connection is encrypted', 'the database is on this machine (TLS is not needed)', 'cannot read the connection string from DATABASE_URL; check that the variable is set',
+  'cannot tell where the database is; set database.url to env:NAME and database.ssl to true',
+  'the connection to db.example.org is not encrypted - set database.ssl to true (or sslmode=require in the connection string)',
   '6 registered (sessions-gc, audit-gc)', 'standard cleanup jobs are not registered: sessions, audit, mail and tokens grow without limit (scheduler.registerStandardJobs)',
 ];
 

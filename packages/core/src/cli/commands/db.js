@@ -1,5 +1,8 @@
 import { statSync } from 'node:fs';
-import { migrationStatus } from '../migrator.js';
+import { migrationStatusAsync } from '../migrator.js';
+import { asyncDb } from '../../database/async.js';
+import { copyDatabaseAsync } from '../../database/copy.js';
+import { createDatabase } from '../../database/factory.js';
 
 /**
  * `app db status [--json]` and `app db integrity`. Named `db ...` per
@@ -22,22 +25,23 @@ import { migrationStatus } from '../migrator.js';
  *
  * @param {object} cli
  * @param {object} opts
- * @param {import('../../database/adapter.js')} opts.db
+ * @param {object} opts.db
  * @param {string} opts.migrationsDir
  * @param {string} opts.dbFilePath - for file size reporting
  */
 export function registerDbCommands(cli, { db, migrationsDir, dbFilePath }) {
+  const adb = asyncDb(db);
   cli.command('db status', {
     description: 'Database connection, migration, and file-size summary',
-    handler({ flags }) {
+    async handler({ flags }) {
       let connection = 'ok';
       try {
-        db.get('SELECT 1 AS ok');
+        await adb.get('SELECT 1 AS ok');
       } catch (err) {
         connection = `error: ${err.message}`;
       }
 
-      const status = migrationStatus(db, migrationsDir);
+      const status = await migrationStatusAsync(adb, migrationsDir);
       const pending = status.filter((m) => !m.applied);
 
       let sizeBytes = null;
@@ -71,8 +75,13 @@ export function registerDbCommands(cli, { db, migrationsDir, dbFilePath }) {
 
   cli.command('db integrity', {
     description: 'Run PRAGMA integrity_check (--repair additionally runs VACUUM - does not fix structural corruption)',
-    handler({ flags }) {
-      const rows = db.all('PRAGMA integrity_check');
+    async handler({ flags }) {
+      if (adb.dialect === 'postgres') {
+        // eslint-disable-next-line no-console
+        console.error('integrity_check is an SQLite command; for PostgreSQL use `pg_amcheck` / `pg_dump` from the database host.');
+        return 1;
+      }
+      const rows = await adb.all('PRAGMA integrity_check');
       const ok = rows.length === 1 && Object.values(rows[0])[0] === 'ok';
 
       if (ok) {
@@ -95,12 +104,57 @@ export function registerDbCommands(cli, { db, migrationsDir, dbFilePath }) {
       if (flags.repair) {
         // eslint-disable-next-line no-console
         console.log(ok ? 'Running VACUUM anyway (--repair was passed)...' : 'Running VACUUM (will not fix structural corruption above)...');
-        db.exec('VACUUM');
+        await adb.exec('VACUUM');
         // eslint-disable-next-line no-console
         console.log('VACUUM complete.');
       }
 
       return ok ? 0 : 1;
+    },
+  });
+
+  cli.command('db copy', {
+    description: 'Copy every table of this SQLite database into PostgreSQL (the target must be empty; create its tables and triggers first)',
+    usage: '--to ENV_NAME [--dry-run] [--tables a,b] [--skip a,b]',
+    async handler({ flags }) {
+      const envName = typeof flags.to === 'string' ? flags.to : '';
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) {
+        // eslint-disable-next-line no-console
+        console.error('db copy: --to ENV_NAME is required: the name of the environment variable that holds the PostgreSQL connection string (not the string itself).');
+        return 1;
+      }
+      if (adb.dialect === 'postgres') {
+        // eslint-disable-next-line no-console
+        console.error('db copy: this installation already runs on PostgreSQL; the source must be an SQLite database.');
+        return 1;
+      }
+      const list = (v) => (typeof v === 'string' && v ? v.split(',').map((x) => x.trim()).filter(Boolean) : undefined);
+      let target;
+      try {
+        target = await createDatabase({ driver: 'postgres', url: `env:${envName}` });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(`db copy: ${err.message}`);
+        return 1;
+      }
+      try {
+        const report = await copyDatabaseAsync(db, target, {
+          tables: list(flags.tables), skip: list(flags.skip) ?? [], dryRun: flags['dry-run'] === true,
+          onProgress: ({ table, copied, total }) => { if (copied === total && !flags.json) console.log(`  ${table}: ${copied}/${total}`); }, // eslint-disable-line no-console
+        });
+        if (flags.json) {
+          // eslint-disable-next-line no-console
+          console.log(JSON.stringify(report));
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(`${report.dryRun ? 'Check only (nothing written): ' : ''}${report.tables.length} tables, ${report.tables.reduce((n, t) => n + t.rows, 0)} rows`);
+          for (const k of report.skipped) console.log(`  not copied: ${k.name} (${k.reason})`); // eslint-disable-line no-console
+          for (const p of report.problems) console.error(`  PROBLEM: ${p}`); // eslint-disable-line no-console
+        }
+        return report.ok ? 0 : 1;
+      } finally {
+        await target.close?.();
+      }
     },
   });
 }

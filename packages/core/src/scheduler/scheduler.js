@@ -61,7 +61,11 @@ export function createScheduler({ lockDir, lastRunStore, onError } = {}) {
     job.running = true;
     job.lastRunAt = new Date();
     try {
-      lastRunStore?.set(name, job.lastRunAt.toISOString());
+      // a store whose `set` returns a promise must not leave an unhandled rejection behind
+      Promise.resolve(lastRunStore?.set(name, job.lastRunAt.toISOString())).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[das-forge] scheduler: could not record last run of "${name}":`, err);
+      });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`[das-forge] scheduler: could not record last run of "${name}":`, err);
@@ -168,6 +172,14 @@ export function createScheduler({ lockDir, lastRunStore, onError } = {}) {
     }
   }
 
+  /** Was the job due between its recorded last run (`last`, ISO or null) and now? */
+  function isMissed(job, last) {
+    if (!last) return false; // first start ever: nothing was "missed"
+    const since = new Date(last);
+    if (Number.isNaN(since.getTime())) return false;
+    return getNextRun(job.expression, since, { timezone: job.timezone }).getTime() <= Date.now();
+  }
+
   function missedRun(job, name) {
     let last;
     try {
@@ -175,10 +187,33 @@ export function createScheduler({ lockDir, lastRunStore, onError } = {}) {
     } catch {
       return false;
     }
-    if (!last) return false; // first start ever: nothing was "missed"
-    const since = new Date(last);
-    if (Number.isNaN(since.getTime())) return false;
-    return getNextRun(job.expression, since, { timezone: job.timezone }).getTime() <= Date.now();
+    return isMissed(job, last);
+  }
+
+  async function missedRunAsync(job, name) {
+    try {
+      return isMissed(job, await (lastRunStore.getAsync ?? lastRunStore.get).call(lastRunStore, name));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Like `start()`, but reads the last run times through `lastRunStore.getAsync` (an asynchronous database).
+   * Resolves once every job is either scheduled or running its catch-up.
+   */
+  async function startAsync() {
+    if (started) return;
+    started = true;
+    for (const [name, job] of jobs) {
+      if (job.catchUp && (await missedRunAsync(job, name))) {
+        // eslint-disable-next-line no-console
+        console.warn(`[das-forge] scheduler: catching up missed run of job "${name}"`);
+        execute(name).finally(() => schedule(name));
+      } else {
+        schedule(name);
+      }
+    }
   }
 
   /**
@@ -221,5 +256,5 @@ export function createScheduler({ lockDir, lastRunStore, onError } = {}) {
     return Array.from(jobs.keys()).map(getJobStatus);
   }
 
-  return { registerJob, unregisterJob, reschedule, start, stop, runNow, getJobStatus, listJobs };
+  return { registerJob, unregisterJob, reschedule, start, startAsync, stop, runNow, getJobStatus, listJobs };
 }

@@ -20,9 +20,14 @@
  * Sources that raise alerts for you: `onJobError` (scheduler), `lockoutWatcher` (login failure trackers),
  * `checkAuditChain`, `checkDoctor`, and `watch` which registers the periodic checks on a scheduler.
  */
+import { isAsyncOnly } from '../database/async.js';
+import { columnsAsync } from '../database/helpers-async.js';
 import { assertOutboundUrl } from '../http/outbound.js';
+import { safeFetch } from '../http/safe-fetch.js';
 import { verifyChain } from '../audit/chain.js';
 import { log as auditLog } from '../audit/log.js';
+import { verifyChainAsync, logAsync } from '../audit/async.js';
+import { asyncDb } from '../database/async.js';
 
 export const SEVERITIES = ['info', 'warning', 'critical'];
 
@@ -55,7 +60,7 @@ function ensureTable(db) {
  * The URL is checked once here; redirects are not followed; the request gives up after `timeoutMs`.
  * @returns {{name: string, send: (alert: object) => Promise<void>}}
  */
-export function webhookChannel({ url, name = 'webhook', timeoutMs = 5000, headers = {}, fetchImpl = globalThis.fetch } = {}) {
+export function webhookChannel({ url, name = 'webhook', timeoutMs = 5000, headers = {}, fetchImpl = safeFetch } = {}) {
   const u = assertOutboundUrl(url, { label: 'webhookChannel', protocols: ['https:'] });
   return {
     name,
@@ -67,6 +72,47 @@ export function webhookChannel({ url, name = 'webhook', timeoutMs = 5000, header
 }
 
 const iso = (ms) => new Date(ms).toISOString();
+
+const INSERT_SQL = 'INSERT INTO alerts (key, severity, title, message, created_at, last_at, muted) VALUES (?, ?, ?, ?, ?, ?, ?)';
+const LIST_SQL = 'SELECT id, key, severity, title, message, created_at AS createdAt, last_at AS lastAt, repeats, notified, notify_error AS notifyError, acked_at AS ackedAt, acked_by AS ackedBy, muted, escalated_at AS escalatedAt FROM alerts ORDER BY id DESC LIMIT ? OFFSET ?';
+const MUTE_SQL = 'INSERT INTO alert_mutes (key, until, by) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET until = excluded.until, by = excluded.by';
+const ESCALATE_SQL = "SELECT id, key, severity, title, message FROM alerts WHERE severity = 'critical' AND acked_at IS NULL AND escalated_at IS NULL AND muted = 0 AND created_at < ?";
+const listArgs = ({ limit = 100, offset = 0 } = {}) => [Math.min(500, Math.max(1, Number(limit) || 100)), Math.max(0, Math.trunc(Number(offset)) || 0)];
+const muteArgs = (key, ms, by, t) => {
+  const until = iso(t + Math.min(30 * 86_400_000, Math.max(60_000, Math.trunc(Number(ms)) || 0)));
+  return { until, values: [clip(key, 120), until, by ? clip(by, 80) : null] };
+};
+const escalationOf = (r, afterMs) => ({ severity: r.severity, title: `ESCALATION: ${r.title}`, message: `Not acknowledged for ${Math.round(afterMs / 60_000)} min. ${r.message}` });
+const jobErrorOf = (name, err) => ({
+  key: `job:${name}`,
+  severity: /backup/i.test(name) ? 'critical' : 'warning',
+  title: `Scheduled job "${name}" failed`,
+  message: err?.message ?? String(err),
+});
+
+/** The alert tables, over `asyncDb` (SQLite for now). Call once at start-up, outside a transaction. */
+export async function ensureAlertsTableAsync(db) {
+  const a = asyncDb(db);
+  await a.exec(`CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_at TEXT NOT NULL,
+    repeats INTEGER NOT NULL DEFAULT 0,
+    notified INTEGER NOT NULL DEFAULT 0,
+    notify_error TEXT
+  )`);
+  await a.exec('CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at)');
+  const have = new Set((await columnsAsync(a, 'alerts')).map((c) => c.name));
+  if (!have.has('acked_at')) await a.exec('ALTER TABLE alerts ADD COLUMN acked_at TEXT');
+  if (!have.has('acked_by')) await a.exec('ALTER TABLE alerts ADD COLUMN acked_by TEXT');
+  if (!have.has('muted')) await a.exec('ALTER TABLE alerts ADD COLUMN muted INTEGER NOT NULL DEFAULT 0');
+  if (!have.has('escalated_at')) await a.exec('ALTER TABLE alerts ADD COLUMN escalated_at TEXT');
+  await a.exec('CREATE TABLE IF NOT EXISTS alert_mutes (key TEXT PRIMARY KEY, until TEXT NOT NULL, by TEXT)');
+}
 
 /**
  * @param {object} opts
@@ -84,7 +130,7 @@ const iso = (ms) => new Date(ms).toISOString();
  */
 export function createAlerts({ db, email = null, contacts = [], logger = null, cooldownMs = 3_600_000, keepDays = 90, locale, now = Date.now, onRaised = null, channels = [], maintenance = null } = {}) {
   if (!db) throw new TypeError('createAlerts: db is required');
-  ensureTable(db);
+  if (!isAsyncOnly(db)) ensureTable(db);
   const last = new Map(); // key -> { at, id }
 
   /** Why nothing should be announced right now, or null. */
@@ -137,7 +183,7 @@ export function createAlerts({ db, email = null, contacts = [], logger = null, c
         const a = { severity: sev, title: clip(title, 200) || k, message: clip(message, 2000) };
         const quiet = silencedBy(k, t);
         const id = Number(db.run(
-          'INSERT INTO alerts (key, severity, title, message, created_at, last_at, muted) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          INSERT_SQL,
           [k, a.severity, a.title, a.message, iso(t), iso(t), quiet ? 1 : 0],
         ).lastInsertRowid);
         last.set(k, { at: t, id });
@@ -158,9 +204,7 @@ export function createAlerts({ db, email = null, contacts = [], logger = null, c
 
     /** Newest first. */
     list({ limit = 100, offset = 0 } = {}) {
-      const n = Math.min(500, Math.max(1, Number(limit) || 100));
-      const off = Math.max(0, Math.trunc(Number(offset)) || 0);
-      return db.all('SELECT id, key, severity, title, message, created_at AS createdAt, last_at AS lastAt, repeats, notified, notify_error AS notifyError, acked_at AS ackedAt, acked_by AS ackedBy, muted, escalated_at AS escalatedAt FROM alerts ORDER BY id DESC LIMIT ? OFFSET ?', [n, off]);
+      return db.all(LIST_SQL, listArgs({ limit, offset }));
     },
 
     count() {
@@ -176,9 +220,8 @@ export function createAlerts({ db, email = null, contacts = [], logger = null, c
 
     /** Silences announcements for one key for `ms` (1 min .. 30 days); the alerts are still recorded. */
     mute(key, ms, by = null) {
-      const dur = Math.min(30 * 86_400_000, Math.max(60_000, Math.trunc(Number(ms)) || 0));
-      const until = iso(now() + dur);
-      db.run('INSERT INTO alert_mutes (key, until, by) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET until = excluded.until, by = excluded.by', [clip(key, 120), until, by ? clip(by, 80) : null]);
+      const { until, values } = muteArgs(key, ms, by, now());
+      db.run(MUTE_SQL, values);
       try { auditLog(db, { action: 'alert.muted', entity: 'alert', meta: { key: clip(key, 120), until, by: by ?? null } }); } catch { /* ignore */ }
       return until;
     },
@@ -197,19 +240,19 @@ export function createAlerts({ db, email = null, contacts = [], logger = null, c
      * escalation. Muted ones are skipped. @returns {Promise<number>} how many were escalated
      */
     async escalate({ afterMs = 30 * 60_000 } = {}) {
-      const rows = db.all("SELECT id, key, severity, title, message FROM alerts WHERE severity = 'critical' AND acked_at IS NULL AND escalated_at IS NULL AND muted = 0 AND created_at < ?", [iso(now() - afterMs)]);
+      const rows = db.all(ESCALATE_SQL, [iso(now() - afterMs)]);
       let n = 0;
       for (const r of rows) {
         if (silencedBy(r.key, now())) continue;
         db.run('UPDATE alerts SET escalated_at = ? WHERE id = ?', [iso(now()), r.id]);
-        await send(r.id, { severity: r.severity, title: `ESCALATION: ${r.title}`, message: `Not acknowledged for ${Math.round(afterMs / 60_000)} min. ${r.message}` });
+        await send(r.id, escalationOf(r, afterMs));
         n += 1;
       }
       return n;
     },
 
     /** Pings an external monitor (https GET); when pings stop, the monitor reports that this application is down. */
-    async heartbeat(url, { timeoutMs = 5000, fetchImpl = globalThis.fetch } = {}) {
+    async heartbeat(url, { timeoutMs = 5000, fetchImpl = safeFetch } = {}) {
       const u = new URL(url);
       if (u.protocol !== 'https:') throw new TypeError('heartbeat: only https URLs are allowed');
       const res = await fetchImpl(u, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
@@ -224,12 +267,7 @@ export function createAlerts({ db, email = null, contacts = [], logger = null, c
 
     /** For `createScheduler({ onError })`: a failed job is an alert (a failed backup is critical). */
     onJobError(name, err) {
-      return api.raise({
-        key: `job:${name}`,
-        severity: /backup/i.test(name) ? 'critical' : 'warning',
-        title: `Scheduled job "${name}" failed`,
-        message: err?.message ?? String(err),
-      });
+      return api.raise(jobErrorOf(name, err));
     },
 
     /**
@@ -297,5 +335,92 @@ export function createAlerts({ db, email = null, contacts = [], logger = null, c
       if (heartbeatUrl) scheduler.registerJob('alerts-heartbeat', heartbeatSchedule, async () => { try { await api.heartbeat(heartbeatUrl); } catch { /* the monitor notices the silence */ } });
     },
   };
+
+  // The same operations over `asyncDb`. Create the tables once with `ensureAlertsTableAsync`.
+  const a = asyncDb(db);
+
+  async function silencedByAsync(key, t) {
+    try {
+      const st = maintenance?.getAsync ? await maintenance.getAsync() : maintenance?.get?.();
+      if (st?.enabled) return 'maintenance';
+    } catch { /* unknown state: do not silence */ }
+    const m = await a.get('SELECT until FROM alert_mutes WHERE key = ?', [key]);
+    return m && Date.parse(m.until) > t ? 'mute' : null;
+  }
+
+  async function notifyAsync(id, alert) {
+    const r = await send(id, alert);
+    if (r.ok) await a.run('UPDATE alerts SET notified = 1 WHERE id = ?', [id]);
+    if (r.errors.length) await a.run('UPDATE alerts SET notify_error = ? WHERE id = ?', [clip(r.errors.join('; '), 200), id]);
+  }
+
+  Object.assign(api, {
+    async raiseAsync({ key, severity = 'warning', title, message = '' }) {
+      try {
+        const sev = SEVERITIES.includes(severity) ? severity : 'warning';
+        const k = clip(key, 120) || 'alert';
+        const t = now();
+        const prev = last.get(k);
+        if (prev && t - prev.at < cooldownMs) {
+          await a.run('UPDATE alerts SET repeats = repeats + 1, last_at = ? WHERE id = ?', [iso(t), prev.id]);
+          return { raised: false, id: prev.id };
+        }
+        const al = { severity: sev, title: clip(title, 200) || k, message: clip(message, 2000) };
+        const quiet = await silencedByAsync(k, t);
+        const id = Number((await a.run(INSERT_SQL, [k, al.severity, al.title, al.message, iso(t), iso(t), quiet ? 1 : 0])).lastInsertRowid);
+        last.set(k, { at: t, id });
+        if (last.size > 1000) last.delete(last.keys().next().value);
+        const line = { key: k, severity: al.severity, title: al.title };
+        if (sev === 'critical') logger?.error?.('ALERT', line);
+        else logger?.warn?.('ALERT', line);
+        try { await logAsync(a, { action: 'alert.raised', entity: 'alert', entityId: id, meta: { key: k, severity: al.severity } }); } catch { /* the alert itself matters more */ }
+        if (quiet) return { raised: true, id, muted: true };
+        try { onRaised?.({ id, key: k, ...al }); } catch { /* a listener must not break alerting */ }
+        await notifyAsync(id, al);
+        return { raised: true, id };
+      } catch (err) {
+        logger?.error?.('could not record an alert', { err: err?.message });
+        return { raised: false };
+      }
+    },
+    listAsync(opts) { return a.all(LIST_SQL, listArgs(opts)); },
+    async countAsync() { return (await a.get('SELECT COUNT(*) AS n FROM alerts')).n; },
+    async ackAsync(id, by = null) {
+      const r = await a.run('UPDATE alerts SET acked_at = ?, acked_by = ? WHERE id = ? AND acked_at IS NULL', [iso(now()), by ? clip(by, 80) : null, Number(id)]);
+      const done = (r.changes ?? 0) > 0;
+      if (done) { try { await logAsync(a, { action: 'alert.acked', entity: 'alert', entityId: Number(id), meta: { by: by ?? null } }); } catch { /* ignore */ } }
+      return done;
+    },
+    async muteAsync(key, ms, by = null) {
+      const { until, values } = muteArgs(key, ms, by, now());
+      await a.run(MUTE_SQL, values);
+      try { await logAsync(a, { action: 'alert.muted', entity: 'alert', meta: { key: clip(key, 120), until, by: by ?? null } }); } catch { /* ignore */ }
+      return until;
+    },
+    async unmuteAsync(key) { return ((await a.run('DELETE FROM alert_mutes WHERE key = ?', [clip(key, 120)])).changes ?? 0) > 0; },
+    mutesAsync() { return a.all('SELECT key, until, by FROM alert_mutes WHERE until > ? ORDER BY until', [iso(now())]); },
+    async escalateAsync({ afterMs = 30 * 60_000 } = {}) {
+      const rows = await a.all(ESCALATE_SQL, [iso(now() - afterMs)]);
+      let n = 0;
+      for (const r of rows) {
+        if (await silencedByAsync(r.key, now())) continue;
+        await a.run('UPDATE alerts SET escalated_at = ? WHERE id = ?', [iso(now()), r.id]);
+        await send(r.id, escalationOf(r, afterMs));
+        n += 1;
+      }
+      return n;
+    },
+    async purgeAsync() {
+      await a.run('DELETE FROM alert_mutes WHERE until < ?', [iso(now())]);
+      return (await a.run('DELETE FROM alerts WHERE created_at < ?', [iso(now() - keepDays * 86_400_000)])).changes ?? 0;
+    },
+    onJobErrorAsync(name, err) { return api.raiseAsync(jobErrorOf(name, err)); },
+    async checkAuditChainAsync({ anchor } = {}) {
+      let r;
+      try { r = await verifyChainAsync(a, { anchor }); } catch (err) { r = { ok: false, reason: `verification failed: ${err?.message}`, brokenAtId: null }; }
+      if (!r.ok) await api.raiseAsync({ key: 'audit-chain', severity: 'critical', title: 'Audit log integrity check failed', message: `Broken at entry ${r.brokenAtId ?? '?'}: ${r.reason}` });
+      return r;
+    },
+  });
   return api;
 }

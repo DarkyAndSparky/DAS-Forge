@@ -177,7 +177,7 @@ export async function openBackupArchive(zipPath) {
   try {
     zipfile = await yauzl.openPromise(zipPath, { lazyEntries: true, autoClose: false, validateEntrySizes: true, strictFileNames: true });
   } catch (err) {
-    throw new Error(`not a valid backup archive: ${err.message}`);
+    throw new Error(`not a valid backup archive: ${err.message}`, { cause: err });
   }
 
   const opened = {
@@ -209,7 +209,7 @@ export async function openBackupArchive(zipPath) {
     try {
       manifest = JSON.parse((await readEntryToBuffer(opened, manifestEntry, MAX_MANIFEST_BYTES)).toString('utf8'));
     } catch (err) {
-      throw new Error(`${BACKUP_MANIFEST_ENTRY} is unreadable: ${err.message}`);
+      throw new Error(`${BACKUP_MANIFEST_ENTRY} is unreadable: ${err.message}`, { cause: err });
     }
     if (manifest?.format !== BACKUP_FORMAT) {
       throw new Error(`unsupported backup format ${JSON.stringify(manifest?.format)} (this build reads format ${BACKUP_FORMAT})`);

@@ -104,13 +104,12 @@ export function mapRows(allRows, spec, { maxErrors = 100, maxRecords = 20_000, h
   for (const k of keys) for (const h of [].concat(spec.columns[k].header ?? k)) aliases.set(norm(h), k);
 
   let headerRow = -1;
-  let best = 0;
   if (header === false) {
     // no header: columns are found by `index`, the data starts at `firstRow`
     headerRow = Math.max(0, firstRow - 2);
-    best = 1;
-  } else if (Number.isInteger(forcedHeader) && forcedHeader >= 1) { headerRow = forcedHeader - 1; best = 1; }
+  } else if (Number.isInteger(forcedHeader) && forcedHeader >= 1) { headerRow = forcedHeader - 1; }
   else {
+    let best = 0;
     for (let i = 0; i < Math.min(rows.length, headerSearchRows); i++) {
       const hits = new Set((rows[i] ?? []).map((c) => aliases.get(norm(c))).filter(Boolean)).size;
       if (hits > best) { best = hits; headerRow = i; }

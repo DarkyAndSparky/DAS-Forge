@@ -13,7 +13,7 @@ describe('checkPasswordPolicy (audit A15)', () => {
   });
 
   it('min/max are configurable; max is clamped to the absolute ceiling', () => {
-    expect(checkPasswordPolicy('abcdefghij', { minLength: 12 }).problems).toEqual(['TOO_SHORT']);
+    expect(checkPasswordPolicy('Zq7wLm9xKd', { minLength: 12 }).problems).toEqual(['TOO_SHORT']);
     expect(checkPasswordPolicy('a'.repeat(30), { maxLength: 20 }).problems).toEqual(['TOO_LONG']);
     expect(checkPasswordPolicy('a'.repeat(PASSWORD_ABSOLUTE_MAX + 1), { maxLength: 100000 }).problems).toContain('TOO_LONG');
   });
@@ -26,7 +26,7 @@ describe('checkPasswordPolicy (audit A15)', () => {
   });
 
   it('reports several problems at once; non-strings are refused', () => {
-    expect(checkPasswordPolicy('12345').problems).toEqual(['TOO_SHORT']);
+    expect(checkPasswordPolicy('7Qx!').problems).toEqual(['TOO_SHORT']);
     expect(checkPasswordPolicy('password', { username: 'password' }).problems).toEqual(['SAME_AS_USERNAME', 'COMMON']);
     expect(checkPasswordPolicy(undefined)).toEqual({ ok: false, problems: ['NOT_A_STRING'] });
   });

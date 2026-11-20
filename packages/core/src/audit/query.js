@@ -3,7 +3,7 @@ import { rowsToEntries } from './mapper.js';
 import { findPseudonym } from './subjects.js';
 import { normalizeLimit } from '../database/identifiers.js';
 
-const MAX_AUDIT_LIMIT = 1000;
+export const MAX_AUDIT_LIMIT = 1000;
 
 /**
  * Most recent N entries, newest first. This is what a "live tail" view
@@ -28,12 +28,17 @@ export function normalizeTimestamp(value, name = 'timestamp') {
 /** Rows written before 0.1.28 may hold 'YYYY-MM-DD HH:MM:SS'; compare them as ISO so ranges are not off by the 'T'/' ' sort order. */
 const CREATED_AT_ISO = `(CASE WHEN created_at LIKE '____-__-__ %' THEN replace(created_at, ' ', 'T') || '.000Z' ELSE created_at END)`;
 
-function buildWhere(db, { actor, action, actionContains, actionPrefix, entity, entityId, requestId, result, since, until, beforeId, afterId } = {}) {
+function buildWhere(db, filters = {}) {
+  return whereFrom(filters, filters.actor !== undefined ? findPseudonym(db, 'actor', filters.actor) : null);
+}
+
+/** The WHERE builder without any database access: the actor's pseudonym (or null) is looked up by the caller, sync or async. */
+export function whereFrom({ actor, action, actionContains, actionPrefix, entity, entityId, requestId, result, since, until, beforeId, afterId } = {}, pseudonym = null) {
   const clauses = [];
   const params = [];
   if (actor !== undefined) {
     // rows hold pseudonyms; rows from before 0.1.82 hold the plain name
-    const p = findPseudonym(db, 'actor', actor);
+    const p = pseudonym;
     if (p) { clauses.push('actor IN (?, ?)'); params.push(p, actor); } else { clauses.push('actor = ?'); params.push(actor); }
   }
   if (action !== undefined) { clauses.push('action = ?'); params.push(action); }

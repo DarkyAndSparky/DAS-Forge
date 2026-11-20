@@ -5,7 +5,6 @@
  * The CSP only runs scripts that carry the per-request nonce, so every inline <script> here is template-authored
  * code with `nonceAttr(nonce)`; never add a nonce by rewriting finished HTML.
  */
-import { ui } from '@das-forge/core';
 import { translator, scriptTexts } from './messages.js';
 
 export function escapeHtml(str) {

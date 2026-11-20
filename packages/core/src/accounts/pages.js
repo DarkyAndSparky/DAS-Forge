@@ -78,7 +78,7 @@ export function pageShell(title, bodyHtml, { nonce, locale = 'ru', brand = null,
  * /login/recovery if that specific code looks like a recovery code
  * (contains a dash - TOTP codes are always 6 digits).
  */
-export function renderLoginPage({ nonce, locale, brand, l, appName = '', homePath = '/ui', passwordChangePath = '/ui/password', registration = false } = {}) {
+export function renderLoginPage({ nonce, locale, brand, l, appName = '', homePath = '/ui', passwordChangePath = '/ui/password', accountPath = '/account', registration = false } = {}) {
   const x = text(l);
   const suffix = appName ? ` — ${appName}` : '';
   const T = scriptTexts({ errDisabled: l.loginErrDisabled, errWrong: l.loginErrWrong, errCode: l.loginErrCode });
@@ -86,9 +86,9 @@ export function renderLoginPage({ nonce, locale, brand, l, appName = '', homePat
     <h1>${x('loginTitle')}</h1>
     <form id="step1">
       <label for="username">${x('loginUsername')}</label>
-      <input id="username" name="username" autocomplete="username" required>
+      <input id="username" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next" required>
       <label for="password">${x('loginPassword')}</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <input id="password" name="password" type="password" autocomplete="current-password" enterkeyhint="go" required>
       <button type="submit">${x('loginSubmit')}</button>
       <div class="error" id="error1"></div>
       <p class="hint"><a href="/forgot-password">${x('loginForgot')}</a>${registration ? ` · <a href="/register">${x('registerLink')}</a>` : ''}</p>
@@ -96,7 +96,7 @@ export function renderLoginPage({ nonce, locale, brand, l, appName = '', homePat
     <form id="step2" style="display:none">
       <p class="hint">${x('loginMfaHint')}</p>
       <label for="code">${x('loginCode')}</label>
-      <input id="code" name="code" autocomplete="one-time-code" required>
+      <input id="code" name="code" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" enterkeyhint="go" required>
       <button type="submit">${x('loginVerify')}</button>
       <div class="error" id="error2"></div>
     </form>
@@ -123,7 +123,7 @@ export function renderLoginPage({ nonce, locale, brand, l, appName = '', homePat
           step2.style.display = 'block';
           document.getElementById('code').focus();
         } else {
-          window.location.href = data.mustChangePassword ? ${JSON.stringify(passwordChangePath)} : ${JSON.stringify(homePath)};
+          window.location.href = data.mustChangePassword ? ${JSON.stringify(passwordChangePath)} : data.mustEnrollMfa ? ${JSON.stringify(accountPath)} : ${JSON.stringify(homePath)};
         }
       });
 
@@ -142,7 +142,7 @@ export function renderLoginPage({ nonce, locale, brand, l, appName = '', homePat
           document.getElementById('error2').textContent = T.errCode;
           return;
         }
-        window.location.href = data.mustChangePassword ? ${JSON.stringify(passwordChangePath)} : ${JSON.stringify(homePath)};
+        window.location.href = data.mustChangePassword ? ${JSON.stringify(passwordChangePath)} : data.mustEnrollMfa ? ${JSON.stringify(accountPath)} : ${JSON.stringify(homePath)};
       });
     </script>
   `, { nonce, locale, brand });
@@ -192,7 +192,7 @@ export function renderForcedPasswordPage({ nonce, locale, brand, l, appName = ''
  * the session, same zero-trust property as the API itself); the forms
  * are the thinnest possible wrapper around the Stage B API.
  */
-export function renderAccountBody({ user, authenticators, mfaRequiredForRole, nonce, email = null, l, homePath = '/ui', accountPath = '/ui/account', locale = 'ru', minLength = 12 } = {}) {
+export function renderAccountBody({ user, authenticators, mfaRequiredForRole, mfaNotice = false, nonce, email = null, l, homePath = '/ui', accountPath = '/ui/account', locale = 'ru', minLength = 12 } = {}) {
   const x = text(l);
   const T = scriptTexts({
     pwWrong: l.accountPwWrong, pwDone: l.accountPwDone, pwWeak: l.resetNotAcceptable,
@@ -231,6 +231,7 @@ export function renderAccountBody({ user, authenticators, mfaRequiredForRole, no
       .acc-nav a[aria-current="true"]{background:var(--adm-accent);color:var(--adm-accent-text);font-weight:600}
       .acc-js [data-acc]{display:none}.acc-js [data-acc].acc-on{display:block}
     </style>
+    ${mfaNotice ? `<p class="hint" role="alert" style="border:1px solid var(--adm-accent,currentColor);border-radius:8px;padding:.6rem .9rem"><strong>${x('accountMfaEnrollNotice')}</strong> <a href="#mfa">${x('accountMfaTitle')}</a></p>` : ''}
     <nav class="acc-nav" aria-label="${x('accountTitle')}">
       <a href="#pw">${x('accountPwTitle')}</a><a href="#email">${x('accountEmailTitle')}</a><a href="#ui">${x('accountUiTitle')}</a><a href="#mfa">${x('accountMfaTitle')}</a>
     </nav>
@@ -238,7 +239,7 @@ export function renderAccountBody({ user, authenticators, mfaRequiredForRole, no
       (function () {
         var root = document.querySelector('.acc-nav').parentNode, links = document.querySelectorAll('.acc-nav a');
         function show() {
-          var id = (location.hash || '#pw').slice(1);
+          var id = (location.hash || ${mfaNotice ? "'#mfa'" : "'#pw'"}).slice(1);
           if (!root.querySelector('[data-acc="' + id + '"]')) id = 'pw';
           root.classList.add('acc-js');
           root.querySelectorAll('[data-acc]').forEach(function (s) { s.classList.toggle('acc-on', s.getAttribute('data-acc') === id); });
@@ -276,7 +277,8 @@ export function renderAccountBody({ user, authenticators, mfaRequiredForRole, no
       <p>${x('accountTheme')}:
         <button type="button" class="secondary" style="width:auto;margin:.25rem .25rem 0 0;padding:.4rem .8rem" data-theme-set="">${x('accountThemeAuto')}</button>
         <button type="button" class="secondary" style="width:auto;margin:.25rem .25rem 0 0;padding:.4rem .8rem" data-theme-set="light">${x('accountThemeLight')}</button>
-        <button type="button" class="secondary" style="width:auto;margin:.25rem .25rem 0 0;padding:.4rem .8rem" data-theme-set="dark">${x('accountThemeDark')}</button></p>
+        <button type="button" class="secondary" style="width:auto;margin:.25rem .25rem 0 0;padding:.4rem .8rem" data-theme-set="dark">${x('accountThemeDark')}</button>
+        <button type="button" class="secondary" style="width:auto;margin:.25rem .25rem 0 0;padding:.4rem .8rem" data-theme-set="contrast">${x('accountThemeContrast')}</button></p>
       <p class="hint">${x('accountUiHint')}</p>
       <script${nonceAttr(nonce)}>
         document.querySelectorAll('[data-theme-set]').forEach(function (b) {

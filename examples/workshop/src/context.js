@@ -188,13 +188,17 @@ export async function buildContext() {
   // example has no other reason yet to ask the operator to configure
   // storage locations independently.
 
+  const bans = security.createBans(db);
+  const ipBan = security.createIpBanPolicy({ db, bans, config: appConfig.security?.ipBan });
+
   return {
     appConfig,
     configSources,
     db,
     bootstrap: bootstrapResult,
     credentialsFile: credentialsFileWritten || (!bootstrapResult.created && fs.existsSync(credentialsFile)) ? credentialsFile : null,
-    bans: security.createBans(db),
+    bans,
+    ipBan,
     dbFilePath: appConfig.database.file === ':memory:' ? null : path.resolve(REPO_ROOT, appConfig.database.file),
     vendorIdentity,
     authProvider,

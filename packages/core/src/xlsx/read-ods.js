@@ -79,7 +79,7 @@ export async function readOds(buffer, { limits: custom = {}, sheets: only, zip =
   const counters = { cells: 0, formulas: 0, errors: 0, skipped: 0 };
   const hiddenStyles = new Set();
   const out = [];
-  let curStyle = null; let tableStyles = false;
+  let curStyle = null;
   let skip = 0;
   let linked = false;
   let sheet = null; // { name, hidden, rows, merges, rowNo, wanted }

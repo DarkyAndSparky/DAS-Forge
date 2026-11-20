@@ -2,6 +2,7 @@ import { flagString } from '../arg-parser.js';
 import { writeOwnerOnly } from '../safe-write.js';
 import { EXIT } from '../exit-codes.js';
 import { cliActor } from '../actor.js';
+import { asyncView } from '../../util/async-view.js';
 
 /**
  * `app privacy {export, erase}` - §4.5k's CLI surface. The doc's own
@@ -28,7 +29,8 @@ import { cliActor } from '../actor.js';
  * @param {object} [opts.incidents] - `privacy.createIncidentRegister()` result; enables `privacy incident declare|list|show|update`
  * @param {() => Promise<{checked:number, reapplied:number[], skipped:number}>} [opts.reapplyErasuresFn] - enables `privacy reapply-erasures` (audit F08)
  */
-export function registerPrivacyCommands(cli, { findUserByUsernameFn, exportUserDataFn, eraseUserDataFn, reapplyErasuresFn, incidents, registryFn, formatRegistryFn }) {
+export function registerPrivacyCommands(cli, { findUserByUsernameFn, exportUserDataFn, eraseUserDataFn, reapplyErasuresFn, incidents: incidentsIn, registryFn, formatRegistryFn }) {
+  const incidents = asyncView(incidentsIn);
   if (incidents) registerIncidentCommands(cli, incidents);
   if (registryFn) {
     cli.command('privacy registry', {
@@ -41,7 +43,7 @@ export function registerPrivacyCommands(cli, { findUserByUsernameFn, exportUserD
           console.error('Usage: privacy registry [--format md|csv|json] [--lang ru|en] [--out <file>]');
           return EXIT.USAGE;
         }
-        const registry = registryFn();
+        const registry = await registryFn();
         const text = formatRegistryFn(registry, { format, lang });
         const out = flagString(flags, 'out');
         if (out) {
@@ -83,7 +85,7 @@ export function registerPrivacyCommands(cli, { findUserByUsernameFn, exportUserD
         return EXIT.USAGE;
       }
 
-      const user = findUserByUsernameFn(username);
+      const user = await findUserByUsernameFn(username);
       if (!user) {
         // eslint-disable-next-line no-console
         console.error(`No such user: "${username}"`);
@@ -134,7 +136,7 @@ export function registerPrivacyCommands(cli, { findUserByUsernameFn, exportUserD
         return 1;
       }
 
-      const user = findUserByUsernameFn(username);
+      const user = await findUserByUsernameFn(username);
       if (!user) {
         // eslint-disable-next-line no-console
         console.error(`No such user: "${username}"`);
@@ -168,7 +170,7 @@ function registerIncidentCommands(cli, incidents) {
       const title = flagString(flags, 'title');
       if (!title) { err('Usage: privacy incident declare --title <text> [--description <text>] [--severity low|medium|high] [--personal-data] [--detected <ISO date>]'); return EXIT.USAGE; }
       try {
-        const i = incidents.declare({ title, description: flagString(flags, 'description') ?? '', severity: flagString(flags, 'severity') ?? 'medium', personalData: flags['personal-data'] === true, detectedAt: flagString(flags, 'detected'), actor: cliActor() });
+        const i = await incidents.declare({ title, description: flagString(flags, 'description') ?? '', severity: flagString(flags, 'severity') ?? 'medium', personalData: flags['personal-data'] === true, detectedAt: flagString(flags, 'detected'), actor: cliActor() });
         out(`Recorded incident #${i.id}.`);
         if (i.firstNoticeDue) out(`Personal data involved: first notice due ${i.firstNoticeDue.at}, details due ${i.detailsDue.at} (check the current deadlines with a lawyer).`);
         return 0;
@@ -179,7 +181,7 @@ function registerIncidentCommands(cli, incidents) {
   cli.command('privacy incident list', {
     description: 'List security incidents (app privacy incident list [--status open|notified|closed])',
     async handler({ flags }) {
-      const rows = incidents.list({ status: flagString(flags, 'status') });
+      const rows = await incidents.list({ status: flagString(flags, 'status') });
       if (!rows.length) out('No incidents.');
       for (const i of rows) out(line(i));
       return 0;
@@ -189,7 +191,7 @@ function registerIncidentCommands(cli, incidents) {
   cli.command('privacy incident show', {
     description: 'Show one incident (app privacy incident show --id <n>)',
     async handler({ flags }) {
-      const i = incidents.get(id(flags));
+      const i = await incidents.get(id(flags));
       if (!i) { err('No such incident.'); return 1; }
       out(JSON.stringify(i, null, 2));
       return 0;
@@ -202,7 +204,7 @@ function registerIncidentCommands(cli, incidents) {
       const n = id(flags);
       if (!n) { err('Usage: privacy incident update --id <n> [--status ...] [--severity ...] [--first-notice <date>] [--details-notice <date>] [--measures <text>]'); return EXIT.USAGE; }
       try {
-        incidents.update(n, { status: flagString(flags, 'status'), severity: flagString(flags, 'severity'), firstNoticeAt: flagString(flags, 'first-notice'), detailsNoticeAt: flagString(flags, 'details-notice'), measures: flagString(flags, 'measures'), actor: cliActor() });
+        await incidents.update(n, { status: flagString(flags, 'status'), severity: flagString(flags, 'severity'), firstNoticeAt: flagString(flags, 'first-notice'), detailsNoticeAt: flagString(flags, 'details-notice'), measures: flagString(flags, 'measures'), actor: cliActor() });
         out(`Updated incident #${n}.`);
         return 0;
       } catch (e) { return fail(e); }

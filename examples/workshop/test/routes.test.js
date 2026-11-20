@@ -14,7 +14,7 @@ import { createFakeExpressSession } from './helpers/fake-express-session.js';
  * core/auth session/TOTP/authenticator logic - no stand-ins for any of
  * that. The one thing this sandbox genuinely cannot exercise is
  * argon2id itself (no network here to install the native package, see
- * docs/roadmap.md's standing methodology note) - password hashing/
+ * docs/internal/roadmap.md's standing methodology note) - password hashing/
  * verification below uses a plain SHA-256 stand-in authProvider
  * instead of core/auth's real hashPassword/verifyPassword, so these
  * tests prove routes.js's REQUEST-HANDLING LOGIC (status codes, session
@@ -53,6 +53,9 @@ import { createFakeExpressSession } from './helpers/fake-express-session.js';
  * `sessionMiddleware` to call.
  */
 
+
+// the second factor for administrators is opt-in (see mfaRequiredForRole); these tests exercise the strict policy
+process.env.DAS_REQUIRE_ADMIN_2FA = '1';
 import { createHash } from 'node:crypto';
 
 function fakeHash(plain) {
@@ -304,8 +307,20 @@ describe('workshop routes: Stage B (Users & Access)', () => {
 
   afterEach(() => db.close());
 
-  async function loginAs(username, password, ip) {
+  // Workshop's policy: an admin must have a second factor. Until one is confirmed the session may only open the setup
+  // pages (core/accounts: MFA_ENROLL_REQUIRED), so for tests that are about something else than enrollment this logs in
+  // AND confirms an authenticator, and hands back the fresh session the core issues at that moment. `{ raw: true }` returns
+  // the first response untouched (the enrollment tests below do the steps themselves).
+  async function loginAs(username, password, ip, { raw = false } = {}) {
     const { res } = await dispatch('post', '/login', { body: { username, password }, ip });
+    if (raw || res.body?.mustEnrollMfa !== true) return res;
+    const cookie = res.cookies.das_session;
+    const start = await dispatch('post', '/totp/enroll/start', { cookies: { das_session: cookie }, body: {} });
+    const verify = await dispatch('post', '/totp/enroll/verify', {
+      cookies: { das_session: cookie },
+      body: { authenticatorId: start.res.body.authenticatorId, code: auth.generateTotp(start.res.body.secret) },
+    });
+    if (verify.res.cookies.das_session) res.cookies.das_session = verify.res.cookies.das_session;
     return res;
   }
 
@@ -317,7 +332,7 @@ describe('workshop routes: Stage B (Users & Access)', () => {
     it('issues a full session on correct credentials', async () => {
       const res = await loginAs('alice', 'op-password-1');
       expect(res.statusCode).toBe(200);
-      expect(res.body).toEqual({ ok: true, mfaRequired: false, mustChangePassword: false });
+      expect(res.body).toEqual({ ok: true, mfaRequired: false, mustChangePassword: false, mustEnrollMfa: false });
       expect(sessionCookieFrom(res)).toBeTruthy();
     });
 
@@ -500,17 +515,19 @@ describe('workshop routes: Stage B (Users & Access)', () => {
     });
 
     it('an admin is blocked from removing their LAST factor (mfaRequired=true for their role)', async () => {
-      const loginRes = await loginAs('root', 'admin-password-1');
+      const loginRes = await loginAs('root', 'admin-password-1', undefined, { raw: true });
+      expect(loginRes.body.mustEnrollMfa).toBe(true); // the first full session may only set the factor up
       const cookie = sessionCookieFrom(loginRes);
       const start = await dispatch('post', '/totp/enroll/start', { cookies: { das_session: cookie }, body: {} });
       const code = auth.generateTotp(start.res.body.secret);
-      await dispatch('post', '/totp/enroll/verify', {
+      const verify = await dispatch('post', '/totp/enroll/verify', {
         cookies: { das_session: cookie },
         body: { authenticatorId: start.res.body.authenticatorId, code },
       });
+      const fresh = verify.res.cookies.das_session ?? cookie; // confirming the factor ends the setup-only restriction with a fresh session
 
       const remove = await dispatch('post', `/totp/authenticators/${start.res.body.authenticatorId}/remove`, {
-        cookies: { das_session: cookie },
+        cookies: { das_session: fresh },
       });
       expect(remove.res.statusCode).toBe(409);
       expect(remove.res.body.error).toBe('LAST_REQUIRED_FACTOR');
@@ -708,6 +725,15 @@ describe('workshop routes: Stage B (Users & Access)', () => {
 
     async function localLoginAs(username, password) {
       const { res } = await localDispatch('post', '/login', { body: { username, password } });
+      if (res.body?.mustEnrollMfa !== true) return res;
+      // admin policy: confirm an authenticator so the session is a full one (see loginAs above)
+      const cookie = res.cookies.das_session;
+      const start = await localDispatch('post', '/totp/enroll/start', { cookies: { das_session: cookie }, body: {} });
+      const verify = await localDispatch('post', '/totp/enroll/verify', {
+        cookies: { das_session: cookie },
+        body: { authenticatorId: start.res.body.authenticatorId, code: auth.generateTotp(start.res.body.secret) },
+      });
+      if (verify.res.cookies.das_session) res.cookies.das_session = verify.res.cookies.das_session;
       return res;
     }
 

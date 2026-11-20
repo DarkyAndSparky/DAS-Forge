@@ -36,6 +36,8 @@ jobs:
       # Version, tag, changelog entry, licence: everything a release must have.
       - run: node scripts/release-check.mjs "$GITHUB_REF_NAME"
       - run: npm run version:check
+      - run: npm run lint
+      - run: npm run typecheck
       - run: npm test
       - name: Show what will be published
         run: npm pack --workspace=@das-forge/core --dry-run
