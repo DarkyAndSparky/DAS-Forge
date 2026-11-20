@@ -40,7 +40,7 @@
     "sync-db:check": "node scripts/sync-db-report.mjs --check"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0",
+    "@types/node": "^26.6.6",
     "eslint": "^10.15.0",
     "typescript": "^7.0.2"
   },
