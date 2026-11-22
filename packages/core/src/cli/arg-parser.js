@@ -19,7 +19,7 @@
  * @param {{booleanFlags?: Iterable<string>}} [opts] - flag names that never take a value
  * @returns {{positionals: string[], flags: Record<string, string|boolean>}}
  */
-export const DEFAULT_BOOLEAN_FLAGS = ['help', 'h', 'json', 'yes', 'force', 'fix', 'repair', 'verbose', 'quiet', 'hard', 'all', 'changed'];
+export const DEFAULT_BOOLEAN_FLAGS = ['help', 'h', 'json', 'yes', 'force', 'fix', 'repair', 'verbose', 'quiet', 'hard', 'all', 'changed', 'allow-broken-audit-chain'];
 
 /** Thrown for a malformed flag value; the CLI prints it as a usage error. */
 export class ArgError extends Error {

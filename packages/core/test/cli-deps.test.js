@@ -7,6 +7,18 @@ import { registerDepsCommands, judgeLicense, lockLicenses, DEFAULT_ALLOWED_LICEN
 
 const allowed = new Set(DEFAULT_ALLOWED_LICENSES);
 
+import { licenseOf } from '../src/cli/commands/deps.js';
+
+describe('licenseOf: the old `licenses` field', () => {
+  it('reads string, {type} and the legacy array', () => {
+    expect(licenseOf({ license: 'MIT' })).toBe('MIT');
+    expect(licenseOf({ license: { type: 'ISC' } })).toBe('ISC');
+    expect(licenseOf({ licenses: [{ type: 'MIT' }, { type: 'Apache-2.0' }] })).toBe('MIT OR Apache-2.0');
+    expect(licenseOf({ licenses: [] })).toBe(null);
+    expect(licenseOf({})).toBe(null);
+  });
+});
+
 describe('judgeLicense', () => {
   it('accepts permissive licenses and SPDX expressions satisfied by them', () => {
     expect(judgeLicense('MIT', allowed)).toBe('ok');

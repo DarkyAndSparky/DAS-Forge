@@ -15,7 +15,7 @@ export const DICT_TEXTS = {
     dictFileSource: 'Откуда', dictSrcSetting: 'настройка администратора', dictSrcConfig: 'конфигурация (auth.passwordBlocklistFile)', dictSize: 'Размер, байт',
     dictFilePath: 'Полный путь к файлу на сервере', dictConnect: 'Подключить', dictDisconnect: 'Отключить файл',
     dictOwn: 'Свои слова', dictOwnHint: 'Слово от 4 знаков; регистр не важен. Можно несколько: по одному в строке или через запятую.',
-    dictAdd: 'Добавить', dictRemove: 'Убрать', dictWord: 'Слово', dictEmpty: 'Своих слов пока нет.', dictTotalMax: 'Не больше',
+    dictAdd: 'Добавить', dictRemove: 'Убрать', dictWord: 'Слово', dictEmpty: 'Своих слов пока нет.', dictTotalMax: 'не больше',
     dictCheck: 'Проверить пароль', dictCheckHint: 'Пароль только сравнивается, нигде не сохраняется и не пишется в журнал.', dictCheckBtn: 'Проверить',
     dictRes: 'Результат', dictFound: 'найден', dictNotFound: 'не найден', dictNoFileShort: 'файл не подключён', dictAnyBad: 'Такой пароль будет отклонён.', dictAllOk: 'Словари такой пароль не отклоняют.',
     dictAdded: 'Добавлено', dictSkipped: 'уже были', dictInvalid: 'не подошли',
@@ -66,20 +66,20 @@ export function mountPasswordDictionary({ app, db, guard, stepUp = [], p, dictio
     if (req.query?.chk === '1') {
       const flag = (v) => (v === '1' ? l.dictFound : v === '0' ? l.dictNotFound : l.dictNoFileShort);
       const b = req.query.b === '1'; const c = req.query.c === '1'; const fl = req.query.f === '1';
-      res2 = `<div class="adm-toast" style="margin-top:.75rem"><strong>${esc(l.dictRes)}:</strong> ${esc(l.dictBuiltin)} — ${esc(flag(req.query.b))}; ${esc(l.dictOwn)} — ${esc(flag(req.query.c))}; ${esc(l.dictFile)} — ${esc(flag(req.query.f))}. ${esc(b || c || fl ? l.dictAnyBad : l.dictAllOk)}</div>`;
+      res2 = `<div style="margin-top:.75rem;padding:.6rem .9rem;border:1px solid var(--adm-border);border-left:4px solid var(--adm-accent);border-radius:8px" role="status"><strong>${esc(l.dictRes)}:</strong> ${esc(l.dictBuiltin)} — ${esc(flag(req.query.b))}; ${esc(l.dictOwn)} — ${esc(flag(req.query.c))}; ${esc(l.dictFile)} — ${esc(flag(req.query.f))}. ${esc(b || c || fl ? l.dictAnyBad : l.dictAllOk)}</div>`;
     }
-    const added = req.query?.add != null ? `<div class="adm-toast">${esc(l.dictAdded)}: ${esc(String(req.query.add).slice(0, 6))}; ${esc(l.dictSkipped)}: ${esc(String(req.query.skip ?? 0).slice(0, 6))}; ${esc(l.dictInvalid)}: ${esc(String(req.query.inv ?? 0).slice(0, 6))}</div>` : '';
+    const added = req.query?.add != null ? `<div style="margin:.5rem 0;padding:.6rem .9rem;border:1px solid var(--adm-border);border-left:4px solid var(--adm-accent);border-radius:8px" role="status">${esc(l.dictAdded)}: ${esc(String(req.query.add).slice(0, 6))}; ${esc(l.dictSkipped)}: ${esc(String(req.query.skip ?? 0).slice(0, 6))}; ${esc(l.dictInvalid)}: ${esc(String(req.query.inv ?? 0).slice(0, 6))}</div>` : '';
     return `<div class="adm-card" id="dictionary" style="margin-top:1rem"><h2>${esc(l.dictTitle)}</h2><p class="adm-muted">${esc(l.dictText)}</p>
 ${added}
 <p><strong>${esc(l.dictBuiltin)}:</strong> ${esc(dictionary.builtinCount)} ${esc(l.dictBuiltinN)}</p>
 <p><strong>${esc(l.dictFile)}:</strong> ${esc(state)}${f.path ? `<br><code translate="no">${esc(f.path)}</code>` : ''}${src ? `<br><span class="adm-muted">${esc(l.dictFileSource)}: ${esc(src)}${f.size ? `; ${esc(l.dictSize)}: ${esc(f.size)}` : ''}</span>` : ''}</p>
-<form method="post" action="${base}/file" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end"><label class="adm-field" style="flex:1;min-width:16rem">${esc(l.dictFilePath)}<input class="adm-input" name="path" maxlength="1024" autocomplete="off" required></label><button class="adm-btn primary" type="submit">${esc(l.dictConnect)}</button></form>
+<form method="post" action="${base}/file" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end"><label class="adm-field" style="flex:1;min-width:16rem;margin:0">${esc(l.dictFilePath)}<input class="adm-input" name="path" maxlength="1024" autocomplete="off" required></label><button class="adm-btn primary" type="submit">${esc(l.dictConnect)}</button></form>
 ${f.source === 'setting' ? `<form method="post" action="${base}/file-clear" style="margin-top:.5rem"><button class="adm-btn" type="submit">${esc(l.dictDisconnect)}</button></form>` : ''}
 <h3 style="margin-top:1.25rem">${esc(l.dictOwn)} (${esc(all.length)}; ${esc(l.dictTotalMax)} ${esc(MAX_CUSTOM_WORDS)})</h3><p class="adm-muted">${esc(l.dictOwnHint)}</p>
-<form method="post" action="${base}/add" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end"><label class="adm-field" style="flex:1;min-width:16rem">${esc(l.dictWord)}<textarea class="adm-input" name="words" rows="2" maxlength="20000" required></textarea></label><button class="adm-btn primary" type="submit">${esc(l.dictAdd)}</button></form>
+<form method="post" action="${base}/add" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end"><label class="adm-field" style="flex:1;min-width:16rem;margin:0">${esc(l.dictWord)}<textarea class="adm-input" name="words" rows="2" maxlength="20000" required></textarea></label><button class="adm-btn primary" type="submit">${esc(l.dictAdd)}</button></form>
 ${rows ? `<table class="adm-table" style="margin-top:.75rem"><thead><tr><th>${esc(l.dictWord)}</th><th></th></tr></thead><tbody data-paged="dict-words">${rows}</tbody></table>${pagerFor({ req, res, path: p, name: 'dict-words', param: 'wp', ...pg, count: slice.length, total: all.length, locale: localeOf(req) })}` : `<p class="adm-muted">${esc(l.dictEmpty)}</p>`}
 <h3 style="margin-top:1.25rem">${esc(l.dictCheck)}</h3><p class="adm-muted">${esc(l.dictCheckHint)}</p>
-<form method="post" action="${base}/check" autocomplete="off" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end"><label class="adm-field" style="flex:1;min-width:16rem">${esc(l.dictCheck)}<input class="adm-input" type="password" name="password" maxlength="1024" autocomplete="off" required></label><button class="adm-btn" type="submit">${esc(l.dictCheckBtn)}</button></form>${res2}</div>`;
+<form method="post" action="${base}/check" autocomplete="off" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end"><label class="adm-field" style="flex:1;min-width:16rem;margin:0">${esc(l.dictCheck)}<input class="adm-input" type="password" name="password" maxlength="1024" autocomplete="off" required></label><button class="adm-btn" type="submit">${esc(l.dictCheckBtn)}</button></form>${res2}</div>`;
   }
 
   app.post(`${base}/add`, ...guard, ...stepUp, async (req, res, next) => {

@@ -86,3 +86,14 @@ describe('csv: reading', () => {
     expect(parseCsv(Buffer.from(ru, 'utf8')).rows).toEqual(rows);
   });
 });
+
+describe('formula neutralisation: hidden and full-width forms (audit S-06)', () => {
+  it('catches leading blanks, invisible characters and full-width signs', () => {
+    for (const s of [' =1+1', '​=1+1', '﻿=SUM(A1)', '＝1+1', '＋1', '－1', '＠SUM(1)', ' ​ @x']) expect(isFormulaText(s), JSON.stringify(s)).toBe(true);
+    expect(escapeFormula(' =1+1')).toBe("' =1+1");
+  });
+  it('leaves ordinary text alone and round-trips the apostrophe', () => {
+    for (const s of ['hello', 'a=b', 'x @ y', ' hello', '']) expect(isFormulaText(s), JSON.stringify(s)).toBe(false);
+    for (const s of ['=1+1', ' =1+1', '＝1']) expect(unescapeFormula(escapeFormula(s))).toBe(s);
+  });
+});

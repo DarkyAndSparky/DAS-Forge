@@ -39,6 +39,8 @@ export function buildAlerts(ctx, logger) {
  */
 export async function buildContext() {
   const appConfig = await config.loadConfig({ cwd: APP_ROOT });
+  // Seal the audit chain with a key kept outside the database (audit R-01).
+  audit.setSealKeys([appConfig.audit.sealKey, ...appConfig.audit.previousSealKeys].filter(Boolean));
   // Local backup paths are resolved against the application root ONCE, so the server, the scheduler, the CLI and
   // `doctor` see the same absolute path whatever directory the process was started from.
   appConfig.backup.destinations = scheduler.resolveDestinations(appConfig.backup.destinations, APP_ROOT);
@@ -74,6 +76,9 @@ export async function buildContext() {
       console.error(`[app] first run: administrator created but the credentials file could not be written (${err.message}); reset with "user reset-password ${bootstrap.username}"`); // eslint-disable-line no-console
     }
   }
+
+  // The credentials file goes away by itself once the temporary password has been changed (also after a restart).
+  auth.watchBootstrapCredentials(db, credentialsFile, { username: bootstrap.username ?? 'admin' });
 
   const sessionStore = auth.createSessionStore({
     db,

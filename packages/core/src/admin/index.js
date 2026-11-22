@@ -111,7 +111,7 @@ function duration(sec) {
  * @param {(req, res, locale) => string} [o.bodyEnd] - trusted markup at the end of every admin page (default: policy.pageEnd)
  * @param {Function[]} [o.stepUp] - extra middleware for dangerous POST actions (e.g. a fresh-MFA check)
  */
-export function createAdmin({ sessionWarnMs = 120_000, ipBan = null, texts = {}, incidents = null, processingRegistry = null, db, metrics, dbFilePath, theme = {}, brandHtml = '', permission = 'admin.access', sections = [], basePath = '/admin', startedAt = Date.now(), bans = null, stepUp = [], vendorIdentity = null, users = true, userManagement = null, maintenance = null, announcement = null, scheduler = null, mail = null, config = null, configSources = null, auditAccess = null, backups = null, logDestination = null, alerts = null, alertsMail = false, about = null, appearance = null, policy = null, bodyEnd = null, appUrl = '/ui', taskSchedules = null, managedTasks = {}, migrations = null, accountUrl = '/ui/account', passwordPolicy = null, controlPath = null, limits = null, notifications = null, notificationsUrl = '/ui/notifications' } = {}) {
+export function createAdmin({ sessionWarnMs = 120_000, ipBan = null, texts = {}, incidents = null, processingRegistry = null, db, metrics, dbFilePath, theme = {}, brandHtml = '', permission = 'admin.access', sections = [], basePath = '/admin', startedAt = Date.now(), bans = null, stepUp = [], vendorIdentity = null, users = true, userManagement = null, maintenance = null, announcement = null, scheduler = null, mail = null, config = null, configSources = null, auditAccess = null, backups = null, logDestination = null, alerts = null, alertsMail = false, about = null, appearance = null, policy = null, bodyEnd = null, appUrl = '/ui', taskSchedules = null, managedTasks = {}, migrations = null, accountUrl = '/ui/account', passwordPolicy = null, mfaFixedRole = null, controlPath = null, limits = null, notifications = null, notificationsUrl = '/ui/notifications' } = {}) {
   // The sections below `await` these: each may be synchronous or work over an asynchronous database.
   ipBan = asyncView(ipBan);
   bans = asyncView(bans);
@@ -395,7 +395,7 @@ export function createAdmin({ sessionWarnMs = 120_000, ipBan = null, texts = {},
       : ctx);
     if (bans) mountSecuritySection({ ...ctx, bans, ipBan });
     if (users) mountUsersSection({ ...ctx, manage: userManagement });
-    if (passwordPolicy) mountPasswordPolicySection({ ...ctx, passwordPolicy, adminRoles: userManagement?.adminRole ? [userManagement.adminRole] : [], roles: userManagement?.roles ?? [], mfaRoles: createMfaRoleStore({ db }), emailService: mail?.service ?? null });
+    if (passwordPolicy) mountPasswordPolicySection({ ...ctx, passwordPolicy, adminRoles: userManagement?.adminRole ? [userManagement.adminRole] : [], roles: userManagement?.roles ?? [], mfaRoles: createMfaRoleStore({ db }), mfaFixedRole, emailService: mail?.service ?? null });
     if (incidents) mountIncidentsSection({ ...ctx, incidents });
     if (processingRegistry) mountRegistrySection({ ...ctx, build: processingRegistry });
     if (backups) mountBackupsSection({ ...ctxOps, backups });

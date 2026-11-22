@@ -50,10 +50,11 @@ describe('account routes (core)', () => {
     expect(has(app, 'GET', '/ui/password')).toBe(false);
     expect(has(app, 'GET', '/ui/account')).toBe(true);
     const sent = await new Promise((resolve) => {
-      const res = { type() { return this; }, send: resolve };
+      const res = { headers: {}, setHeader(k, v) { this.headers[k] = v; }, type() { return this; }, send(x) { resolve({ x, headers: this.headers }); } };
       app.routes.find((r) => r.path === '/login').h[0]({ locale: 'ru' }, res);
     });
-    expect(sent).toBe('<p>login</p>');
+    expect(sent.x).toBe('<p>login</p>');
+    expect(sent.headers['Cache-Control']).toBe('no-store'); // audit S-11
   });
 
   it('the entry point sends a signed-in user home and everybody else to the sign-in page', async () => {

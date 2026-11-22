@@ -8,7 +8,7 @@ import {
   DICTIONARY_WORDS_KEY, DICTIONARY_FILE_KEY, parseStoredWords, planAddWords, inspectBlocklistFile,
 } from './password-dictionary.js';
 import { PASSWORD_PROFILES, PASSWORD_POLICY_KEY, baseRules, effectiveRules, nextRules } from './password-policy-store.js';
-import { keyList, isSealed, openWith, openSecret, sealSecret } from './secret-box.js';
+import { keyList, isSealed, isBoundSecret, openWith, openSecret, sealSecret } from './secret-box.js';
 
 /**
  * The password dictionary and the password policy over `asyncDb`, and the re-sealing of TOTP secrets (ADR-0010, step 7). The rules
@@ -164,15 +164,16 @@ export async function sealExistingTotpSecretsAsync(db, encryptionKey) {
     let plain;
     if (isSealed(row.secret)) {
       try {
-        openWith(row.secret, keys[0]);
+        if (!isBoundSecret(row.secret)) throw new Error('v1: not bound to its row yet');
+        openWith(row.secret, keys[0], { id: row.authenticator_id });
         continue;
       } catch {
-        try { plain = openSecret(row.secret, keys); } catch { unreadable++; continue; }
+        try { plain = openSecret(row.secret, keys, { id: row.authenticator_id }); } catch { unreadable++; continue; }
       }
     } else {
       plain = row.secret;
     }
-    await a.run('UPDATE totp_credentials SET secret = ? WHERE authenticator_id = ?', [sealSecret(plain, keys[0]), row.authenticator_id]);
+    await a.run('UPDATE totp_credentials SET secret = ? WHERE authenticator_id = ?', [sealSecret(plain, keys[0], { id: row.authenticator_id }), row.authenticator_id]);
     n++;
   }
   if (unreadable > 0) {

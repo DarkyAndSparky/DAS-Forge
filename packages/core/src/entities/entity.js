@@ -35,10 +35,16 @@ field.ref = (entity, opts = {}) => Object.freeze({ type: 'ref', entity, ...opts 
 export const RESERVED_FIELDS = new Set(['id', 'tenantId', 'createdAt', 'updatedAt', 'deletedAt', 'version', 'attrs']);
 const FEATURES = { audit: true, softDelete: false, optimisticLock: true, history: false, attachments: false };
 const HOOKS = new Set(['beforeCreate', 'afterCreate', 'beforeUpdate', 'afterUpdate', 'beforeDelete', 'afterDelete']);
+// Words that are reserved in SQLite or PostgreSQL: the generated SQL does not quote names, so a column of this name would not run.
+const SQL_RESERVED = new Set(('all analyse analyze and any array as asc asymmetric authorization between binary both case cast check collate column constraint create cross '
+  + 'current_catalog current_date current_role current_schema current_time current_timestamp current_user default deferrable desc distinct do else end except false fetch for '
+  + 'foreign freeze from full grant group having ilike in initially inner intersect into is isnull join lateral leading left like limit localtime localtimestamp natural not '
+  + 'notnull null offset on only or order outer overlaps placing primary references returning right select session_user similar some symmetric table tablesample then to '
+  + 'trailing true union unique user using variadic verbose when where window with abort add alter begin commit delete drop exists index insert rollback set transaction update '
+  + 'values view trigger rename').split(' '));
 const FIELD_NAME = /^[a-z][a-zA-Z0-9]*$/;
 const snake = (s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
-const q = (s) => `'${String(s).replaceAll("'", "''")}'`;
 
 /**
  * @param {object} def - see ADR-0012
@@ -60,7 +66,7 @@ export function defineEntity(def) {
   if (!['int', 'text'].includes(idType)) fail('idType', "must be 'int' or 'text'");
 
   const compileFields = (fields, prefix, taken) => {
-    const out = {};
+    const out = Object.create(null); // no inherited names (`constructor`, `toString`): a lookup by a request's key finds only real fields
     for (const [fname, f] of Object.entries(fields ?? {})) {
       const path = `${prefix}${fname}`;
       if (!FIELD_NAME.test(fname)) fail(path, 'field name must be camelCase');
@@ -73,6 +79,7 @@ export function defineEntity(def) {
       if (f.type === 'ref' && f.idType !== undefined && !['int', 'text'].includes(f.idType)) fail(path, "ref idType must be 'int' or 'text'");
       const column = f.column ?? snake(fname);
       try { assertSafeIdentifier(column, 'column'); } catch { fail(path, 'column must be a plain identifier'); }
+      if (SQL_RESERVED.has(column.toLowerCase())) fail(path, `column ${column} is a reserved SQL word: choose another field name or set \`column\` explicitly`);
       const flag = (k) => (t.secret && ['listable', 'sortable', 'filterable', 'searchable'].includes(k) ? false : (f[k] ?? t[k]));
       if (t.secret) for (const k of ['listable', 'sortable', 'filterable', 'searchable']) if (f[k] === true) fail(path, `a secret field cannot be ${k}`);
       for (const k of ['sortable', 'filterable', 'searchable']) if (f[k] === true && t[k] === false && !t.secret) fail(path, `type ${f.type} cannot be ${k}`);
@@ -99,7 +106,7 @@ export function defineEntity(def) {
     const by = fields[v?.by];
     if (!by || !['enum', 'text'].includes(by.type)) fail('variants.by', 'must name an enum or text field of this entity');
     if (!isObj(v.cases) || Object.keys(v.cases).length === 0) fail('variants.cases', 'at least one case is required');
-    const cases = {};
+    const cases = Object.create(null); // no inherited names: a request value like "constructor" must not find anything
     for (const [key, c] of Object.entries(v.cases)) {
       if (by.type === 'enum' && !by.values.includes(key)) fail(`variants.cases.${key}`, `not a value of ${by.name}`);
       cases[key] = Object.freeze({ fields: compileFields(c.fields, `variants.${key}.`, new Set(baseTaken)) });
@@ -232,15 +239,23 @@ export function defineEntity(def) {
   }
 
   /** CREATE TABLE and index statements in the common dialect (run them through `translate(sql, dialect)` for PostgreSQL). */
+  /** The columns of the table, in order: `{ name, sql, notNull, hasDefault }` (`sql` is the full column definition). */
+  function columns() {
+    const out = [];
+    const add = (name, sql, notNull = false, hasDefault = false) => out.push(Object.freeze({ name, sql, notNull, hasDefault }));
+    if (idType === 'text') add('id', 'id TEXT PRIMARY KEY', true); else add('id', 'id INTEGER PRIMARY KEY AUTOINCREMENT', true);
+    if (tenant === 'tenant') add('tenant_id', 'tenant_id TEXT NOT NULL', true);
+    for (const f of baseFields) { const nn = Boolean(f.required && !f.nullable); add(f.column, `${f.column} ${f.sqlType}${nn ? ' NOT NULL' : ''}`, nn); }
+    if (variants) add('attrs', 'attrs TEXT');
+    add('created_at', 'created_at TEXT NOT NULL', true); add('updated_at', 'updated_at TEXT NOT NULL', true);
+    if (features.optimisticLock) add('version', 'version INTEGER NOT NULL DEFAULT 1', true, true);
+    if (features.softDelete) add('deleted_at', 'deleted_at TEXT');
+    return Object.freeze(out);
+  }
+
   function ddl({ ifNotExists = true } = {}) {
     const ine = ifNotExists ? 'IF NOT EXISTS ' : '';
-    const lines = [idType === 'text' ? 'id TEXT PRIMARY KEY' : 'id INTEGER PRIMARY KEY AUTOINCREMENT'];
-    if (tenant === 'tenant') lines.push('tenant_id TEXT NOT NULL');
-    for (const f of baseFields) lines.push(`${f.column} ${f.sqlType}${f.required && !f.nullable ? ' NOT NULL' : ''}`);
-    if (variants) lines.push('attrs TEXT');
-    lines.push('created_at TEXT NOT NULL', 'updated_at TEXT NOT NULL');
-    if (features.optimisticLock) lines.push('version INTEGER NOT NULL DEFAULT 1');
-    if (features.softDelete) lines.push('deleted_at TEXT');
+    const lines = columns().map((c) => c.sql);
     const stmts = [`CREATE TABLE ${ine}${def.table} (\n  ${lines.join(',\n  ')}\n)`];
     const cols = (names) => names.map((n) => fields[n].column);
     const idxName = (prefix, cs) => {
@@ -266,7 +281,7 @@ export function defineEntity(def) {
     tenant, idType, fields: Object.freeze(fields), variants, permissions, features: Object.freeze(features),
     list: Object.freeze({ ...list, columns: Object.freeze([...list.columns]), sort: Object.freeze([...list.sort]) }),
     unique: Object.freeze(unique), index: Object.freeze(index), hooks: Object.freeze(hooks),
-    validate, toStorage, fromStorage, publicShape, ddl,
+    validate, toStorage, fromStorage, publicShape, ddl, columns,
   });
 }
 

@@ -193,3 +193,11 @@ describe('defineEntities and registerFieldType', () => {
     expect(e).toBeDefined();
   });
 });
+
+describe('reserved SQL words', () => {
+  it('a field whose column would be a reserved word is refused at definition', () => {
+    let err;
+    try { defineEntity({ name: 'x', table: 'xs', idType: 'text', label: { ru: ['а', 'аа'], en: ['a', 'as'] }, permissions: { read: 'r', create: 'w', update: 'w', delete: 'd' }, fields: { order: field.int() } }); } catch (e) { err = e; }
+    expect(String(err?.message)).toContain('reserved SQL word');
+  });
+});

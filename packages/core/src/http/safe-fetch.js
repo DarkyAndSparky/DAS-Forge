@@ -6,7 +6,8 @@
  * address itself (the name is kept only for the Host header and TLS server name). A second DNS answer, which is what
  * DNS rebinding relies on, is never used.
  *
- * Always refused: link-local and cloud metadata, 0.0.0.0/8, multicast, the unspecified address.
+ * Always refused: link-local and cloud metadata (also 100.100.100.200), 0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15, multicast, fec0::/10,
+ * the unspecified address. An IPv6 address that only wraps an IPv4 one (mapped, compatible, NAT64, 6to4) is judged as the IPv4 inside.
  * Refused when `allowPrivate` is false: loopback, 10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7.
  * `allowHosts` (exact names, addresses or CIDR) lets an installation reach chosen internal receivers when
  * `allowPrivate` is false; it never lifts the "always refused" ranges.
@@ -23,16 +24,45 @@ const mk = (list) => { const b = new net.BlockList(); for (const [a, p, f] of li
 const ALWAYS = mk([
   ['0.0.0.0', 8, 'ipv4'], ['169.254.0.0', 16, 'ipv4'], ['224.0.0.0', 4, 'ipv4'], ['240.0.0.0', 4, 'ipv4'],
   ['fe80::', 10, 'ipv6'], ['ff00::', 8, 'ipv6'], ['::', 128, 'ipv6'], ['fd00:ec2::254', 128, 'ipv6'],
+  // audit S-04: benchmarking and protocol ranges, the old site-local range, the local NAT64 prefix, Alibaba's metadata address
+  ['198.18.0.0', 15, 'ipv4'], ['192.0.0.0', 24, 'ipv4'], ['100.100.100.200', 32, 'ipv4'], ['fec0::', 10, 'ipv6'], ['64:ff9b:1::', 48, 'ipv6'],
 ]);
 const PRIVATE = mk([
   ['127.0.0.0', 8, 'ipv4'], ['10.0.0.0', 8, 'ipv4'], ['172.16.0.0', 12, 'ipv4'], ['192.168.0.0', 16, 'ipv4'],
   ['100.64.0.0', 10, 'ipv4'], ['::1', 128, 'ipv6'], ['fc00::', 7, 'ipv6'],
 ]);
 
-/** IPv4-mapped IPv6 (::ffff:a.b.c.d) is judged as the IPv4 address inside it. */
+/** The 16 bytes of an IPv6 address (net.isIPv6 must already be true), or null. */
+function bytes6(ip) {
+  let s = ip.toLowerCase().split('%')[0];
+  const tail = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
+  if (tail) s = s.slice(0, tail.index) + ((Number(tail[1]) << 8) | Number(tail[2])).toString(16) + ':' + ((Number(tail[3]) << 8) | Number(tail[4])).toString(16);
+  const [head, rest, extra] = s.split('::');
+  if (extra !== undefined) return null;
+  const h = head ? head.split(':') : [];
+  const r = rest === undefined ? [] : rest ? rest.split(':') : [];
+  const fill = rest === undefined ? 0 : 8 - h.length - r.length;
+  if (fill < 0 || (rest === undefined && h.length !== 8)) return null;
+  const groups = [...h, ...Array(fill).fill('0'), ...r].map((g) => parseInt(g, 16));
+  if (groups.length !== 8 || groups.some((g) => !(g >= 0 && g <= 0xffff))) return null;
+  return groups.flatMap((g) => [g >> 8, g & 255]);
+}
+
+/**
+ * An IPv6 address that only carries an IPv4 address (audit S-04) is judged as that IPv4 address: IPv4-mapped (::ffff:a.b.c.d,
+ * also in hex form), IPv4-compatible (::a.b.c.d), NAT64 (64:ff9b::/96) and 6to4 (2002::/16).
+ */
 function unmap(ip) {
-  const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  return m ? m[1] : ip;
+  if (!net.isIPv6(ip)) return ip;
+  const b = bytes6(ip);
+  if (!b) return ip;
+  const zeros = (from, to) => b.slice(from, to).every((x) => x === 0);
+  const v4 = (o) => `${b[o]}.${b[o + 1]}.${b[o + 2]}.${b[o + 3]}`;
+  if (zeros(0, 10) && b[10] === 255 && b[11] === 255) return v4(12);
+  if (zeros(0, 12) && !zeros(12, 16) && !(zeros(12, 15) && b[15] === 1)) return v4(12); // ::a.b.c.d (but not ::1)
+  if (b[0] === 0 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b && zeros(4, 12)) return v4(12);
+  if (b[0] === 0x20 && b[1] === 0x02) return v4(2);
+  return ip;
 }
 const fam = (ip) => (net.isIPv4(ip) ? 'ipv4' : 'ipv6');
 

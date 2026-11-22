@@ -80,7 +80,7 @@ describe('file names that come from outside', () => {
 
 describe('request bodies are read in one reviewed way (audit V-08)', () => {
   it('req.body is touched only by the form reader, the validation middleware, the CSP report endpoint and accounts', () => {
-    const allowed = ['accounts/index.js', 'admin/sections.js', 'http/csp-report.js', 'http/validation-middleware.js'];
+    const allowed = ['accounts/index.js', 'admin/sections.js', 'http/csp-report.js', 'entities/routes.js', 'entities/pages.js', 'http/validation-middleware.js'];
     expect(uniq(hits(/\breq\.body\b/g)).filter((f) => !allowed.includes(f))).toEqual([]);
   });
   it('in accounts every POST route that reads req.body goes through validateBody first', () => {

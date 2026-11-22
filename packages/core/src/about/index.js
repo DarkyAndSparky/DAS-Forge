@@ -1,5 +1,6 @@
 import { CORE_VERSION } from '../version.js';
 import { CORE_IDENTITY } from '../branding/core-identity.js';
+import { brandBlockHtml } from '../branding/appearance.js';
 import { pageShell } from '../accounts/pages.js';
 import { setPoweredByLink } from '../ui/powered-by.js';
 
@@ -52,19 +53,21 @@ export function mountAboutPage(app, {
   app.get(path, (req, res) => {
     const locale = req.locale === 'en' ? 'en' : 'ru';
     const t = TEXTS[locale];
-    const b = brand ? brand(req) ?? {} : {};
-    const rows = [[t.core, `DAS-Forge ${coreVersion}`], ...(appName && !apps.some((x) => x.name === appName) ? [[appName, appVersion || '—']] : [])];
+    const raw = brand ? brand(req) ?? {} : {};
+    const b = typeof raw === 'string' ? { html: raw } : raw; // the app's brand block: html, or { theme, html }
+    const coreLogo = (() => { try { return brandBlockHtml(null, CORE_IDENTITY); } catch { return ''; } })();
+    const rows = [[t.core, `DAS-Forge ${coreVersion}`, coreLogo], ...(appName && !apps.some((x) => x.name === appName) ? [[appName, appVersion || '—']] : [])];
     const appList = apps.map((a) => {
       const logo = logoSrc(a.logoUrl);
       const repo = httpsUrl(a.repoUrl);
-      return `<li style="display:flex;gap:.75rem;align-items:center;margin:.5rem 0">${logo ? `<img src="${esc(logo)}" alt="" height="32" style="max-width:48px;object-fit:contain">` : ''}<div><strong>${repo ? `<a href="${esc(repo)}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name)}</strong> ${esc(a.version ?? '')}${a.description ? `<div class="hint">${esc(a.description)}</div>` : ''}</div></li>`;
+      return `<li style="display:flex;gap:.75rem;align-items:center;margin:.5rem 0">${logo ? `<img src="${esc(logo)}" alt="" height="32" style="max-width:48px;object-fit:contain">` : (a.name === appName && b.html ? `<span class="brand" style="display:inline-flex;align-items:center;gap:.5rem">${b.html}</span>` : '')}<div><strong>${repo ? `<a href="${esc(repo)}" target="_blank" rel="noopener">${esc(a.name)}</a>` : esc(a.name)}</strong> ${esc(a.version ?? '')}${a.description ? `<div class="hint">${esc(a.description)}</div>` : ''}</div></li>`;
     }).join('');
     const authorHtml = author?.name ? (httpsUrl(author.url) ? `<a href="${esc(httpsUrl(author.url))}" target="_blank" rel="noopener">${esc(author.name)}</a>` : esc(author.name)) : '';
     const body = `
       <h1>${esc(t.title)}</h1>
       <p>${esc((description && description[locale]) || t.description)}</p>
       <h2>${esc(t.versions)}</h2>
-      <table style="width:100%;border-collapse:collapse">${rows.map(([k, v]) => `<tr><td style="padding:.25rem 0">${esc(k)}</td><td style="text-align:right"><strong>${esc(v)}</strong></td></tr>`).join('')}</table>
+      <table style="width:100%;border-collapse:collapse">${rows.map(([k, v, logoHtml]) => `<tr><td style="padding:.25rem 0">${logoHtml ? `<span class="brand" style="display:inline-flex;align-items:center;gap:.5rem">${logoHtml}</span>` : esc(k)}</td><td style="text-align:right"><strong>${esc(v)}</strong></td></tr>`).join('')}</table>
       ${appList ? `<h2>${esc(t.apps)}</h2><ul style="list-style:none;padding:0;margin:0">${appList}</ul>` : ''}
       <h2>${esc(t.licence)}</h2>
       <p>${esc(t.mit)}, © ${esc(copyright)}${logoSrc(licenseUrl)?.startsWith('/') ? ` · <a href="${esc(licenseUrl)}">${esc(t.licenceText)}</a>` : ''}</p>

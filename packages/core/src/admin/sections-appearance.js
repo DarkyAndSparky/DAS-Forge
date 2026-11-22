@@ -14,6 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 const L = {
   ru: {
+    support: 'Почта поддержки', supportHint: 'Адрес администратора приложения. Он показывается на страницах ошибок: пользователь сохраняет файл диагностики и сам пишет на этот адрес. Пусто — адрес не показывается.',
     title: 'Оформление', name: 'Название', nameHint: 'Показывается в шапке меню вместо названия по умолчанию. Пусто — название по умолчанию.',
     save: 'Сохранить', reset: 'Сбросить', logo: 'Логотип', logoHint: 'PNG, JPG или SVG, до 2 МБ. Высота в меню — до 34 px. Если задан один логотип, он используется в обеих темах.',
     light: 'Светлая тема', dark: 'Тёмная тема', none: 'не задан', upload: 'Загрузить', remove: 'Убрать', file: 'Файл',
@@ -22,6 +23,7 @@ const L = {
     big: 'Файл слишком большой', preview: 'Предпросмотр', previewHint: 'Так будет выглядеть меню и кнопки. Предпросмотр обновляется сразу, до сохранения; выбранный файл показывается до загрузки.', pvTab1: 'Обзор', pvTab2: 'Раздел', pvTab3: 'Ещё', pvCard: 'Карточка', pvCardHint: 'описание', pvButton: 'Кнопка', pvUser: 'admin', confirmReset: 'Вернуть название и цвета по умолчанию?', confirmRemove: 'Убрать логотип?',
   },
   en: {
+    support: 'Support email', supportHint: 'The application administrator\'s address. It is shown on error pages: the person saves the diagnostics file and writes to this address. Empty = no address is shown.',
     title: 'Appearance', name: 'Name', nameHint: 'Shown at the top of the menu instead of the default name. Empty = the default name.',
     save: 'Save', reset: 'Reset', logo: 'Logo', logoHint: 'PNG, JPG or SVG, up to 2 MB. Menu height is up to 34 px. A single logo is used for both themes.',
     light: 'Light theme', dark: 'Dark theme', none: 'not set', upload: 'Upload', remove: 'Remove', file: 'File',
@@ -34,6 +36,7 @@ const L = {
 const HEX = /^#[0-9a-fA-F]{6}$/;
 /** What each form of the page was filled from (see edit-version.js): the name, and the two accent colours. */
 const nameState = (b) => ({ name: b.name ?? null });
+const supportState = (b) => ({ supportEmail: b.supportEmail ?? null });
 const colorState = (b) => ({ accent: b.accent ?? null, accentDark: b.accentDark ?? null });
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -84,6 +87,10 @@ all('input[type=file][data-pv-file]').forEach(function(i){i.addEventListener('ch
 <form method="post" action="${path}/name" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">${versionField(nameState(b))}
 <input class="adm-input" name="name" maxlength="100" value="${esc(b.name ?? '')}" placeholder="${esc(defaultName)}" aria-label="${esc(l.name)}" style="min-width:280px">
 <button class="adm-btn primary" type="submit">${esc(l.save)}</button></form></div>
+<div class="adm-card" style="margin-bottom:1rem"><h2>${esc(l.support)}</h2><p class="adm-muted">${esc(l.supportHint)}</p>
+<form method="post" action="${path}/support" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">${versionField(supportState(b))}
+<input class="adm-input" type="email" name="supportEmail" maxlength="254" value="${esc(b.supportEmail ?? '')}" placeholder="support@example.com" aria-label="${esc(l.support)}" style="min-width:280px">
+<button class="adm-btn primary" type="submit">${esc(l.save)}</button></form></div>
 <div class="adm-card" style="margin-bottom:1rem"><h2>${esc(l.logo)}</h2><p class="adm-muted">${esc(l.logoHint)}</p>
 <div style="display:flex;gap:2rem;flex-wrap:wrap">${logoCell('light', b.logoFile)}${logoCell('dark', b.logoFileDark)}</div></div>
 <div class="adm-card"><h2>${esc(l.accent)}</h2><p class="adm-muted">${esc(l.accentHint)}</p><p class="adm-muted">${esc(l.previewHint)}</p>
@@ -93,6 +100,17 @@ all('input[type=file][data-pv-file]').forEach(function(i){i.addEventListener('ch
 <button class="adm-btn primary" type="submit">${esc(l.save)}</button></form>
 <form method="post" action="${path}/reset" style="margin-top:1rem"><button class="adm-btn" type="submit" data-confirm="${esc(l.confirmReset)}">${esc(l.reset)}</button></form></div>`;
     await render(req, res, { active: path, title: l.title, bodyHtml: body + pvScript });
+  });
+
+  app.post(`${path}/support`, ...guard, ...stepUp, async (req, res) => {
+    const form = await readForm(req);
+    if (isStale(form, supportState(await getCompanyBrandingAsync(db)))) return back(res, 'conflict');
+    const email = String(form.supportEmail ?? '').trim();
+    try {
+      await setCompanyBrandingAsync(db, { supportEmail: email === '' ? null : email }, { actor: req.user?.username });
+      await audit(req, 'support', { set: email !== '' });
+      return back(res, 'ok');
+    } catch { return back(res, 'bad'); }
   });
 
   app.post(`${path}/name`, ...guard, ...stepUp, async (req, res) => {

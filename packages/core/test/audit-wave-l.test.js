@@ -94,7 +94,7 @@ describe('K02: TOTP key rotation', () => {
     const id = db.run(`INSERT INTO authenticators (user_id, type, status) VALUES (1, 'totp', 'active')`).lastInsertRowid;
     db.run(`INSERT INTO totp_credentials (authenticator_id, secret) VALUES (?, ?)`, [id, sealedOld]);
     expect(auth.sealExistingTotpSecrets(db, [NEW, OLD])).toBe(1);
-    expect(auth.openSecret(db.get('SELECT secret FROM totp_credentials').secret, NEW)).toBe('JBSWY3DPEHPK3PXP');
+    expect(auth.openSecret(db.get('SELECT secret FROM totp_credentials').secret, NEW, { id })).toBe('JBSWY3DPEHPK3PXP'); // now bound to its row (R-03)
     expect(auth.sealExistingTotpSecrets(db, [NEW, OLD])).toBe(0); // idempotent
   });
 

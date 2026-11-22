@@ -183,7 +183,7 @@ export function createPolicy({ db, appName = 'DAS-Forge', theme = {}, dependency
 <html lang="${locale}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
 ${themeHead({ ...theme, nonce: res.locals?.cspNonce })}
-<style>body{display:block}.pol{max-width:820px;margin:0 auto;padding:1.5rem 1rem 6rem}.pol h1{font-size:1.5rem}.pol h2{font-size:1.1rem;margin-top:1.5rem}.pol code{background:var(--adm-surface-2);padding:0 .25rem;border-radius:3px}.pol table{width:100%}</style>
+<style${res.locals?.cspNonce ? ` nonce="${esc(res.locals.cspNonce)}"` : ''}>body{display:block}.pol{max-width:820px;margin:0 auto;padding:1.5rem 1rem 6rem}.pol h1{font-size:1.5rem}.pol h2{font-size:1.1rem;margin-top:1.5rem}.pol code{background:var(--adm-surface-2);padding:0 .25rem;border-radius:3px}.pol table{width:100%}</style>
 </head>
 <body class="adm"><main class="pol"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><a href="/">← ${esc(uiTexts(locale).back)}</a><span style="display:flex;gap:.5rem;align-items:center">${langSwitchHtml(locale)}${themeToggleHtml(locale)}</span></div>${bodyHtml}${pageEnd(req, res, locale)}</main></body></html>`);
   }

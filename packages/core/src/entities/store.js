@@ -12,6 +12,8 @@
 import { randomUUID } from 'node:crypto';
 import { asyncDb } from '../database/async.js';
 import { isScope } from '../tenancy/tenancy.js';
+import { z } from 'zod';
+import { zodSchemaOf, zodIssuesToErrors } from './zod.js';
 
 export class EntityNotFoundError extends Error { constructor(entity, id) { super(`${entity} ${id} not found`); this.name = 'EntityNotFoundError'; this.code = 'NOT_FOUND'; } }
 export class EntityValidationError extends Error { constructor(errors) { super(`validation failed: ${errors.map((e) => `${e.path}:${e.code}`).join(', ')}`); this.name = 'EntityValidationError'; this.code = 'VALIDATION'; this.errors = errors; } }
@@ -19,6 +21,7 @@ export class EntityConflictError extends Error { constructor(message) { super(me
 export class TenantRequiredError extends Error { constructor() { super('Choose an organization first'); this.name = 'TenantRequiredError'; this.code = 'TENANT_REQUIRED'; } }
 
 const MAX_PAGE = 200;
+const MAX_PAGE_NUMBER = 1_000_000;
 const likeEscape = (s) => String(s).replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** @param {object} db @param {object} entity - from defineEntity @param {{now?: () => Date, newId?: () => string}} [o] */
@@ -27,16 +30,34 @@ export function createEntityStore(db, entity, { now = () => new Date(), newId = 
   const tenanted = entity.tenant === 'tenant';
   const { fields, features, table } = entity;
   const col = (n) => (n === 'createdAt' ? 'created_at' : n === 'updatedAt' ? 'updated_at' : n === 'id' ? 'id' : fields[n].column);
+  // VALIDATION IS IN TWO PLACES ON PURPOSE (see ./zod.js): the Zod gate first, then `entity.validate`. Do not drop either one.
+  const gate = { create: zodSchemaOf(z, entity, 'create'), update: zodSchemaOf(z, entity, 'update') };
+  const ABUSE = new Set(['too_long', 'too_big', 'unknown_field', 'not_for_this_case']);
+  const gated = (shape, input, validateOpts) => {
+    const r = gate[shape].safeParse(input);
+    if (r.success) return;
+    let errors = zodIssuesToErrors(r.error.issues);
+    // an ordinary mistake: show the descriptor's findings too, so the person sees every problem at once.
+    // Oversized or unknown input is not examined further (that is what the gate is for): rejected as it is.
+    if (!errors.some((e) => ABUSE.has(e.code))) {
+      const d = entity.validate(input, validateOpts);
+      const seen = new Set(errors.map((e) => `${e.path}:${e.code}`));
+      errors = [...errors, ...d.errors.filter((e) => !seen.has(`${e.path}:${e.code}`) && !errors.some((x) => x.path === e.path))];
+    }
+    throw new EntityValidationError(errors);
+  };
   const hook = async (name, ctx) => { if (entity.hooks[name]) await entity.hooks[name](ctx); };
   const stamp = () => now().toISOString();
 
   const needScope = (scope) => { if (!isScope(scope)) throw new TypeError('A scope made by tenancy.resolveScope is required'); };
 
   /** WHERE parts and params that fence the query to the person's organizations and to live records. */
-  function fence(scope, { withDeleted = false } = {}) {
+  function fence(scope, { withDeleted = false, onlyTenants } = {}) {
     const where = []; const params = [];
-    if (tenanted && !(scope.all && scope.activeTenantId == null)) {
-      const ids = scope.visibleTenantIds;
+    const narrowed = tenanted && Array.isArray(onlyTenants);
+    if (tenanted && (narrowed || !(scope.all && scope.activeTenantId == null))) {
+      // `onlyTenants` narrows the query to the organizations where the person may read (never widens it)
+      const ids = narrowed ? onlyTenants.filter((t) => scope.all || scope.visibleTenantIds.includes(t)) : scope.visibleTenantIds;
       if (ids.length === 0) where.push('1 = 0');
       else { where.push(`tenant_id IN (${ids.map(() => '?').join(', ')})`); params.push(...ids); }
     }
@@ -59,14 +80,14 @@ export function createEntityStore(db, entity, { now = () => new Date(), newId = 
     entity,
 
     /** @returns {Promise<{items: object[], total: number, page: number, size: number}>} */
-    async list(scope, { page = 1, size = entity.list.pageSize, sort = entity.list.sort, filter = {}, q = '', includeDeleted = false } = {}) {
+    async list(scope, { page = 1, size = entity.list.pageSize, sort = entity.list.sort, filter = {}, q = '', includeDeleted = false, onlyTenants } = {}) {
       needScope(scope);
-      const p = Math.max(1, Math.trunc(Number(page)) || 1);
+      const p = Math.min(MAX_PAGE_NUMBER, Math.max(1, Math.trunc(Number(page)) || 1)); // a huge page number must not overflow the offset
       const s = Math.min(MAX_PAGE, Math.max(1, Math.trunc(Number(size)) || entity.list.pageSize));
-      const f = fence(scope, { withDeleted: includeDeleted });
+      const f = fence(scope, { withDeleted: includeDeleted, onlyTenants });
       const where = [...f.where]; const params = [...f.params];
       for (const [k, v] of Object.entries(filter)) {
-        const fld = fields[k];
+        const fld = Object.hasOwn(fields, k) ? fields[k] : undefined;
         if (!fld || !fld.filterable) throw new EntityValidationError([{ path: `filter.${k}`, code: 'not_filterable' }]);
         const vals = Array.isArray(v) ? v : [v];
         const stored = [];
@@ -82,11 +103,13 @@ export function createEntityStore(db, entity, { now = () => new Date(), newId = 
         if (hasNull) parts.push(`${fld.column} IS NULL`);
         where.push(parts.length ? `(${parts.join(' OR ')})` : '1 = 0');
       }
-      if (q) {
+      // control characters (a NUL ends the pattern in SQLite and would match everything) are dropped; the length is capped
+      const term = String(q ?? '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 200);
+      if (term) {
         const sf = Object.values(fields).filter((x) => x.searchable);
         if (sf.length) {
           where.push(`(${sf.map((x) => `${x.column} LIKE ? ESCAPE '\\'`).join(' OR ')})`);
-          for (let i = 0; i < sf.length; i += 1) params.push(`%${likeEscape(q)}%`);
+          for (let i = 0; i < sf.length; i += 1) params.push(`%${likeEscape(term)}%`);
         }
       }
       const order = (Array.isArray(sort) ? sort : [sort]).map((x) => {
@@ -109,7 +132,8 @@ export function createEntityStore(db, entity, { now = () => new Date(), newId = 
       needScope(scope);
       if (tenanted && scope.activeTenantId == null) throw new TenantRequiredError();
       if (tenanted && !scope.all && !scope.tenantIds.includes(scope.activeTenantId)) throw new EntityNotFoundError('tenant', scope.activeTenantId);
-      const r = entity.validate(input, { mode: 'create' });
+      gated('create', input, { mode: 'create' }); // validation 1 of 2 (Zod gate), before anything else
+      const r = entity.validate(input, { mode: 'create' }); // validation 2 of 2 (the descriptor)
       if (!r.ok) throw new EntityValidationError(r.errors);
       return a.transaction(async (q) => {
         const ctx = { entity, scope, actor, value: r.value };
@@ -136,10 +160,11 @@ export function createEntityStore(db, entity, { now = () => new Date(), newId = 
      */
     async update(scope, id, patch, { expectedVersion, actor } = {}) {
       needScope(scope);
+      gated('update', patch, { mode: 'update' }); // validation 1 of 2 (Zod gate), before the transaction opens
       return a.transaction(async (q) => {
         const current = raw(await load(scope, id, q));
         if (features.optimisticLock && expectedVersion !== undefined && Number(expectedVersion) !== Number(current.version)) throw new EntityConflictError(`${entity.name} ${id} was changed by someone else (version ${current.version})`);
-        const r = entity.validate(patch, { mode: 'update', current });
+        const r = entity.validate(patch, { mode: 'update', current }); // validation 2 of 2 (the descriptor)
         if (!r.ok) throw new EntityValidationError(r.errors);
         const ctx = { entity, scope, actor, record: current, patch: r.value };
         await hook('beforeUpdate', ctx);

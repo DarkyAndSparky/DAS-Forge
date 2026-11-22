@@ -15,7 +15,7 @@ export {
   anonymizeUser,
   deleteUser,
 } from './users.js';
-export { sealSecret, openSecret, isSealed, sealExistingTotpSecrets } from './secret-box.js';
+export { sealSecret, openSecret, isSealed, isBoundSecret, sealExistingTotpSecrets } from './secret-box.js';
 export { createPasswordResetToken, peekPasswordResetToken, consumePasswordResetToken, purgePasswordResetTokens } from './password-reset.js';
 export { checkPasswordPolicy, characterClasses, PASSWORD_ABSOLUTE_MAX } from './password-policy.js';
 export { createPasswordBlocklist } from './password-blocklist.js';
@@ -34,7 +34,7 @@ export {
   purgeExpiredPendingAuthenticators,
 } from './authenticators.js';
 export { generateRecoveryCodes, verifyAndConsumeRecoveryCode, countRemainingRecoveryCodes } from './recovery-codes.js';
-export { firstRunBootstrap, writeBootstrapCredentials } from './bootstrap.js';
+export { firstRunBootstrap, writeBootstrapCredentials, removeBootstrapCredentialsIfChanged, watchBootstrapCredentials, bootstrapPrintAllowed } from './bootstrap.js';
 export { UserSchema, SessionSchema, AuthenticatorSchema, RecoveryCodeSchema, ensureAuthTables } from './schema.js';
 export {
   UserAdminError,
@@ -62,7 +62,7 @@ export {
   purgeExpiredPendingAuthenticatorsAsync, listAuthenticatorsAsync, startTotpEnrollmentAsync, verifyTotpEnrollmentAsync,
   verifyTotpLoginAsync, removeAuthenticatorAsync, generateRecoveryCodesAsync, verifyAndConsumeRecoveryCodeAsync,
   countRemainingRecoveryCodesAsync, createPasswordResetTokenAsync, peekPasswordResetTokenAsync, consumePasswordResetTokenAsync,
-  purgePasswordResetTokensAsync, ensureDeviceTableAsync, recognizeDeviceAsync,
+  purgePasswordResetTokensAsync, ensureDeviceTableAsync, recognizeDeviceAsync, isKnownDeviceAsync,
 } from './async-factors.js';
 export {
   countActiveAdminsAsync, getManagedUserAsync, listUsersAsync, createManagedUserAsync, renameUserAsync, setUserEmailAsync,

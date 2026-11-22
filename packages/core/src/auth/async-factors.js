@@ -39,7 +39,7 @@ export async function startTotpEnrollmentAsync(db, userId, { name = null, accoun
   const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
   const authenticatorId = await a.transaction(async (tx) => {
     const r = await tx.run(`INSERT INTO authenticators (user_id, type, status, name, expires_at) VALUES (?, 'totp', 'pending', ?, ?)`, [userId, name, expiresAt]);
-    await tx.run('INSERT INTO totp_credentials (authenticator_id, secret) VALUES (?, ?)', [r.lastInsertRowid, sealSecret(secret, encryptionKey)]);
+    await tx.run('INSERT INTO totp_credentials (authenticator_id, secret) VALUES (?, ?)', [r.lastInsertRowid, sealSecret(secret, encryptionKey, { id: r.lastInsertRowid })]);
     return r.lastInsertRowid;
   });
   return { authenticatorId, secret, otpauthUri: buildTotpUri(secret, { accountName, issuer }), expiresAt };
@@ -55,7 +55,7 @@ export async function verifyTotpEnrollmentAsync(db, authenticatorId, code, { use
   if (!row) return false;
   if (userId !== null && row.user_id !== userId) return false; // someone else's pending factor is "not found" (audit A08)
   if (row.expires_at && row.expires_at < nowIso()) return false;
-  if (!verifyTotp(openSecret(row.secret, encryptionKey), code, { stepSeconds: row.period })) return false;
+  if (!verifyTotp(openSecret(row.secret, encryptionKey, { id: row.id }), code, { stepSeconds: row.period })) return false;
   await a.run(`UPDATE authenticators SET status = 'active', expires_at = NULL, last_used_at = ? WHERE id = ?`, [nowIso(), authenticatorId]);
   return true;
 }
@@ -71,7 +71,7 @@ export async function verifyTotpLoginAsync(db, userId, code, { encryptionKey = n
   for (const row of rows) {
     let secret;
     try {
-      secret = openSecret(row.secret, encryptionKey);
+      secret = openSecret(row.secret, encryptionKey, { id: row.id });
     } catch (err) {
       if (!warnedUnreadable) {
         warnedUnreadable = true;
@@ -190,6 +190,14 @@ export async function ensureDeviceTableAsync(db) {
   await asyncDb(db).exec(`CREATE TABLE IF NOT EXISTS login_devices (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, device_hash TEXT NOT NULL, first_seen_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL, first_ip TEXT, user_agent TEXT, PRIMARY KEY (user_id, device_hash));`);
+}
+
+/** Read only: is this browser cookie one the user has already signed in with? (nothing is registered or touched) */
+export async function isKnownDeviceAsync(db, { userId, deviceId = null } = {}) {
+  if (typeof deviceId !== 'string' || !/^[A-Za-z0-9_-]{20,64}$/.test(deviceId)) return false;
+  try {
+    return Boolean(await asyncDb(db).get('SELECT 1 AS x FROM login_devices WHERE user_id = ? AND device_hash = ?', [userId, hashDevice(deviceId)]));
+  } catch { return false; /* no table yet: nobody is known */ }
 }
 
 export async function recognizeDeviceAsync(db, { userId, deviceId = null, ip = null, userAgent = null, now = Date.now } = {}) {

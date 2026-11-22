@@ -62,6 +62,12 @@ export function createApp(ctx) {
   const announcement = announcementModule.createAnnouncement({ db });
   app.use((req, res, next) => { res.locals.banner = (locale) => announcement.bannerHtml(locale, { nonce: res.locals?.cspNonce }); next(); });
   app.use(http.errorResponder(vendorIdentity, { loginUrl: '/login', brand, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
+  // Host-name check (audit S-08): an unknown Host gets 421 (server.hostCheck; 'auto' = enforce once a name is configured).
+  const hostPolicy = http.hostPolicyFromConfig(appConfig);
+  app.use(http.hostGuard({
+    mode: hostPolicy.mode, allowedHosts: hostPolicy.names, trustProxy: Boolean(appConfig.server.trustProxy),
+    onViolation: (v) => { try { audit.log(db, { actor: null, action: 'security.host_rejected', entity: 'host', result: 'denied', meta: { host: v.host, path: v.path, mode: v.mode }, ip: v.ip }); } catch { /* a failing log must not break the answer */ } },
+  }));
   // Hourly request and error counters for the admin charts, flushed to the database in batches.
   // Prometheus metrics (observability.metrics.enabled): needs the package "@prometheus-io/client"; off by default.
   const promConfig = appConfig.observability?.metrics;
@@ -80,7 +86,7 @@ export function createApp(ctx) {
   app.use(http.createCompression());
   app.use(http.createCors({ origins: security.cors.origins })); // empty list = no CORS headers at all
   app.use(cookieParser());
-  if (security.csrf) app.use(http.csrfProtection({ trustProxy: serverConfig.trustProxy, trustedOrigins: security.cors.origins, exemptPaths: [(security.csp?.reportPath ?? '/csp-report')], sessionCookieName: http.sessionCookieName({ hostPrefix: appConfig.auth.hostCookiePrefix }) }));
+  if (security.csrf) app.use(http.csrfProtection({ trustProxy: serverConfig.trustProxy, trustedOrigins: security.cors.origins, exemptPaths: [(security.csp?.reportPath ?? '/csp-report')], strictPaths: ['/login'], sessionCookieName: http.sessionCookieName({ hostPrefix: appConfig.auth.hostCookiePrefix }) }));
   // Violation reports of the report-only policy (security.csp?.reportOnly): answered before any body parsing, written to the audit log.
   if (security.csp?.reportOnly) {
     app.post((security.csp?.reportPath ?? '/csp-report'), http.cspReports({ onReport: (r, req) => { try { audit.log(db, { actor: null, action: 'security.csp_violation', entity: 'csp', result: 'failure', meta: r, requestId: req.id, ip: req.ip }); } catch { /* a failing log must not break the report */ } } }));
@@ -117,7 +123,7 @@ export function createApp(ctx) {
   app.get('/health', health.healthHandler(db, { version: PACKAGE.version, minimal: true, isShuttingDown: ctx.isShuttingDown }));
   app.use(http.createRateLimiter(security.rateLimit));
 
-  registerRoutes(app, { db, authProvider, bans, appConfig, moduleRegistry, onLock: ctx.onLock ?? null, vendorIdentity, emailService: ctx.emailService, logger });
+  const appRoutes = registerRoutes(app, { db, authProvider, bans, appConfig, moduleRegistry, onLock: ctx.onLock ?? null, vendorIdentity, emailService: ctx.emailService, logger });
   policy.mount(app);
 
   // The admin panel: sign-in and the `admin.access` permission are required. Which sections it has, and which you
@@ -129,6 +135,7 @@ export function createApp(ctx) {
     db, metrics, bans, policy,
     scheduler: ctx.schedulerHolder ? { listJobs: () => ctx.schedulerHolder.current?.listJobs() ?? [], runNow: (n) => ctx.schedulerHolder.current.runNow(n) } : null,
     taskSchedules: ctx.schedulerHolder ? { set: (n, v) => ctx.schedulerHolder.taskSchedules.set(n, v), reset: (n) => ctx.schedulerHolder.taskSchedules.reset(n), isOverridden: (n) => ctx.schedulerHolder.taskSchedules?.isOverridden(n) ?? false } : null,
+    mfaFixedRole: (role) => (appConfig.auth.totp?.requiredRoles ?? []).includes(role),
     passwordPolicy: auth.createPasswordPolicy({ db, config: appConfig.auth.passwordPolicy, blocklistFile: appConfig.auth.passwordBlocklistFile, appName: APP_NAME }),
     managedTasks: { backup: 'backups', 'alerts-doctor': 'about' },
     mail: ctx.emailQueue ? { queue: ctx.emailQueue, service: ctx.emailService } : null,
@@ -159,7 +166,7 @@ export function createApp(ctx) {
   app.use(http.notFoundHandler(vendorIdentity, { loginUrl: '/login', brand, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
   app.use(http.errorPageHandler(vendorIdentity, { logger, loginUrl: '/login', brand, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
 
-  return { app, metrics };
+  return { app, metrics, closeLockouts: appRoutes.closeLockouts };
 }
 
 async function main() {
@@ -198,7 +205,7 @@ async function main() {
   const schedulerHolder = { current: null }; // the scheduler is created after the app; the admin "Tasks" section reads it through this
   const promSettings = appConfig.observability?.metrics;
   const prom = promSettings?.enabled ? await observability.createPrometheusMetrics({ defaultMetrics: promSettings.defaultMetrics }) : null;
-  const { app, metrics } = createApp({
+  const { app, metrics, closeLockouts } = createApp({
     prom,
     ...ctx, schedulerHolder, logger, logDestination,
     alerts: alertSet?.alerts ?? null, alertsMail: alertSet?.mailConfigured ?? false, onLock: alertSet?.onLock ?? null,
@@ -239,7 +246,7 @@ async function main() {
     console.log(`[app] http://${host}:${redirectPort} redirects to ${scheme}://${host}:${port}`); // eslint-disable-line no-console
   }
   const shownHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
-  console.log(`\n${formatStartBanner({ name: APP_NAME, appVersion: PACKAGE.version, coreVersion: CORE_VERSION, url: `${scheme}://${shownHost}:${port}`, adminUrls: adminAddress ? [...new Set([`${scheme}://localhost:${adminAddress.port}`, `${scheme}://${adminAddress.host}:${adminAddress.port}`])] : null, bootstrap: ctx.bootstrap, credentialsFile: ctx.credentialsFile, showPassword: process.env.DAS_BOOTSTRAP_PRINT !== 'false' })}\n`); // eslint-disable-line no-console
+  console.log(`\n${formatStartBanner({ name: APP_NAME, appVersion: PACKAGE.version, coreVersion: CORE_VERSION, url: `${scheme}://${shownHost}:${port}`, adminUrls: adminAddress ? [...new Set([`${scheme}://localhost:${adminAddress.port}`, `${scheme}://${adminAddress.host}:${adminAddress.port}`])] : null, bootstrap: ctx.bootstrap, credentialsFile: ctx.credentialsFile, showPassword: auth.bootstrapPrintAllowed() })}\n`); // eslint-disable-line no-console
 
   // Scheduled jobs. lockDir: the server and the CLI never run the same job at once; catchUp: a backup missed while
   // the server was down runs once at the next start.
@@ -295,6 +302,7 @@ async function main() {
       ctx.emailQueue?.stop();
       await jobScheduler.stop(); // waits for a running backup before the database goes away
       stopAuditMirror();
+      await closeLockouts?.(); // sign-in lock-outs survive the restart (audit S-02)
       metrics.close();
       db.close();
       releaseServerLock?.();

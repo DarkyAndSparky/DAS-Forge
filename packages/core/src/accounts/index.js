@@ -136,7 +136,8 @@ export function mountAccountRoutes(app, {
   const enrollPaths = new Set([...MFA_ENROLL_ALLOWED_PATHS, accountPath]);
   // A role can need a second factor because the application says so in code or because an administrator switched it on.
   const mfaRoles = auth.createMfaRoleStoreAsync({ db });
-  const mfaNeededFor = async (role) => Boolean(mfaRequiredForRole(role)) || (await mfaRoles.has(role));
+  const mfaConfigRoles = appConfig?.auth?.totp?.requiredRoles ?? []; // the developer's minimum from the configuration
+  const mfaNeededFor = async (role) => Boolean(mfaRequiredForRole(role)) || mfaConfigRoles.includes(role) || (await mfaRoles.has(role));
 
   function userPublicShape(user) {
     return { id: user.id, username: user.username, role: user.role, permissions: permissionsForRole(user.role) };
@@ -188,8 +189,8 @@ export function mountAccountRoutes(app, {
   }
 
   // --- Hardening (audit wave 1): brute-force protection, Secure cookies,
-  // forced password change. All state is per-process (see core/http
-  // rate-limit.js for that documented limitation).
+  // forced password change. The counters are kept in the database (`security.lockout.persist`, on by default); the
+  // application must call `closeLockouts()` when it stops so the last second of failures is written (audit S-02).
   const securityCfg = appConfig?.security ?? {};
   const sessionTtlMs = appConfig?.auth?.sessionTtlMs ?? 1000 * 60 * 60 * 8;
   // The rules an administrator can change in the admin panel (stored in the database); the configuration is the starting point.
@@ -302,7 +303,7 @@ export function mountAccountRoutes(app, {
   };
   const withMin = (l, min) => ({ ...l, forcedNewPassword: String(l.forcedNewPassword ?? '').replace('{min}', min), accountPwNew: String(l.accountPwNew ?? '').replace('{min}', min) });
   const common = async (req, res) => ({ registration: Boolean(appConfig?.auth?.registration?.enabled), nonce: res.locals?.cspNonce, locale: localeOf(req), brand: await brandOf(req), l: withMin(textsOf(req), await minLengthFor(req)), minLength: await minLengthFor(req), appName, homePath, passwordChangePath, accountPath });
-  const pageRoute = (key, path, render, { noCache = false } = {}) => {
+  const pageRoute = (key, path, render, { noCache = false, noStore = false } = {}) => {
     if (pages[key] === false) return;
     const own = pages[key];
     app.get(path, async (req, res) => {
@@ -311,11 +312,13 @@ export function mountAccountRoutes(app, {
         res.setHeader('Referrer-Policy', 'no-referrer');
         res.setHeader('Cache-Control', 'no-store');
       }
+      // a form page with a one-time field (csrf, state) is not kept by a browser cache or a shared proxy (audit S-11)
+      if (noStore) res.setHeader('Cache-Control', 'no-store');
       res.type('html').send(own ? await own(req, res) : render(await common(req, res)));
     });
   };
-  pageRoute('login', '/login', renderLoginPage);
-  pageRoute('forgotPassword', '/forgot-password', renderForgotPasswordPage);
+  pageRoute('login', '/login', renderLoginPage, { noStore: true });
+  pageRoute('forgotPassword', '/forgot-password', renderForgotPasswordPage, { noStore: true });
   pageRoute('resetPassword', '/reset-password', renderResetPasswordPage, { noCache: true });
 
   // --- Self-registration (auth.registration.enabled): the account exists only after the mailed link is opened ---------------
@@ -410,7 +413,17 @@ export function mountAccountRoutes(app, {
     const nameKey = req.body.username.toLowerCase();
     const ipKey = http.clientKey(req.ip);
     const pairKey = `${nameKey}|${ipKey}`;
-    const locked = [loginPairFailures.check(pairKey), loginUserFailures.check(nameKey), loginIpFailures.check(ipKey)].find((c) => c.locked);
+    const pairLock = loginPairFailures.check(pairKey);
+    const ipLock = loginIpFailures.check(ipKey);
+    let userLock = loginUserFailures.check(nameKey);
+    // Audit S-03: strangers guessing from many addresses must not lock the real owner out of his own account. The name-wide
+    // lock does not stop a browser this user has already signed in with (its device cookie is known); the budgets of the
+    // (name, address) pair and of the address stay in force, and the password is still checked.
+    if (userLock.locked && !pairLock.locked && !ipLock.locked && req.cookies?.[devices.DEVICE_COOKIE]) {
+      const owner = await auth.findUserByUsernameAsync(db, req.body.username);
+      if (owner && (await auth.isKnownDeviceAsync(db, { userId: owner.id, deviceId: req.cookies[devices.DEVICE_COOKIE] }))) userLock = { locked: false };
+    }
+    const locked = [pairLock, userLock, ipLock].find((c) => c.locked);
     if (locked) {
       await logAudit(req, { actor: req.body.username, action: 'auth.login', result: 'failure', meta: { reason: 'locked_out' } });
       return tooManyAttempts(res, locked.retryAfterMs);

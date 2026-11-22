@@ -52,7 +52,7 @@ export function registerRoutes(app, { db, authProvider, bans, appConfig, moduleR
 
   // Sign-in, sign-out, /me, password change and reset by e-mail, own e-mail, TOTP and recovery codes: the core's
   // `accounts` module. Here: the role to permission policy and the sign-in page.
-  accounts.mountAccountRoutes(app, {
+  const accountRoutes = accounts.mountAccountRoutes(app, {
     db, authProvider, appConfig, bans, onLock, emailService, logger, permissionsForRole,
     allowDuringPasswordChange: ['/ui', '/ui/password'],
     appName: APP_NAME, vendorIdentity, // the core draws the sign-in, password and reset pages; reword them with `texts`, replace one with `pages`
@@ -86,4 +86,6 @@ export function registerRoutes(app, { db, authProvider, bans, appConfig, moduleR
     logAudit(req, { actor: req.user.username, action: 'note.delete', entity: 'note', entityId: id });
     res.json({ ok: true });
   });
+  // The server calls this when it stops: sign-in lock-outs not yet written go to the database (audit S-02).
+  return { closeLockouts: accountRoutes.closeLockouts };
 }

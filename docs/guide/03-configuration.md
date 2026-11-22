@@ -35,6 +35,7 @@ const config = await loadConfig({ schema: Schema });
 | Переменная | Ключ конфигурации |
 |---|---|
 | `DAS_HOST`, `DAS_PORT` | `server.host`, `server.port` |
+| `DAS_ALLOWED_HOSTS`, `DAS_HOST_CHECK` | `server.allowedHosts` (имена через запятую: `site.example,10.0.0.5`), `server.hostCheck` |
 | `DAS_TRUST_PROXY` | `server.trustProxy` (`true`, число хопов ≥ 2, или список `10.0.0.0/8,loopback`) |
 | `DAS_HTTPS_MODE` | `server.https.mode` |
 | `DAS_DB_FILE` | `database.file` |
@@ -66,6 +67,7 @@ const config = await loadConfig({ schema: Schema });
 | `host`, `port` | адрес и порт HTTPS (`127.0.0.1`, `3000`; приложения платформы — по [схеме портов](#порты-приложений-платформы)) |
 | `httpRedirectPort` | порт обычного HTTP, который только перенаправляет на HTTPS (`308`); не задан — `port − 1`, если TLS завершает сам процесс, и нет за обратным прокси; `false` — выключить |
 | `allowedHosts` | дополнительные имена хостов, на которые редирект может отправить браузер (заголовку `Host` верят только для них, для `host` из конфигурации, `localhost` и loopback) |
+| `hostCheck` | проверка имени сайта в заголовке `Host` (подробно — [раздел «Проверка имени сайта»](10-operations.md)): `auto` (по умолчанию) — включается сама, как только задано хотя бы одно имя (`allowedHosts` или хост из `email.baseUrl`), иначе только предупреждает; `enforce` — всегда отвечать 421 на чужое имя; `warn` — пропускать и записывать в журнал; `off` — не проверять |
 | `trustProxy` | `false` / `true` / число хопов / список адресов и подсетей, которым доверяют заголовки `X-Forwarded-*` |
 | `https.mode` | `standalone` / `reverse-proxy` / `self-signed` (`self-signed`), `certPath`, `keyPath` |
 | `bodyLimit` | лимит тела запроса (`1mb`) |
@@ -129,6 +131,7 @@ const config = await loadConfig({ schema: Schema });
 | `retentionDays` | срок хранения записей (365; 0 — вечно, нужно юридическое основание) |
 | `personalDataDays` | через сколько дней без появления стирать настоящие логины и IP за псевдонимами (0 — не стирать). Строка остаётся, поля читаются «[erased]», цепочка хешей цела. Срок определяет организация (см. ADR 0009) |
 | `purgeBatchSize` | размер пачки очистки (5000) |
+| `sealKey` / `previousSealKeys` | печать журнала (32+ знаков, `secret generate`; `DAS_AUDIT_SEAL_KEY` или `DAS_AUDIT_SEAL_KEY_FILE`): каждая новая запись получает HMAC-SHA256 хеша с этим ключом. Ключ хранится вне базы; без него записи, пересчитанные тем, кто пишет в файл базы, не сходятся. `previousSealKeys` — прежние ключи для проверки старых записей после смены |
 | `archiveDir` | папка для архива: перед удалением старые записи пишутся туда файлом `audit-<от>-<до>.ndjson.gz` с контрольной суммой (пусто — без архива) |
 
 ### alerts
@@ -203,7 +206,7 @@ const config = await loadConfig({ schema: Schema });
 |---|---|
 | `sessionSecret` | обязателен, ≥ 16 символов |
 | `previousSessionSecrets` | старые секреты после ротации: cookie с ними ещё принимаются и перевыпускаются |
-| `totpEncryptionKey` / `previousTotpEncryptionKeys` | ключ шифрования секретов TOTP в базе; без него выводится из `sessionSecret` (ротация тогда ломает вход по TOTP — задайте отдельный) |
+| `totpEncryptionKey` / `previousTotpEncryptionKeys` | ключ шифрования секретов TOTP в базе; без него выводится из `sessionSecret`: утечка одного секрета раскрывает оба, а ротация секрета сессий ломает вход по TOTP. Задайте отдельный ключ (`secret generate`, `DAS_TOTP_KEY` или `DAS_TOTP_KEY_FILE`); `doctor` предупреждает, если второй фактор включён, а ключа нет (при профиле «интернет» это ошибка) |
 | `sessionTtlMs` | жизнь сессии (8 ч) |
 | `sessionWarnMs` | за сколько до конца сессии спросить «Продолжить?» (по умолчанию 2 мин; 0 — выключено, иначе не меньше 20 с) |
 | `sessionMaxExtensions` | сколько раз можно продлить сессию из этого окна (не меньше 10) |
@@ -215,6 +218,7 @@ const config = await loadConfig({ schema: Schema });
 | `passwordPolicy` | значения по умолчанию, пока администратор не сохранил свои в разделе «Парольная политика»: `minLength` (12, не меньше 8), `adminMinLength` (12), `requireClasses` (0–4, по умолчанию 0), `maxAgeDays` (срок действия в днях, по умолчанию 0 — без ограничения), `historyCount` (0–24, по умолчанию 0), `maxLength` (128); отдельно `auth.passwordBlocklistFile` — файл утёкших паролей; сгенерированные пароли — 24 символа |
 | `argon2` | `memoryCost` (19456), `timeCost` (2), `parallelism` (1), `maxConcurrent` (2), `maxQueue` (64) |
 | `totp.enabled` | двухфакторный вход (`false`) |
+| `totp.requiredRoles` | роли, для которых второй фактор обязателен (по умолчанию пусто, то есть ничего не навязывается). Это минимум разработчика приложения: администратор в панели «Парольная политика» может только добавлять роли, снять роль из этого списка не может. Подробнее — [«Безопасность»](04-security.md), раздел «Второй фактор: кто чем управляет» |
 
 ### performance
 

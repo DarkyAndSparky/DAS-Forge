@@ -61,3 +61,41 @@ describe('bootstrap credentials file (A16)', () => {
     expect(() => auth.writeBootstrapCredentials(f, { username: 'a', tempPassword: 'b' })).toThrow();
   });
 });
+
+describe('TOTP secret bound to its row (audit R-03)', () => {
+  it('v2 opens only for the row it was sealed for', () => {
+    const sealed = auth.sealSecret('JBSWY3DPEHPK3PXP', KEY, { id: 7 });
+    expect(sealed.startsWith('enc:v2:')).toBe(true);
+    expect(auth.isBoundSecret(sealed)).toBe(true);
+    expect(auth.openSecret(sealed, KEY, { id: 7 })).toBe('JBSWY3DPEHPK3PXP');
+    expect(auth.openSecret(sealed, KEY, { id: '7' })).toBe('JBSWY3DPEHPK3PXP');
+    expect(() => auth.openSecret(sealed, KEY, { id: 8 })).toThrow(/decrypt/);
+    expect(() => auth.openSecret(sealed, KEY)).toThrow(/row it belongs to/);
+  });
+
+  it('a secret copied to another user\'s authenticator no longer logs that user in', () => {
+    const { db, userId } = setup();
+    const other = auth.createUser(db, { username: 'v', passwordHash: 'x', role: 'operator' }).id;
+    const a = auth.startTotpEnrollment(db, userId, { accountName: 'u', encryptionKey: KEY });
+    const b = auth.startTotpEnrollment(db, other, { accountName: 'v', encryptionKey: KEY });
+    const code = auth.generateTotp(a.secret);
+    expect(auth.verifyTotpEnrollment(db, a.authenticatorId, code, { userId, encryptionKey: KEY })).toBe(true);
+    // the database writer copies user u's ciphertext onto user v's row
+    const stolen = db.get('SELECT secret FROM totp_credentials WHERE authenticator_id = ?', [a.authenticatorId]).secret;
+    db.run('UPDATE totp_credentials SET secret = ? WHERE authenticator_id = ?', [stolen, b.authenticatorId]);
+    db.run("UPDATE authenticators SET status = 'active' WHERE id = ?", [b.authenticatorId]);
+    expect(auth.verifyTotpLogin(db, other, code, { encryptionKey: KEY })).toBeFalsy();
+  });
+
+  it('sealExistingTotpSecrets brings v1 and plaintext rows to v2 and then changes nothing', () => {
+    const { db, userId } = setup();
+    const r = auth.startTotpEnrollment(db, userId, { accountName: 'u' }); // plaintext
+    const r2 = auth.startTotpEnrollment(db, userId, { accountName: 'u2' });
+    db.run('UPDATE totp_credentials SET secret = ? WHERE authenticator_id = ?', [auth.sealSecret(r2.secret, KEY), r2.authenticatorId]); // v1
+    expect(auth.sealExistingTotpSecrets(db, KEY)).toBe(2);
+    for (const id of [r.authenticatorId, r2.authenticatorId]) expect(db.get('SELECT secret FROM totp_credentials WHERE authenticator_id = ?', [id]).secret.startsWith('enc:v2:')).toBe(true);
+    expect(auth.sealExistingTotpSecrets(db, KEY)).toBe(0);
+    const code = auth.generateTotp(r.secret);
+    expect(auth.verifyTotpEnrollment(db, r.authenticatorId, code, { userId, encryptionKey: KEY })).toBe(true);
+  });
+});

@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs';
 const ENV_MAP = [
   ['DAS_HOST', 'server.host', String],
   ['DAS_PORT', 'server.port', Number],
+  ['DAS_ALLOWED_HOSTS', 'server.allowedHosts', (v) => String(v).split(',').map((x) => x.trim()).filter(Boolean)],
+  ['DAS_HOST_CHECK', 'server.hostCheck', String],
   ['DAS_TRUST_PROXY', 'server.trustProxy', toTrustProxy],
   ['DAS_DB_FILE', 'database.file', String],
   ['DAS_SESSION_SECRET', 'auth.sessionSecret', String],
@@ -19,6 +21,7 @@ const ENV_MAP = [
   ['DAS_SMTP_PASSWORD', 'email.smtp.auth.pass', String],
   ['DAS_BACKUP_KEY', 'backup.encryptionKey', String],
   ['DAS_TOTP_KEY', 'auth.totpEncryptionKey', String],
+  ['DAS_AUDIT_SEAL_KEY', 'audit.sealKey', String],
 ];
 
 /**

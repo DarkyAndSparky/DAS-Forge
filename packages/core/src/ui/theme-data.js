@@ -9,7 +9,7 @@
  * `checkThemeContrast` gives the contrast of every text/background pair of a theme (WCAG 2.2), so a theme can be tested.
  */
 import { createHash } from 'node:crypto';
-import { THEME_TOKENS, tokenCss } from './theme.js';
+import { tokenCss } from './theme.js';
 import { UI_TEXTS } from './texts.js';
 
 /** Relative luminance of `#rrggbb` / `#rgb` (WCAG 2.2). */

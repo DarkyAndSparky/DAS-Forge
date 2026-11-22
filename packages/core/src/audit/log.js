@@ -1,7 +1,7 @@
 import { ensureAuditTable } from './schema.js';
 import { rowToEntry } from './mapper.js';
 import { createResolver, pseudonymize, pseudonymizeMeta } from './subjects.js';
-import { computeHash, redactMeta } from './chain.js';
+import { computeHash, redactMeta, sealOf } from './chain.js';
 
 /**
  * Records one audit entry. This is the module's entire write surface -
@@ -91,10 +91,11 @@ export function log(
       ip: pseudonymize(tx, 'ip', ip),
       created_at: now,
     };
+    const hash = computeHash(prevHash, row);
     tx.run(
-      `INSERT INTO audit_log (actor, action, entity, entity_id, result, meta, request_id, ip, created_at, prev_hash, hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row.actor, row.action, row.entity, row.entity_id, row.result, row.meta, row.request_id, row.ip, row.created_at, prevHash, computeHash(prevHash, row)]
+      `INSERT INTO audit_log (actor, action, entity, entity_id, result, meta, request_id, ip, created_at, prev_hash, hash, seal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.actor, row.action, row.entity, row.entity_id, row.result, row.meta, row.request_id, row.ip, row.created_at, prevHash, hash, sealOf(hash)]
     );
     return tx.get(`SELECT * FROM audit_log WHERE rowid = last_insert_rowid()`);
   };

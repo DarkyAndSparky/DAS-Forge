@@ -70,7 +70,7 @@ export const AUDIT_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_audit_log_action_created ON audit_log(action, created_at);`,
 ];
 /** Columns added to tables made by earlier versions (tamper evidence, audit B14); their old rows keep NULL hashes. */
-export const AUDIT_HASH_COLUMNS = ['prev_hash', 'hash'];
+export const AUDIT_HASH_COLUMNS = ['prev_hash', 'hash', 'seal']; // `seal`: HMAC of the hash with a key outside the database (audit R-01)
 /** Rows are append-only: an UPDATE is always a bug or an attack. DELETE stays possible (retention). */
 export const AUDIT_NO_UPDATE_DDL = `
     CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log

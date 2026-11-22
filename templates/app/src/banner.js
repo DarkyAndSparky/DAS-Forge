@@ -1,7 +1,7 @@
 /**
  * The start-up banner printed to the console once the server listens: versions, where to open it and, on the very
  * first start, the administrator's login and temporary password (the same ones that go into first-run-admin.txt),
- * each line in Russian and English. DAS_BOOTSTRAP_PRINT=false keeps the password out of the console.
+ * each line in Russian and English. The password is printed only into an interactive terminal (DAS_BOOTSTRAP_PRINT=true forces, false forbids).
  *
  * Pure: returns the text, the caller prints it.
  */
@@ -19,7 +19,7 @@ export function formatStartBanner({ name = 'My App', appVersion = null, coreVers
   if (bootstrap?.created) {
     rows.push('', 'Первый запуск — создан администратор / First run — administrator created:', '');
     rows.push(`  логин / login:       ${bootstrap.username}`);
-    rows.push(`  пароль / password:   ${showPassword ? bootstrap.tempPassword : '(скрыт / hidden: DAS_BOOTSTRAP_PRINT=false)'}`);
+    rows.push(`  пароль / password:   ${showPassword ? bootstrap.tempPassword : '(скрыт / hidden: смотрите файл / see the file)'}`);
     rows.push('', 'Пароль временный: после первого входа сразу попросят задать свой; старый вводить повторно не придётся.');
     rows.push('', 'The password is temporary: right after the first sign-in you will be asked to set your own, without typing this one again.');
     if (credentialsFile) rows.push('', `файл / file: ${credentialsFile}`);

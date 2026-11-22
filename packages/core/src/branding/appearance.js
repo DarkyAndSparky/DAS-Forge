@@ -124,6 +124,11 @@ export function brandBlockHtml(db, vendorIdentity, opts = {}) {
   return brandBlockFrom(b, vendorIdentity, opts);
 }
 
+/** The administrator's support address ("Appearance"), or '' - for the `supportEmail` option of the error pages. A failing read gives ''. */
+export function supportEmailOf(db) {
+  try { return db ? getCompanyBranding(db).supportEmail ?? '' : ''; } catch { return ''; }
+}
+
 /** `brandBlockHtml` over `asyncDb`. */
 export async function brandBlockHtmlAsync(db, vendorIdentity, opts = {}) {
   let b = {};

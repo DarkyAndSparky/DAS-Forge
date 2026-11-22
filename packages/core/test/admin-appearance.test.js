@@ -137,12 +137,19 @@ describe('admin appearance section: two administrators (G-03)', () => {
     const db = createSqliteAdapter({ file: ':memory:' });
     const routes = mk(db, mkdtempSync(path.join(os.tmpdir(), 'adm-appearance-')));
     const page = await call(routes['GET /admin/appearance'], { query: { lang: 'en' } });
-    const [nameV, colorV] = [...page.body.matchAll(/name="_v" value="([0-9a-f]+)"/g)].map((m) => m[1]);
+    const [nameV, supportV, colorV] = [...page.body.matchAll(/name="_v" value="([0-9a-f]+)"/g)].map((m) => m[1]);
     let r = await call(routes['POST /admin/appearance/name'], { body: { name: 'First', _v: nameV } });
     expect(r.location).toBe('/admin/appearance?msg=ok');
     r = await call(routes['POST /admin/appearance/name'], { body: { name: 'Second', _v: nameV } });
     expect(r.location).toBe('/admin/appearance?msg=conflict');
     expect(getCompanyBranding(db).name).toBe('First');
+    r = await call(routes['POST /admin/appearance/support'], { body: { supportEmail: ' it@corp.example ', _v: supportV } });
+    expect(r.location).toBe('/admin/appearance?msg=ok');
+    expect(getCompanyBranding(db).supportEmail).toBe('it@corp.example');
+    r = await call(routes['POST /admin/appearance/support'], { body: { supportEmail: 'other@corp.example', _v: supportV } });
+    expect(r.location).toBe('/admin/appearance?msg=conflict');
+    r = await call(routes['POST /admin/appearance/support'], { body: { supportEmail: 'not an address' } });
+    expect(r.location).toBe('/admin/appearance?msg=bad');
     r = await call(routes['POST /admin/appearance/colors'], { body: { accent: '#E8445A', accentDark: '#F5D000', _v: colorV } });
     expect(r.location).toBe('/admin/appearance?msg=ok'); // the name changed, the colours did not
     r = await call(routes['POST /admin/appearance/colors'], { body: { accent: '#111111', accentDark: '#222222', _v: colorV } });

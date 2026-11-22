@@ -46,13 +46,16 @@ export function requestId() {
  * @param {false | {reportUri?: string}} [opts.reportOnly] - also send a stricter policy as `Content-Security-Policy-Report-Only`
  *   (styles only from `'self'` and the nonce, no `'unsafe-inline'`) with violations reported to `reportUri` (default `/csp-report`, see `cspReports`).
  *   Nothing is blocked by it: it shows what stands in the way of tightening the real policy.
+ * @param {boolean} [opts.allowInlineStyleElements=false] - audit S-14: `<style>` elements need the page's nonce (`res.locals.cspNonce`), as scripts do;
+ *   `style="..."` attributes stay allowed (`style-src-attr 'unsafe-inline'`: an attribute cannot run script). `true` brings back `'unsafe-inline'` for
+ *   `<style>` elements too, for an application whose pages have `<style>` without a nonce.
  * @param {false | {maxAgeSeconds?: number, includeSubDomains?: boolean, preload?: boolean}} [opts.hsts]
  *   default: one year, includeSubDomains off (opt in deliberately - it
  *   affects every subdomain of the host). `preload` adds the token browsers'
  *   preload list requires (a public domain only; it demands at least a year and
  *   includeSubDomains, and is refused otherwise - removal from the list takes months).
  */
-export function securityHeaders({ extraConnectSrc = [], hsts = {}, reportOnly = false } = {}) {
+export function securityHeaders({ extraConnectSrc = [], hsts = {}, reportOnly = false, allowInlineStyleElements = false } = {}) {
   const reportUri = reportOnly ? (reportOnly.reportUri ?? '/csp-report') : null;
   if (reportUri && !/^\/[\w\-./]*$/.test(reportUri)) throw new TypeError('securityHeaders: reportOnly.reportUri must be a path like /csp-report');
   if (hsts && hsts.preload && (!hsts.includeSubDomains || (hsts.maxAgeSeconds ?? 31_536_000) < 31_536_000)) {
@@ -77,7 +80,9 @@ export function securityHeaders({ extraConnectSrc = [], hsts = {}, reportOnly = 
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.cspNonce}'`],
-        styleSrc: ["'self'", "'unsafe-inline'"], // inline styles still common for component styling
+        // <style> elements need the nonce (audit S-14); style="..." attributes stay allowed through style-src-attr
+        styleSrc: allowInlineStyleElements ? ["'self'", "'unsafe-inline'"] : ["'self'", (req, res) => `'nonce-${res.locals.cspNonce}'`],
+        styleSrcAttr: ["'unsafe-inline'"],
         imgSrc: ["'self'", 'data:'],
         connectSrc: ["'self'", ...extraConnectSrc],
         objectSrc: ["'none'"],

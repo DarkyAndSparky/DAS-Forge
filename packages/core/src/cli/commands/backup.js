@@ -104,7 +104,7 @@ export function registerBackupCommands(cli, { runBackupFn, listBackupsFn, verify
 
   if (restoreBackupFn) {
     cli.command('backup restore', {
-      description: 'Restore a backup file over the live database (app backup restore <file> [--yes])',
+      description: 'Restore a backup file over the live database (app backup restore <file> [--yes] [--allow-broken-audit-chain])',
       async handler({ positionals, flags }) {
         const file = positionals[0];
         if (!file) {
@@ -123,7 +123,7 @@ export function registerBackupCommands(cli, { runBackupFn, listBackupsFn, verify
           return 1;
         }
 
-        const result = await restoreBackupFn(file);
+        const result = await restoreBackupFn(file, { allowBrokenAuditChain: flags['allow-broken-audit-chain'] === true });
 
         for (const step of result.steps) {
           // eslint-disable-next-line no-console

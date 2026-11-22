@@ -3,6 +3,7 @@ import { poweredByHtml } from '../ui/powered-by.js';
 import { brandBlockHtml } from '../branding/appearance.js';
 import { langSwitchHtml } from '../ui/lang-switch.js';
 import { catalogFor, errorText, resolveLocale } from './error-catalog.js';
+import { helpBlockHtml, HELP_CSS, kindOf, kindText } from './error-help.js';
 
 /**
  * Branded error pages: the app's logo and name on top (the administrator's "Appearance" when a `brand`
@@ -30,9 +31,14 @@ import { catalogFor, errorText, resolveLocale } from './error-catalog.js';
  * @param {string} [opts.brandHtml] - the brand block (logo + name, see `branding.brandBlockHtml`); without it the vendor identity's own logo and name
  * @param {string} [opts.extraHtml] - trusted markup under the hint (a maintenance notice, say)
  * @param {number} [opts.refreshSec] - reload the page by itself after this many seconds
+ * @param {string} [opts.kind] - the situation ('ban', 'rate', 'csrf', 'session', 'forbidden', 'notfound', 'server', 'unavailable', 'generic'); by default from the status. Picks the "what you can do" steps
+ * @param {string} [opts.supportEmail] - the administrator's address shown in the help block (the diagnostics file goes there)
+ * @param {number} [opts.retryAfterSec] - how long to wait (429/503), shown under the hint
+ * @param {boolean} [opts.help=true] - the help block with the diagnostics; `false` leaves it out
  */
-export function renderErrorPage({ vendorIdentity, statusCode, title, message, requestId, hint, locale = 'ru', theme = {}, bodyEndHtml = '', loginUrl = '', nonce = '', brandHtml = '', extraHtml = '', refreshSec = 0 }) {
+export function renderErrorPage({ vendorIdentity, statusCode, title, message, requestId, hint, locale = 'ru', theme = {}, bodyEndHtml = '', loginUrl = '', nonce = '', brandHtml = '', extraHtml = '', refreshSec = 0, kind = '', supportEmail = '', retryAfterSec = 0, help = true }) {
   const L = catalogFor(locale);
+  const waitText = retryAfterSec > 0 ? (locale === 'en' ? `Try again in ${waitHuman(retryAfterSec, 'en')}.` : `Повторите через ${waitHuman(retryAfterSec, 'ru')}.`) : '';
   const brand = brandHtml || brandBlockHtml(null, vendorIdentity);
 
   return `<!DOCTYPE html>
@@ -42,11 +48,12 @@ export function renderErrorPage({ vendorIdentity, statusCode, title, message, re
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${statusCode} — ${escapeHtml(title)}</title>
 ${refreshSec > 0 ? `<meta http-equiv="refresh" content="${Math.floor(refreshSec)}">\n` : ''}
-<style>
+<style${nonce ? ` nonce="${escapeHtml(nonce)}"` : ''}>
   ${tokenCss(theme)}
   ${THEME_BUTTON_CSS}
   ${LOGO_CSS}
   ${CREATED_BY_CSS}
+  ${HELP_CSS}
   :root { --bg:var(--adm-bg); --fg:var(--adm-text); --muted:var(--adm-text-dim); --border:var(--adm-border); }
   body {
     margin:0; min-height:100vh; display:flex; flex-direction:column;
@@ -76,13 +83,23 @@ ${refreshSec > 0 ? `<meta http-equiv="refresh" content="${Math.floor(refreshSec)
   <h1>${escapeHtml(title)}</h1>
   <p class="message">${escapeHtml(message)}</p>
   ${hint ? `<p class="hint">${escapeHtml(hint)}</p>` : ''}
+  ${waitText ? `<p class="hint" role="status"><strong>${escapeHtml(waitText)}</strong></p>` : ''}
   ${extraHtml ? `<div class="extra">${extraHtml}</div>` : ''}
   <div>${statusCode === 401 && loginUrl ? `<a class="home login" href="${escapeHtml(loginUrl)}">${escapeHtml(L.login)}</a>` : ''}<a class="home" href="/">${escapeHtml(L.home)}</a></div>
+  ${help ? helpBlockHtml({ kind: kind || kindOf(statusCode), statusCode, requestId, locale, supportEmail, nonce }) : ''}
   <div class="created">${poweredByHtml(locale)}</div>
   ${requestId ? `<p class="request-id">${escapeHtml(L.requestId)}: ${escapeHtml(requestId)}</p>` : ''}
 ${bodyEndHtml}
 </body>
 </html>`;
+}
+
+/** 90 -> '2 мин', 20 -> '20 сек'. */
+function waitHuman(sec, lng) {
+  const s = Math.max(1, Math.ceil(sec));
+  if (s < 90) return lng === 'en' ? `${s} s` : `${s} сек`;
+  const m = Math.ceil(s / 60);
+  return lng === 'en' ? `${m} min` : `${m} мин`;
 }
 
 function escapeHtml(str) {
@@ -94,6 +111,11 @@ function escapeHtml(str) {
 /** The app's brand block for this request; a failing callback only drops the app's own branding. */
 function brandOf(brand, req) {
   try { return typeof brand === 'function' ? String(brand(req) ?? '') : ''; } catch { return ''; }
+}
+
+/** The administrator's support address for this request; a failing callback only drops the address. */
+function supportOf(fn, req) {
+  try { return typeof fn === 'function' ? String(fn(req) ?? '') : ''; } catch { return ''; }
 }
 
 function wantsJson(req) {
@@ -112,7 +134,7 @@ function pickLocale(req, locale) {
  * browsers the branded page; language: opts.locale ('ru'|'en'|(req)=>...) as the default, overridden by
  * req.locale / Accept-Language; opts.theme carries the app's theme tokens.
  */
-export function notFoundHandler(vendorIdentity, { locale = 'ru', theme = {}, bodyEnd = null, loginUrl = '', brand = null } = {}) {
+export function notFoundHandler(vendorIdentity, { locale = 'ru', theme = {}, bodyEnd = null, loginUrl = '', brand = null, supportEmail = null } = {}) {
   return (req, res) => {
     const loc = pickLocale(req, locale);
     const text = errorText(404, loc);
@@ -120,7 +142,7 @@ export function notFoundHandler(vendorIdentity, { locale = 'ru', theme = {}, bod
       return res.status(404).json({ error: 'NOT_FOUND', message: text.message, fields: [], requestId: req.id });
     }
     res.status(404).type('html').send(
-      renderErrorPage({ vendorIdentity, statusCode: 404, title: text.title, message: text.message, hint: text.hint, requestId: req.id, locale: loc, theme, loginUrl, nonce: res.locals?.cspNonce, brandHtml: brandOf(brand, req), bodyEndHtml: bodyEnd?.(req, res, loc) ?? '' })
+      renderErrorPage({ vendorIdentity, statusCode: 404, title: text.title, message: text.message, hint: text.hint, requestId: req.id, locale: loc, theme, loginUrl, nonce: res.locals?.cspNonce, brandHtml: brandOf(brand, req), supportEmail: supportOf(supportEmail, req), bodyEndHtml: bodyEnd?.(req, res, loc) ?? '' })
     );
   };
 }
@@ -141,7 +163,7 @@ export function notFoundHandler(vendorIdentity, { locale = 'ru', theme = {}, bod
  * @param {object} vendorIdentity
  * @param {{logger?: {error: Function, warn: Function}, locale?: 'ru'|'en'|Function, theme?: object}} [opts]
  */
-export function errorPageHandler(vendorIdentity, { logger, locale = 'ru', theme = {}, bodyEnd = null, loginUrl = '', brand = null } = {}) {
+export function errorPageHandler(vendorIdentity, { logger, locale = 'ru', theme = {}, bodyEnd = null, loginUrl = '', brand = null, supportEmail = null } = {}) {
   return (err, req, res, next) => {
     if (res.headersSent) return next(err);
 
@@ -162,7 +184,7 @@ export function errorPageHandler(vendorIdentity, { logger, locale = 'ru', theme 
     }
 
     res.status(statusCode).type('html').send(
-      renderErrorPage({ vendorIdentity, statusCode, title: text.title, message, hint: text.hint, requestId: req.id, locale: loc, theme, loginUrl, nonce: res.locals?.cspNonce, brandHtml: brandOf(brand, req), bodyEndHtml: bodyEnd?.(req, res, loc) ?? '' })
+      renderErrorPage({ vendorIdentity, statusCode, title: text.title, message, hint: text.hint, requestId: req.id, locale: loc, theme, loginUrl, nonce: res.locals?.cspNonce, brandHtml: brandOf(brand, req), supportEmail: supportOf(supportEmail, req), retryAfterSec: statusCode === 429 || statusCode === 503 ? Number(err?.retryAfterSec) || 0 : 0, bodyEndHtml: bodyEnd?.(req, res, loc) ?? '' })
     );
   };
 }
@@ -175,19 +197,20 @@ export function errorPageHandler(vendorIdentity, { logger, locale = 'ru', theme 
  * @param {object} vendorIdentity
  * @param {{locale?: 'ru'|'en'|Function, theme?: object, bodyEnd?: (req, res, locale) => string, loginUrl?: string, brand?: (req) => string}} [opts] - `brand` returns the brand block (`branding.brandBlockHtml(db, vendorIdentity)`)
  */
-export function errorResponder(vendorIdentity, { locale = 'ru', theme = {}, bodyEnd = null, loginUrl = '', brand = null } = {}) {
+export function errorResponder(vendorIdentity, { locale = 'ru', theme = {}, bodyEnd = null, loginUrl = '', brand = null, supportEmail = null } = {}) {
   return (req, res, next) => {
     res.locals = res.locals ?? {};
     res.locals.sendError = (status, body = {}) => {
       if (res.headersSent) return undefined;
       const loc = pickLocale(req, locale);
-      const text = errorText(status, loc);
+      const kind = kindOf(status, body.error);
+      const text = { ...errorText(status, loc), ...kindText(kind, loc) };
       if (typeof body.retryAfterSec === 'number') res.setHeader?.('Retry-After', String(body.retryAfterSec));
       // Guards answer with a page ONLY when the client asks for HTML (a browser navigation always does);
       // curl, scripts and fetch() without an Accept header keep getting the JSON they expect.
       if (wantsJson(req) || !/text\/html/i.test(String(req.headers?.accept ?? ''))) return res.status(status).json(body);
       return res.status(status).type('html').send(
-        renderErrorPage({ vendorIdentity, statusCode: status, title: text.title, message: text.message, hint: text.hint, requestId: req.id, locale: loc, theme, loginUrl, nonce: res.locals?.cspNonce, brandHtml: brandOf(brand, req), bodyEndHtml: bodyEnd?.(req, res, loc) ?? '' })
+        renderErrorPage({ vendorIdentity, statusCode: status, title: text.title, message: text.message, hint: text.hint, requestId: req.id, locale: loc, theme, loginUrl, nonce: res.locals?.cspNonce, brandHtml: brandOf(brand, req), kind, supportEmail: supportOf(supportEmail, req), retryAfterSec: Number(body.retryAfterSec) || 0, bodyEndHtml: bodyEnd?.(req, res, loc) ?? '' })
       );
     };
     next();

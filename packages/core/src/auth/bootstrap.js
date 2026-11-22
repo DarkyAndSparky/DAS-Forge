@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
-import { countUsers, createUser } from './users.js';
+import { countUsers, createUser, findUserByUsername } from './users.js';
 import { hashPassword } from './password.js';
 
 /**
@@ -61,4 +61,50 @@ export function writeBootstrapCredentials(file, { username, tempPassword }) {
     { flag: 'wx', mode: 0o600 }
   );
   return file;
+}
+
+/**
+ * Whether the start banner may print the temporary password. A console line cannot be taken back once it is in a
+ * terminal history or a container log, so by default it is printed only into an interactive terminal; anywhere
+ * else (a service, `docker logs`) only the path of the credentials file is shown. `DAS_BOOTSTRAP_PRINT=true`
+ * forces printing, `false` forbids it.
+ * @param {Record<string, string | undefined>} env
+ * @param {{isTTY?: boolean}} stdout
+ */
+export function bootstrapPrintAllowed(env = process.env, stdout = process.stdout) {
+  const v = String(env.DAS_BOOTSTRAP_PRINT ?? '').trim().toLowerCase();
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return Boolean(stdout?.isTTY);
+}
+
+/**
+ * Removes the first-run credentials file once the administrator has changed the temporary password
+ * (the user no longer has `mustChangePassword`). A file that is not there, or a password still to be
+ * changed, is left alone.
+ * @returns {'removed' | 'kept' | 'none'}
+ */
+export function removeBootstrapCredentialsIfChanged(db, file, { username = 'admin' } = {}) {
+  if (!existsSync(file)) return 'none';
+  const user = findUserByUsername(db, username);
+  if (!user || user.mustChangePassword) return 'kept';
+  try { rmSync(file, { force: true }); return 'removed'; } catch { return 'kept'; }
+}
+
+/**
+ * Checks now and then (default every 30 s, the timer does not keep the process alive) and removes the
+ * credentials file as soon as the temporary password has been changed. Returns `stop()`.
+ * @param {{username?: string, intervalMs?: number, onRemoved?: () => void}} [o]
+ */
+export function watchBootstrapCredentials(db, file, { username = 'admin', intervalMs = 30_000, onRemoved } = {}) {
+  let timer = null;
+  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+  const tick = () => {
+    let r;
+    try { r = removeBootstrapCredentialsIfChanged(db, file, { username }); } catch { r = 'kept'; }
+    if (r === 'removed') { stop(); try { onRemoved?.(); } catch { /* a faulty callback must not stop the cleanup */ } } else if (r === 'none') stop();
+  };
+  tick();
+  if (existsSync(file)) { timer = setInterval(tick, intervalMs); timer.unref?.(); }
+  return stop;
 }

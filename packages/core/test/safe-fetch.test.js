@@ -83,3 +83,19 @@ describe('outboundPolicyFromConfig', () => {
     setOutboundPolicy({});
   });
 });
+
+describe('refusedAddress: wrapped IPv4 and extra ranges (audit S-04)', () => {
+  it('judges an IPv6 address that only carries an IPv4 address as that IPv4 address', () => {
+    for (const ip of ['::ffff:127.0.0.1', '::ffff:7f00:1', '::127.0.0.1', '::7f00:1', '64:ff9b::7f00:1', '64:ff9b::127.0.0.1', '2002:7f00:1::', '2002:a9fe:a9fe::1', '64:ff9b::a9fe:a9fe']) {
+      expect(refusedAddress(ip, { allowPrivate: false }), ip).not.toBeNull();
+    }
+    // the metadata address inside a wrapper is refused even when private addresses are allowed
+    for (const ip of ['64:ff9b::a9fe:a9fe', '2002:a9fe:a9fe::', '::ffff:169.254.169.254', '::169.254.169.254']) expect(refusedAddress(ip, { allowPrivate: true }), ip).not.toBeNull();
+  });
+  it('refuses benchmark, protocol, site-local and Alibaba metadata ranges whatever allowPrivate says', () => {
+    for (const ip of ['198.18.0.1', '198.19.255.255', '192.0.0.8', '100.100.100.200', 'fec0::1', '64:ff9b:1::1']) expect(refusedAddress(ip, { allowPrivate: true }), ip).not.toBeNull();
+  });
+  it('still lets public addresses through, wrapped or not', () => {
+    for (const ip of ['8.8.8.8', '::ffff:8.8.8.8', '64:ff9b::808:808', '2001:4860:4860::8888', '2002:808:808::1', '198.20.0.1', '100.128.0.1']) expect(refusedAddress(ip, { allowPrivate: false }), ip).toBeNull();
+  });
+});

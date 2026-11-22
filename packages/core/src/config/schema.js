@@ -48,6 +48,9 @@ export const ServerConfigSchema = z.strictObject({
   // Extra host names the redirect may send a browser to (the Host header is trusted only for these, plus the
   // listen host, localhost and loopback): stops a forged Host header from making the listener an open redirect.
   allowedHosts: z.array(z.string().min(1)).default([]),
+  // Host-name check (audit S-08): a request whose Host is not localhost, allowedHosts or the host of email.baseUrl gets 421.
+  // 'auto': enforce when a name is configured, otherwise only log a warning; 'warn' always only logs; 'off' no check.
+  hostCheck: z.enum(['auto', 'enforce', 'warn', 'off']).default('auto'),
   // false | true (one proxy hop) | number of hops (2+ for CDN + nginx) | list of trusted proxy addresses/subnets
   // ('10.0.0.0/8', '::1', 'loopback', ...). Only what you list is trusted for X-Forwarded-* (audit L04).
   trustProxy: z
@@ -310,6 +313,11 @@ export const AuditConfigSchema = z.strictObject({
   purgeBatchSize: z.number().int().min(100).max(100_000).default(5000),
   // A folder for the archive: before `audit-gc` deletes old rows they are written there (audit-<from>-<to>.ndjson.gz + .sha256). Empty = no archive.
   archiveDir: z.string().default(''),
+  // Seal (audit R-01): a key kept OUTSIDE the database (an environment variable or a secret file, `DAS_AUDIT_SEAL_KEY`). Every new
+  // row gets HMAC-SHA256(key, hash); without the key nobody who can write the database can forge a row that verifies.
+  // 32+ characters (`secret generate`). `previousSealKeys` still verify older rows after a rotation.
+  sealKey: z.string().min(32).optional(),
+  previousSealKeys: z.array(z.string().min(32)).default([]),
 });
 
 /** Alerts: what is watched and how often the same alert may be mailed (`alerts` module). Recipients: `security.incidentContacts`. */
@@ -521,7 +529,9 @@ export const AuthConfigSchema = z.strictObject({
       maxQueue: z.number().int().min(0).max(10_000).default(64),
     })
     .prefault({}),
-  totp: z.strictObject({ enabled: z.boolean().default(false) }).prefault({}),
+  // `requiredRoles`: the developer's minimum - users of these roles must have a second factor. An administrator can add roles
+  // in the admin panel (Password policy), never remove one listed here.
+  totp: z.strictObject({ enabled: z.boolean().default(false), requiredRoles: z.array(z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/)).max(50).default([]) }).prefault({}),
 });
 
 export const PerformanceConfigSchema = z.strictObject({

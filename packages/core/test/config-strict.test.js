@@ -97,3 +97,14 @@ describe('email configuration', () => {
     expect(failure(() => email({ smtp: { hots: 'x' } })).fields.map((f) => f.path)).toContain('email.smtp.hots');
   });
 });
+
+describe('auth.totp.requiredRoles (audit S-15)', () => {
+  it('defaults to no roles and accepts role names', () => {
+    expect(validateConfig(base).auth.totp.requiredRoles).toEqual([]);
+    const c = validateConfig({ ...base, auth: { ...base.auth, totp: { enabled: true, requiredRoles: ['admin', 'ops.lead'] } } });
+    expect(c.auth.totp.requiredRoles).toEqual(['admin', 'ops.lead']);
+  });
+  it('refuses a malformed role name', () => {
+    expect(failure(() => validateConfig({ ...base, auth: { ...base.auth, totp: { requiredRoles: ['bad name'] } } }))).toBeInstanceOf(ConfigValidationError);
+  });
+});

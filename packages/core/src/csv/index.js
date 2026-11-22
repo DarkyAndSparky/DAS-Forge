@@ -15,15 +15,16 @@ export class CsvError extends Error {
 }
 
 /** Leading characters that make a spreadsheet read a text as a formula (or as a DDE command). */
-const TRIGGER = /^[=+\-@\t\r\n|]/;
-const DANGEROUS = /^[\s'"]*[=+\-@]\s*(?:cmd|HYPERLINK|IMPORT\w+|IMAGE|WEBSERVICE|DDE)\b/i;
+// audit S-06: also after leading blanks or invisible characters, and in the full-width forms
+const TRIGGER = /^[\s\u200b-\u200f\u2028\u2029\ufeff]*[=+\-@\uff1d\uff0b\uff0d\uff20|]|^[\t\r\n]/;
+const DANGEROUS = /^[\s\u200b-\u200f\ufeff'"]*[=+\-@\uff1d\uff0b\uff0d\uff20]\s*(?:cmd|HYPERLINK|IMPORT\w+|IMAGE|WEBSERVICE|DDE)\b/i;
 
 /** @param {string} s */
 export function isFormulaText(s) { return typeof s === 'string' && (TRIGGER.test(s) || DANGEROUS.test(s)); }
 /** Prefix a text that would run as a formula with an apostrophe. @param {string} s */
 export function escapeFormula(s) { return isFormulaText(s) ? `'${s}` : s; }
 /** Undo {@link escapeFormula}, only where it would have added the apostrophe. @param {string} s */
-export function unescapeFormula(s) { return typeof s === 'string' && s.length > 1 && s[0] === "'" && TRIGGER.test(s[1]) ? s.slice(1) : s; }
+export function unescapeFormula(s) { return typeof s === 'string' && s.length > 1 && s[0] === "'" && TRIGGER.test(s.slice(1)) ? s.slice(1) : s; }
 
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g;
 

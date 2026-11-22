@@ -1,6 +1,6 @@
 import { validateUpload } from './validate-upload.js';
 import { storeUpload } from './upload-storage.js';
-import { verifyZipData } from './zip-verify.js';
+import { verifyZipDataIsolated, reencodeImageIsolated } from './isolated.js';
 import { assertUploadQuota, noteUploadStored } from './upload-quota.js';
 
 const REENCODABLE = new Set(['png', 'jpg', 'webp', 'heic']);
@@ -33,7 +33,7 @@ const ZIP_FAMILY = new Set(['zip', 'docx', 'xlsx', 'pptx', 'odt']);
  * @param {{maxTotalBytes?: number, maxFiles?: number}} [opts.quota] - refuse (Error.code 'QUOTA_EXCEEDED') when the directory would exceed it; 0 = unlimited
  * @param {object} [opts.imageOptions] - maxWidth/maxHeight/quality/outputFormat/maxInputPixels
  * @param {string[]} [opts.passthroughTypes] - image types allowed to be stored without re-encoding
- * @param {(buffer: Buffer, options?: object) => Promise<{buffer: Buffer, format: string}>} [opts.reencode]
+ * @param {(buffer: Buffer, options?: object) => Promise<{buffer: Buffer, format: string}>} [opts.reencode] - by default the image is decoded and re-encoded in a worker thread (`reencodeImageIsolated`)
  * @returns {Promise<{filename: string, fullPath: string, type: string, mime: string, size: number}>}
  */
 export async function acceptUpload(buffer, { allowedTypes, maxBytes, svgMaxBytes, storageDir, zipGuardOptions, imageOptions, passthroughTypes = [], reencode, verifyArchiveData = true, quota } = {}) {
@@ -46,14 +46,14 @@ export async function acceptUpload(buffer, { allowedTypes, maxBytes, svgMaxBytes
   let { type, mime, buffer: out } = validated;
 
   if (verifyArchiveData && ZIP_FAMILY.has(type)) {
-    const check = await verifyZipData(buffer, zipGuardOptions);
+    const check = await verifyZipDataIsolated(buffer, zipGuardOptions);
     if (!check.ok) throw new Error(`Unsafe archive: ${check.reason}`);
   }
 
   const isRaster = ['png', 'jpg', 'webp', 'heic', 'gif', 'bmp'].includes(type);
   if (isRaster) {
     if (REENCODABLE.has(type)) {
-      const fn = reencode ?? (await import('./image-pipeline.js')).reencodeImage;
+      const fn = reencode ?? reencodeImageIsolated;
       let result;
       try {
         result = await fn(out, imageOptions);

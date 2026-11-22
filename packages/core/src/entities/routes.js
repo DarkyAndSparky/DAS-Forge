@@ -16,6 +16,33 @@
 import { EntityNotFoundError, EntityValidationError, EntityConflictError, TenantRequiredError } from './store.js';
 import { TenantAccessError } from '../tenancy/index.js';
 
+const NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+/**
+ * `filter[field]=value` read from the query by the code itself: Express 5 parses `a[b]=c` into an object only when the app turned
+ * the "extended" query parser on, and the default parser would silently drop the filter. Both shapes are accepted. A value is a text
+ * or a list of up to 50 texts; anything else (a nested object such as `filter[x][$ne]=1`) is refused.
+ */
+export function readFilter(query) {
+  const out = Object.create(null);
+  const put = (name, v) => {
+    if (!NAME.test(name)) throw new EntityValidationError([{ path: 'filter', code: 'not_filterable' }]);
+    const ok = (x) => typeof x === 'string' && x.length <= 200;
+    if (!(ok(v) || (Array.isArray(v) && v.length <= 50 && v.every(ok)))) throw new EntityValidationError([{ path: `filter.${name}`, code: 'type' }]);
+    out[name] = v;
+  };
+  for (const [k, v] of Object.entries(query ?? {})) {
+    const m = /^filter\[(.*)\]$/.exec(k);
+    if (m) put(m[1], v);
+  }
+  const nested = query?.filter;
+  if (nested !== undefined) {
+    if (!isPlain(nested)) throw new EntityValidationError([{ path: 'filter', code: 'type' }]);
+    for (const [k, v] of Object.entries(nested)) put(k, v);
+  }
+  return out;
+}
+const isPlain = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
 const bad = (res, status, error, extra = {}) => res.status(status).json({ error, ...extra });
 
 function mapError(res, e) {
@@ -37,6 +64,8 @@ export function mountEntityApi(app, { entity, store, basePath = `/api/${entity.t
   const tenanted = entity.tenant !== 'global';
 
   // right in the organizations the person works in (a list), or in one organization (a record)
+  // the organizations where the person may read: the list query itself is limited to them, so `total` and the page count never count other organizations' records
+  const readableTenants = (s, p) => (!tenanted || !p || s.all ? undefined : s.visibleTenantIds.filter((x) => s.can(p, x)));
   const allowedAnywhere = (scope, p) => !p || scope.all || (tenanted ? scope.visibleTenantIds.some((t) => scope.can(p, t)) : scope.can(p));
   const allowedIn = (scope, p, rec) => !p || scope.all || (tenanted ? scope.can(p, rec.tenantId) : scope.can(p));
 
@@ -62,8 +91,8 @@ export function mountEntityApi(app, { entity, store, basePath = `/api/${entity.t
   app.get(basePath, wrap(async (req, res, scope) => {
     if (!allowedAnywhere(scope, perms.read)) return bad(res, 403, 'forbidden');
     const q = req.query ?? {};
-    const filter = q.filter && typeof q.filter === 'object' ? q.filter : {};
-    const out = await store.list(scope, { page: q.page, size: q.size, sort: q.sort ? String(q.sort).split(',') : undefined, filter, q: typeof q.q === 'string' ? q.q : '', includeDeleted: q.includeDeleted === '1' && allowedAnywhere(scope, perms.restore ?? perms.delete) });
+    const filter = readFilter(q);
+    const out = await store.list(scope, { onlyTenants: readableTenants(scope, perms.read), page: q.page, size: q.size, sort: q.sort ? String(q.sort).split(',') : undefined, filter, q: typeof q.q === 'string' ? q.q : '', includeDeleted: q.includeDeleted === '1' && allowedAnywhere(scope, perms.restore ?? perms.delete) });
     // records of organizations where the person has no read right are not shown
     const items = out.items.filter((r) => allowedIn(scope, perms.read, r));
     return res.json({ ...out, items });

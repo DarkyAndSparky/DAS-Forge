@@ -125,7 +125,10 @@ describe('the application over real HTTP', () => {
     const me = await call('GET', '/me');
     expect(me.status).toBe(200);
     expect(me.json.username).toBe('ann');
-    expect(JSON.stringify(me.json)).not.toMatch(/password|hash/i);
+    // no hash or password value; the flag `mustChangePassword` is allowed, it carries no secret
+    expect(Object.keys(me.json).filter((k) => /hash|^password$|secret/i.test(k))).toEqual([]);
+    expect(JSON.stringify(me.json)).not.toContain('user-password-1');
+    expect(JSON.stringify(me.json)).not.toMatch(/\$argon2/);
   });
 
   it('a user without the permission can read notes but not write them', async () => {

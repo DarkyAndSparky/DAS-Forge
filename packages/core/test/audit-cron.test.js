@@ -138,3 +138,25 @@ describe('scheduler (B15)', () => {
     expect(await s.stop()).toBeUndefined();
   });
 });
+
+import { redactText } from '../src/audit/chain.js';
+
+describe('audit redaction (audit S-05)', () => {
+  it('blanks more key names, and keeps harmless ones', () => {
+    const out = redactMeta({ sid: 'a', sessionId: 'b', session_id: 'c', pwd: 'd', pin: '1234', credit_card: '4111', cvv: '123', iban: 'DE00', jwt: 'x', ping: 'ok', mapping: 'ok', author: 'ann', path: '/x' });
+    for (const k of ['sid', 'sessionId', 'session_id', 'pwd', 'pin', 'credit_card', 'cvv', 'iban', 'jwt']) expect(out[k], k).toBe('[REDACTED]');
+    expect(out).toMatchObject({ ping: 'ok', mapping: 'ok', author: 'ann', path: '/x' });
+  });
+  it('blanks credentials inside text values, at any depth', () => {
+    const out = redactMeta({ note: 'call failed, header Authorization: Bearer abc.DEF-123_xyz', url: '/cb?x=1&token=s3cretvalue&y=2', nested: [{ msg: 'password=hunter2 given' }] });
+    expect(out.note).not.toContain('abc.DEF');
+    expect(out.url).toBe('/cb?x=1&token=[REDACTED]&y=2');
+    expect(out.nested[0].msg).toBe('password=[REDACTED] given');
+  });
+  it('blanks a JWT and leaves ordinary text and short values alone', () => {
+    expect(redactText('t eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk end')).toBe('t [REDACTED] end');
+    expect(redactText('user ann created record 12; key=a')).toBe('user ann created record 12; key=a');
+    expect(redactText('x'.repeat(9000)).endsWith('...[truncated]')).toBe(true);
+    expect(redactText(5)).toBe(5);
+  });
+});

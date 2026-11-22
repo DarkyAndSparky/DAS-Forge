@@ -66,7 +66,7 @@ export function startTotpEnrollment(db, userId, { name = null, accountName, issu
     [userId, name, expiresAt]
   );
   const authenticatorId = result.lastInsertRowid;
-  db.run(`INSERT INTO totp_credentials (authenticator_id, secret) VALUES (?, ?)`, [authenticatorId, sealSecret(secret, encryptionKey)]);
+  db.run(`INSERT INTO totp_credentials (authenticator_id, secret) VALUES (?, ?)`, [authenticatorId, sealSecret(secret, encryptionKey, { id: authenticatorId })]);
 
   return { authenticatorId, secret, otpauthUri: buildTotpUri(secret, { accountName, issuer }), expiresAt };
 }
@@ -97,7 +97,7 @@ export function verifyTotpEnrollment(db, authenticatorId, code, { userId = null,
   // Enrollment deliberately does NOT burn the step: the user's very next
   // action is usually a login with the same still-valid code. Replay
   // protection applies at login (verifyTotpLogin).
-  if (!verifyTotp(openSecret(row.secret, encryptionKey), code, { stepSeconds: row.period })) return false;
+  if (!verifyTotp(openSecret(row.secret, encryptionKey, { id: row.id }), code, { stepSeconds: row.period })) return false;
 
   db.run(`UPDATE authenticators SET status = 'active', expires_at = NULL, last_used_at = datetime('now') WHERE id = ?`, [
     authenticatorId,
@@ -126,7 +126,7 @@ export function verifyTotpLogin(db, userId, code, { encryptionKey = null } = {})
   for (const row of rows) {
     let secret;
     try {
-      secret = openSecret(row.secret, encryptionKey);
+      secret = openSecret(row.secret, encryptionKey, { id: row.id });
     } catch (err) {
       // A key problem is an operator's to fix (wrong/rotated key), not a reason for a 500 on login:
       // this factor simply cannot be checked. Say so, once per process, on the console.

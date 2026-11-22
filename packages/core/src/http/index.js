@@ -15,6 +15,7 @@ export { ERROR_CATALOG, errorText, resolveLocale } from './error-catalog.js';
 export { requestId, securityHeaders, registerGracefulShutdown, registerFatalHandlers } from './bootstrap.js';
 export { createRateLimiter, createFailureTracker, clientKey } from './rate-limit.js';
 export { csrfProtection } from './csrf.js';
+export { hostGuard, hostPolicyFromConfig, normalizeHost } from './host-guard.js';
 export { adminGate, adminNets, resolveAdminListener, listenAdmin, adminHosts } from './admin-listener.js';
 export { cspReports, normalizeCspReport } from './csp-report.js';
 export { createCors } from './cors.js';

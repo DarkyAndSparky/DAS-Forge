@@ -1,7 +1,8 @@
 import { detectFileType } from './magic-bytes.js';
-import { checkZipSafety, assertSafeOfficeFile } from './zip-guard.js';
+import { assertSafeOfficeFile } from './zip-guard.js';
+import { checkZipSafetyIsolated } from './isolated.js';
 import { detectOfficeType } from './zip-inspect.js';
-import { sanitizeSvg } from './svg-sanitize.js';
+import { sanitizeSvgIsolated } from './svg-isolated.js';
 
 /**
  * One entry point tying together the §4.5h/4.5h-4a upload-safety
@@ -17,7 +18,7 @@ import { sanitizeSvg } from './svg-sanitize.js';
  * @param {string[]} opts.allowedTypes - e.g. ['png','jpg','pdf','docx']
  * @param {number} [opts.maxBytes]
  * @param {object} [opts.zipGuardOptions] - passed to checkZipSafety()
- * @param {number} [opts.svgMaxBytes=1048576] - larger SVGs are refused before any parsing (audit I08)
+ * @param {number} [opts.svgMaxBytes=262144] - larger SVGs are refused before any parsing (audit I08); the sanitizing itself runs in a worker thread with a time limit (audit S-01)
  * @returns {Promise<{type: string, mime: string, buffer: Buffer}>} (async since 0.1.74) buffer is the
  *   (possibly SVG-sanitized) content to actually store; type/mime are
  *   the server-detected values, never the client's claims
@@ -37,7 +38,7 @@ export async function validateUpload(buffer, { allowedTypes, maxBytes, zipGuardO
   let outputBuffer = buffer;
 
   if (detected.type === 'zip') {
-    const guard = await checkZipSafety(buffer, zipGuardOptions);
+    const guard = await checkZipSafetyIsolated(buffer, zipGuardOptions);
     if (!guard.ok) {
       throw new Error(`Unsafe archive: ${guard.reason}`);
     }
@@ -54,7 +55,7 @@ export async function validateUpload(buffer, { allowedTypes, maxBytes, zipGuardO
   }
 
   if (detected.type === 'svg') {
-    const clean = sanitizeSvg(buffer.toString('utf8'), { maxBytes: svgMaxBytes });
+    const clean = await sanitizeSvgIsolated(buffer.toString('utf8'), { maxBytes: svgMaxBytes });
     // A sanitizer that strips everything must not turn into "accepted":
     // an empty/non-<svg> result means the input was not a usable SVG.
     if (!/<svg[\s>]/i.test(clean)) throw new Error('SVG is empty or unusable after sanitization - upload rejected');

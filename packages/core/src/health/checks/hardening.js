@@ -8,6 +8,7 @@
  */
 import { statSync } from 'node:fs';
 import v8 from 'node:v8';
+import { hostPolicyFromConfig } from '../../http/host-guard.js';
 
 const HOUR = 3_600_000;
 const posix = () => process.platform !== 'win32';
@@ -72,6 +73,23 @@ export async function hardeningChecks({ appConfig = {}, db = null, secretFiles =
     out.push(process.getuid() === 0
       ? { name: 'Process user', status: 'warn', message: 'running as root - run the service as an unprivileged user (a flaw in the application would then own the machine)' }
       : { name: 'Process user', status: 'ok', message: `uid ${process.getuid()}` });
+  }
+
+  if (appConfig?.auth?.totp?.enabled && !appConfig?.auth?.totpEncryptionKey) {
+    // audit R-03: not only for the internet profile
+    out.push({ name: 'TOTP encryption key', status: 'warn', message: 'auth.totpEncryptionKey is not set: the second-factor key is derived from the session secret, so one leaked secret opens both - create a key with "secret generate" and set auth.totpEncryptionKey (DAS_TOTP_KEY)' });
+  }
+
+  out.push(appConfig?.audit?.sealKey
+    ? { name: 'Audit seal', status: 'ok', message: 'new journal rows are sealed with a key kept outside the database' }
+    : { name: 'Audit seal', status: 'warn', message: 'audit.sealKey is not set: whoever can write the database can rewrite the journal and recompute its hash chain - create a key with "secret generate" and set audit.sealKey (DAS_AUDIT_SEAL_KEY)' });
+
+  {
+    // Host-name check (audit S-08): says what is checked and what to do when no site name is set
+    const hp = hostPolicyFromConfig(appConfig);
+    out.push(hp.mode === 'enforce' ? { name: 'Host-name check', status: 'ok', message: `unknown Host names get 421 (known: ${hp.names.join(', ') || 'localhost only'})` }
+      : hp.mode === 'off' ? { name: 'Host-name check', status: 'warn', message: 'server.hostCheck is off - set allowedHosts (or email.baseUrl) and use "auto"' }
+        : { name: 'Host-name check', status: 'warn', message: 'no site name is set, so any Host is let through and only logged - add the site name to server.allowedHosts (or set email.baseUrl): the check then turns on by itself' });
   }
 
   if (posix()) {

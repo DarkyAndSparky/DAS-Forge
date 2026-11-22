@@ -24,6 +24,8 @@ export const CompanyBrandingSchema = z.object({
   /** Accent colors, #rrggbb; null = the theme's own accent. */
   accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().default(null),
   accentDark: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().default(null),
+  /** The application administrator's address shown on error pages (where people send the diagnostics file). */
+  supportEmail: z.string().max(254).regex(/^[^\s"'<>(),;:\\]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/).nullable().default(null),
   updatedAt: z.string().datetime().nullable().default(null),
   updatedBy: z.string().nullable().default(null),
 });

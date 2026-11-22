@@ -122,10 +122,11 @@ export function createMaintenance({ db, cacheMs = 2000, now = () => Date.now() }
    * @param {string[]} [o.allowPaths] - path prefixes that stay open
    * @param {(req) => boolean} [o.bypass] - extra pass-through rule
    * @param {(req) => string} [o.brand] - brand block, see `branding.brandBlockHtml`
+   * @param {(req) => string} [o.supportEmail] - the administrator's address for the help block
    * @param {(req, res, locale) => string} [o.bodyEnd]
    * @param {object} [o.theme]
    */
-  function middleware({ vendorIdentity, permission = 'admin.access', allowPaths = ['/health', '/login', '/logout', '/branding/logo', '/policy'], bypass = null, brand = null, bodyEnd = null, theme = {} } = {}) {
+  function middleware({ vendorIdentity, permission = 'admin.access', allowPaths = ['/health', '/login', '/logout', '/branding/logo', '/policy'], bypass = null, brand = null, supportEmail = null, bodyEnd = null, theme = {} } = {}) {
     const respond = (req, res, next, state) => {
       if (!state.enabled) return next();
       const path = String(req.path ?? req.url ?? '');
@@ -148,8 +149,10 @@ export function createMaintenance({ db, cacheMs = 2000, now = () => Date.now() }
       if (state.until) parts.push(`<div class="adm-muted" style="margin-top:.4rem">${escapeHtml(text.until)}: <time datetime="${escapeHtml(state.until)}">${escapeHtml(state.until.slice(0, 16).replace('T', ' '))} UTC</time></div>`);
       let brandHtml;
       try { brandHtml = typeof brand === 'function' ? String(brand(req) ?? '') : ''; } catch { brandHtml = ''; }
+      let support;
+      try { support = typeof supportEmail === 'function' ? String(supportEmail(req) ?? '') : ''; } catch { support = ''; }
       return res.status(503).type('html').send(renderErrorPage({
-        vendorIdentity, statusCode: 503, title: text.title, message: text.message, hint: text.hint, locale, theme,
+        kind: 'unavailable', supportEmail: support, vendorIdentity, statusCode: 503, title: text.title, message: text.message, hint: text.hint, locale, theme,
         requestId: undefined, brandHtml, extraHtml: parts.join(''), refreshSec: 30, nonce: res.locals?.cspNonce,
         bodyEndHtml: bodyEnd?.(req, res, locale) ?? '',
       }));

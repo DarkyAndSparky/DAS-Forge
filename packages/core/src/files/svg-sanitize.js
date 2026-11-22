@@ -31,9 +31,13 @@ function loadDeps() {
 /** Anything that would make the browser fetch something from elsewhere. */
 const EXTERNAL_CSS = /@import|url\(\s*(?!['"]?#)/i;
 
-/** An SVG is parsed into a full DOM (jsdom): refuse big inputs before that (audit I08). Default 1 MiB. */
-export const DEFAULT_SVG_MAX_BYTES = 1024 * 1024;
+/** An SVG is parsed into a full DOM (jsdom): refuse big inputs before that (audit I08). Default 256 KiB (a logo or an icon is a few KiB; since 0.1.377, was 1 MiB). */
+export const DEFAULT_SVG_MAX_BYTES = 256 * 1024;
 
+/**
+ * Synchronous: it blocks the whole process while it runs and its time grows fast with nesting and attributes (audit S-01).
+ * For anything that comes from a person use `sanitizeSvgIsolated` (a worker thread with limits).
+ */
 export function sanitizeSvg(svgString, { maxBytes = DEFAULT_SVG_MAX_BYTES } = {}) {
   const text = String(svgString).replace(/^\uFEFF/, '');
   if (maxBytes > 0 && Buffer.byteLength(text, 'utf8') > maxBytes) {

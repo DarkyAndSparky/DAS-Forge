@@ -59,16 +59,27 @@ export function lockLicenses(lockText, { omitDev = true, baseDir = null } = {}) 
     const id = `${name}@${info.version}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    let license = typeof info.license === 'string' ? info.license : info.license?.type ?? null;
+    let license = licenseOf(info);
     if (!license && baseDir) {
       try {
         const j = JSON.parse(readFileSync(join(baseDir, key, 'package.json'), 'utf8'));
-        license = typeof j.license === 'string' ? j.license : j.license?.type ?? null;
+        license = licenseOf(j);
       } catch { /* not installed */ }
     }
     out.push({ name, version: info.version, license, dev: Boolean(info.dev) });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The license of a lock entry or a package.json: `license` (string or {type}) or the old `licenses` array (alternatives, so `A OR B`). */
+export function licenseOf(info) {
+  if (typeof info?.license === 'string') return info.license;
+  if (typeof info?.license?.type === 'string') return info.license.type;
+  if (Array.isArray(info?.licenses)) {
+    const t = info.licenses.map((l) => (typeof l === 'string' ? l : l?.type)).filter((x) => typeof x === 'string' && x);
+    return t.length ? t.join(' OR ') : null;
+  }
+  return null;
 }
 
 const say = (s = '') => console.log(s); // eslint-disable-line no-console

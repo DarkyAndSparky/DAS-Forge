@@ -113,7 +113,7 @@ describe('asynchronous re-sealing of TOTP secrets', () => {
     expect(await auth.sealExistingTotpSecretsAsync(db, k1)).toBe(0);
     expect(await auth.sealExistingTotpSecretsAsync(db, [k2, k1])).toBe(1);
     const stored = db.get('SELECT secret FROM totp_credentials').secret;
-    expect(stored.startsWith('enc:v1:')).toBe(true);
+    expect(stored.startsWith('enc:v2:')).toBe(true); // bound to its row (audit R-03)
     expect(await auth.sealExistingTotpSecretsAsync(db, [k2])).toBe(0);
   });
 });

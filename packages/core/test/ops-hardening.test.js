@@ -212,7 +212,7 @@ describe('SSE lifecycle (C01, C06)', () => {
 
   it('closeAllSseStreams() sends a shutdown event, ends every open stream and unsubscribes', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000 });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000 });
     const [a, b] = [fakeRes(), fakeRes()];
     handler(new EventEmitter(), a);
     handler(new EventEmitter(), b);
@@ -228,7 +228,7 @@ describe('SSE lifecycle (C01, C06)', () => {
 
   it('refuses a new stream beyond maxClients with 503 + Retry-After, and frees the slot on close', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, maxClients: 1 });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, maxClients: 1 });
     const first = fakeRes();
     handler(new EventEmitter(), first);
     const second = fakeRes();
@@ -249,7 +249,7 @@ describe('SSE lifecycle (C01, C06)', () => {
 
   it('an initialEvent that throws ends the response instead of leaving it hanging', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, initialEvent: () => { throw new Error('snapshot failed'); } });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, initialEvent: () => { throw new Error('snapshot failed'); } });
     const res = fakeRes();
     const origError = console.error;
     console.error = () => {};
@@ -264,7 +264,7 @@ describe('SSE lifecycle (C01, C06)', () => {
 
   it('drops a client whose write buffer grows past maxBufferedBytes (slow consumer)', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, maxBufferedBytes: 10 });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, maxBufferedBytes: 10 });
     const res = fakeRes();
     res.destroy = () => { res.destroyed = true; };
     handler(new EventEmitter(), res);

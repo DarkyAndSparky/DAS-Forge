@@ -50,6 +50,8 @@ export async function buildContext() {
   // `ldap` is the workshop's own optional setting (the core's LdapConfigSchema); absent = local passwords only.
   const configSources = {};
   const appConfig = await config.loadConfig({ cwd: REPO_ROOT, report: configSources, schema: config.ApplicationConfigSchema.extend({ ldap: ldap.LdapConfigSchema.optional() }) });
+  // Seal the audit chain with a key kept outside the database (audit R-01); the CLI builds this context too, so it seals as well.
+  audit.setSealKeys([appConfig.audit.sealKey, ...appConfig.audit.previousSealKeys].filter(Boolean));
   // Browser tests open dozens of pages from one address within seconds; the general request limit would answer 429.
   // Only the throw-away e2e server sets this (e2e/start.js), never a real run.
   if (process.env.DAS_E2E === '1') appConfig.security.rateLimit.max = 100_000;
@@ -85,6 +87,9 @@ export async function buildContext() {
       console.error(`[workshop] first run: admin created but credentials file could not be written (${err.message}); reset with "app user reset-password ${bootstrapResult.username}"`);
     }
   }
+
+  // The credentials file goes away by itself once the temporary password has been changed (also after a restart).
+  auth.watchBootstrapCredentials(db, credentialsFile, { username: bootstrapResult.username ?? 'admin' });
 
   const sessionStore = auth.createSessionStore({
     db,

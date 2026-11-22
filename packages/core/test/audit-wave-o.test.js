@@ -76,7 +76,7 @@ describe('I10: open SSE streams are re-authorized', () => {
   it('closes the stream with an "unauthorized" event once reauthorize says no, and frees the slot', async () => {
     const bus = createEventBus();
     let alive = true;
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, reauthorize: async () => alive, reauthorizeMs: 20 });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, reauthorize: async () => alive, reauthorizeMs: 20 });
     const { req, res } = mk();
     await handler(req, res);
     expect(bus.subscriberCount('c')).toBe(1);
@@ -92,7 +92,7 @@ describe('I10: open SSE streams are re-authorized', () => {
 
   it('a throwing reauthorize counts as "no" (fail closed)', async () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, reauthorize: async () => { throw new Error('db down'); }, reauthorizeMs: 20 });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, reauthorize: async () => { throw new Error('db down'); }, reauthorizeMs: 20 });
     const { req, res } = mk();
     await handler(req, res);
     await sleep(80);

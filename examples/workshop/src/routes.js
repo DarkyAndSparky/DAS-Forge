@@ -311,6 +311,7 @@ export function registerRoutes(app, { onLock = null, bans, ipBan = null, db, aut
     realtime.createSseHandler({
       eventBus,
       resolveChannel: () => 'lab',
+      authorize: 'any-authenticated', // a demo channel: any signed-in user (audit S-18: stated, not left to the default)
       reauthorize: streamStillAllowed,
       initialEvent: () => ({ type: 'connected' }),
     })
@@ -323,6 +324,7 @@ export function registerRoutes(app, { onLock = null, bans, ipBan = null, db, aut
     realtime.createSseHandler({
       eventBus,
       resolveChannel: () => 'assets',
+      authorize: 'any-authenticated', // the asset list itself is open to every signed-in user, so are its change events (type and id only)
       reauthorize: streamStillAllowed,
       initialEvent: () => ({ type: 'connected' }),
     })
@@ -482,5 +484,6 @@ export function registerRoutes(app, { onLock = null, bans, ipBan = null, db, aut
     forgetLoginFailures: accounts.forgetLoginFailures,
     lockouts: accounts.lockouts,
     unlockLockout: accounts.unlockLockout,
+    closeLockouts: accounts.closeLockouts,
   };
 }

@@ -1,3 +1,4 @@
+import { inspectStagedDatabase } from './backup-inspect.js';
 import { readdirSync, statSync, existsSync, copyFileSync, renameSync, unlinkSync, rmSync, mkdtempSync, chmodSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -147,7 +148,7 @@ async function verifyPlainBackupFile(createAdapterFn, filePath) {
  *   close it itself since the caller usually wants to use it right away
  *   (e.g. to keep serving the health-check result).
  */
-async function restorePlainBackup({ dbFilePath, backupFilePath, migrationsDir, createAdapterFn, auditLogFn, actor = null, uploadsDir = null }) {
+async function restorePlainBackup({ dbFilePath, backupFilePath, migrationsDir, createAdapterFn, auditLogFn, actor = null, uploadsDir = null, allowBrokenAuditChain = false }) {
   const steps = [];
   const recordOk = (name, message) => steps.push({ name, ok: true, message });
   const fail = (name, message, extra = {}) => {
@@ -194,6 +195,14 @@ async function restorePlainBackup({ dbFilePath, backupFilePath, migrationsDir, c
     safeUnlink(stagedPath);
     return fail('Restore', `could not stage the backup: ${err.message}`);
   }
+
+  // The backup is a foreign file: judge what is inside before anything is replaced (audit R-02).
+  const inspected = await inspectStagedDatabase({ createAdapterFn, stagedPath, livePath: dbFilePath, allowBrokenAuditChain, existsSync });
+  if (!inspected.ok) {
+    safeUnlink(stagedPath);
+    return fail('Schema check', `${inspected.message}; nothing was changed`);
+  }
+  recordOk('Schema check', inspected.message);
 
   try {
     removeSidecars(dbFilePath);

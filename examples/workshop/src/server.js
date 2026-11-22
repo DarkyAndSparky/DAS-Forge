@@ -54,6 +54,8 @@ export function createApp(ctx) {
   if (serverConfig.admin?.allowedNets?.length) app.use(http.adminNets({ nets: serverConfig.admin.allowedNets }));
   // The brand block (the administrator's name and logo, else the app's own) shown on every page, read per request.
   const brand = () => branding.brandBlockHtml(db, vendorIdentity);
+  // The administrator's support address (Appearance) for the help block of the error pages.
+  const supportEmail = () => branding.supportEmailOf(db);
   // One interface language everywhere: ?lang=ru|en is remembered in a cookie and read by every page.
   app.use(uiModule.localeMiddleware());
   // Policy pages + cookie notice (texts editable in /admin/policy); the notice/footer are inserted into pages via res.locals.pageEnd.
@@ -68,14 +70,20 @@ export function createApp(ctx) {
   app.use((req, res, next) => { res.locals.pageEnd = (locale) => policy.pageEnd(req, res, locale); next(); });
   // Public "About" page; the "Powered by DAS-Forge" line of every page leads here. The author is taken from the repository owner: change it here.
   aboutModule.mountAboutPage(app, {
-    appName: 'Workshop', appVersion: PACKAGE_VERSION, licenseUrl: '/policy/license', author: { name: 'DarkyAndSparky', url: 'https://github.com/DarkyAndSparky' },
+    appName: 'Workshop', appVersion: PACKAGE_VERSION, brand, licenseUrl: '/policy/license', author: { name: 'DarkyAndSparky', url: 'https://github.com/DarkyAndSparky' },
     apps: [{ name: 'Workshop', version: PACKAGE_VERSION, description: 'Reference application of the platform' }],
   });
   // The announcement banner (admin panel -> Announcement) is put above the page header by the shell below via res.locals.banner.
   const announcement = announcementModule.createAnnouncement({ db });
   app.use((req, res, next) => { res.locals.banner = (locale) => announcement.bannerHtml(locale, { nonce: res.locals?.cspNonce }); next(); });
   // Guards (auth, CSRF, rate limit, validation, bans) answer browsers with the branded page, API clients with JSON.
-  app.use(http.errorResponder(vendorIdentity, { loginUrl: '/login', brand, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
+  app.use(http.errorResponder(vendorIdentity, { loginUrl: '/login', brand, supportEmail, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
+  // Host-name check (audit S-08): an unknown Host gets 421 (server.hostCheck; 'auto' = enforce once a name is configured).
+  const hostPolicy = http.hostPolicyFromConfig(appConfig);
+  app.use(http.hostGuard({
+    mode: hostPolicy.mode, allowedHosts: hostPolicy.names, trustProxy: Boolean(appConfig.server.trustProxy),
+    onViolation: (v) => { try { audit.log(db, { actor: null, action: 'security.host_rejected', entity: 'host', result: 'denied', meta: { host: v.host, path: v.path, mode: v.mode }, ip: v.ip }); } catch { /* a failing log must not break the answer */ } },
+  }));
   // Hourly request/error counters for the admin charts (flushed to the DB in batches).
   // Prometheus metrics (observability.metrics.enabled): needs the package "@prometheus-io/client"; off by default.
   const promConfig = appConfig.observability?.metrics;
@@ -102,6 +110,7 @@ export function createApp(ctx) {
         trustProxy: serverConfig.trustProxy,
         trustedOrigins: security.cors.origins,
         exemptPaths: [(security.csp?.reportPath ?? '/csp-report')],
+        strictPaths: ['/login'], // a login without Origin, Sec-Fetch-Site or Referer is refused (audit S-09)
         sessionCookieName: http.sessionCookieName({ hostPrefix: appConfig.auth.hostCookiePrefix }),
       })
     );
@@ -146,7 +155,7 @@ export function createApp(ctx) {
   // Maintenance mode (admin panel -> Maintenance): visitors get the 503 page, administrators and sign-in pass.
   const maintenance = maintenanceModule.createMaintenance({ db });
   if (prom) observability.registerCoreGauges(prom, { maintenance }); // only the maintenance gauge: the other sources were registered above
-  app.use(maintenance.middleware({ vendorIdentity, brand, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
+  app.use(maintenance.middleware({ vendorIdentity, brand, supportEmail, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
 
   // Unauthenticated on purpose (§4.5): a load balancer/monitoring probe
   // has no session, and this must answer even when auth itself is the
@@ -177,6 +186,7 @@ export function createApp(ctx) {
     controlPath: '/control', // backups, maintenance, announcement, tasks, mail: application operation, apart from /admin
     scheduler: ctx.schedulerHolder ? { listJobs: () => ctx.schedulerHolder.current?.listJobs() ?? [], runNow: (n) => ctx.schedulerHolder.current.runNow(n) } : null,
     taskSchedules: ctx.schedulerHolder ? { set: (n, v) => ctx.schedulerHolder.taskSchedules.set(n, v), reset: (n) => ctx.schedulerHolder.taskSchedules.reset(n), isOverridden: (n) => ctx.schedulerHolder.taskSchedules?.isOverridden(n) ?? false } : null,
+    mfaFixedRole: (role) => (appConfig.auth.totp?.requiredRoles ?? []).includes(role) || (role === 'admin' && process.env.DAS_REQUIRE_ADMIN_2FA === '1'),
     passwordPolicy: auth.createPasswordPolicy({ db, config: appConfig.auth.passwordPolicy, blocklistFile: appConfig.auth.passwordBlocklistFile, appName: 'Workshop' }),
     managedTasks: { backup: 'backups', 'alerts-doctor': 'about' },
     mail: ctx.emailQueue ? { queue: ctx.emailQueue, service: ctx.emailService } : null,
@@ -206,10 +216,10 @@ export function createApp(ctx) {
     .mount(app, { requireAuth: http.requireAuth, requirePermission: http.requirePermission });
 
   // Branded 404/500 - must be registered LAST, after every real route.
-  app.use(http.notFoundHandler(vendorIdentity, { loginUrl: '/login', brand, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
-  app.use(http.errorPageHandler(vendorIdentity, { logger, loginUrl: '/login', brand, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
+  app.use(http.notFoundHandler(vendorIdentity, { loginUrl: '/login', brand, supportEmail, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
+  app.use(http.errorPageHandler(vendorIdentity, { logger, loginUrl: '/login', brand, supportEmail, bodyEnd: (req, res, locale) => policy.pageEnd(req, res, locale) }));
 
-  return { app, eventBus, metrics };
+  return { app, eventBus, metrics, closeLockouts: appRoutes.closeLockouts };
 }
 
 async function main() {
@@ -268,7 +278,7 @@ async function main() {
   const schedulerHolder = { current: null }; // the scheduler is created after the app; the admin "Tasks" section reads it through this
   const promSettings = appConfig.observability?.metrics;
   const prom = promSettings?.enabled ? await observability.createPrometheusMetrics({ defaultMetrics: promSettings.defaultMetrics }) : null;
-  const { app, metrics } = createApp({ ...ctx, prom, schedulerHolder, logger, logDestination, alerts: alertSet?.alerts ?? null, alertsMail: alertSet?.mailConfigured ?? false, onLock: alertSet?.onLock ?? null, isShuttingDown: () => lifecycle?.isShuttingDown() ?? false });
+  const { app, metrics, closeLockouts } = createApp({ ...ctx, prom, schedulerHolder, logger, logDestination, alerts: alertSet?.alerts ?? null, alertsMail: alertSet?.mailConfigured ?? false, onLock: alertSet?.onLock ?? null, isShuttingDown: () => lifecycle?.isShuttingDown() ?? false });
 
   // §4.5f: HTTPS-only. 'self-signed' (the schema default) generates a
   // cert into data/certs on first start; 'standalone' reads
@@ -327,7 +337,7 @@ async function main() {
   const shownHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   const live = liveConsole.liveConsoleSupported(); // a real, big enough terminal: the lettering stays pinned at the bottom instead
   // eslint-disable-next-line no-console
-  console.log(`\n${formatStartBanner({ wordmark: !live, name: 'Workshop', appVersion: PACKAGE_VERSION, coreVersion: CORE_VERSION, url: `${scheme}://${shownHost}:${port}`, adminUrls: adminAddress ? [...new Set([`${scheme}://localhost:${adminAddress.port}`, `${scheme}://${adminAddress.host}:${adminAddress.port}`])] : null, bootstrap: ctx.bootstrap, credentialsFile: ctx.credentialsFile, showPassword: process.env.DAS_BOOTSTRAP_PRINT !== 'false' })}\n`);
+  console.log(`\n${formatStartBanner({ wordmark: !live, name: 'Workshop', appVersion: PACKAGE_VERSION, coreVersion: CORE_VERSION, url: `${scheme}://${shownHost}:${port}`, adminUrls: adminAddress ? [...new Set([`${scheme}://localhost:${adminAddress.port}`, `${scheme}://${adminAddress.host}:${adminAddress.port}`])] : null, bootstrap: ctx.bootstrap, credentialsFile: ctx.credentialsFile, showPassword: auth.bootstrapPrintAllowed() })}\n`);
   if (live) {
     liveConsole.startLiveConsole({
       commands: {
@@ -417,6 +427,7 @@ async function main() {
       tlsReloader?.stop();
       await jobScheduler.stop();
       stopAuditMirror();
+      await closeLockouts?.(); // sign-in lock-outs survive the restart (audit S-02)
       metrics.close();
       db.close();
       releaseServerLock?.();

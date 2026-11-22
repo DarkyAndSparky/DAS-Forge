@@ -8,7 +8,7 @@ import { checkPasswordPolicy, characterClasses } from '../src/auth/password-poli
 import { query } from '../src/audit/index.js';
 import { createMfaRoleStore } from '../src/auth/mfa-roles.js';
 
-function setup() {
+function setup({ mfaFixedRole = null } = {}) {
   const db = createSqliteAdapter({ file: ':memory:' });
   ensureAuthTables(db);
   const policy = createPasswordPolicy({ db, config: {}, appName: 'Workshop' });
@@ -16,7 +16,7 @@ function setup() {
   const app = { get: (p, ...h) => { routes[`GET ${p}`] = h; }, post: (p, ...h) => { routes[`POST ${p}`] = h; } };
   const requireAuth = () => (req, res, next) => (req.user ? next() : res.status(401).end());
   const requirePermission = (perm) => (req, res, next) => ((req.user.permissions ?? []).includes(perm) ? next() : res.status(403).end());
-  createAdmin({ db, passwordPolicy: policy, userManagement: { authProvider: { hashPassword: async (p) => p }, roles: ['admin', 'operator'], adminRole: 'admin' } }).mount(app, { requireAuth, requirePermission });
+  createAdmin({ db, passwordPolicy: policy, mfaFixedRole, userManagement: { authProvider: { hashPassword: async (p) => p }, roles: ['admin', 'operator'], adminRole: 'admin' } }).mount(app, { requireAuth, requirePermission });
   return { db, policy, routes };
 }
 const admin = { id: 1, username: 'root', permissions: ['admin.access'] };
@@ -140,6 +140,19 @@ describe('admin section "Password policy"', () => {
     // repeating the same state writes nothing to the audit log
     await call(routes['POST /admin/password-policy/mfa-roles'], { user: admin, body: { role: 'operator', required: '0' } });
     expect(query(db, { action: 'admin.mfaroles.set' }).length).toBe(2);
+  });
+
+  it('MFA by role: a role fixed by the developer cannot be removed by the administrator (audit S-15)', async () => {
+    const { db, routes } = setup({ mfaFixedRole: (r) => r === 'admin' });
+    const store = createMfaRoleStore({ db });
+    const page = await call(routes['GET /admin/password-policy'], { user: admin, query: {} });
+    expect(page.body).toContain('Задано разработчиком');
+    expect(page.body).not.toContain('<input type="hidden" name="role" value="admin">');
+    const r = await call(routes['POST /admin/password-policy/mfa-roles'], { user: admin, body: { role: 'admin', required: '0' } });
+    expect(r.location).toBe('/admin/password-policy?msg=bad');
+    // the administrator may still add another role
+    await call(routes['POST /admin/password-policy/mfa-roles'], { user: admin, body: { role: 'operator', required: '1' } });
+    expect(store.list()).toEqual(['operator']);
   });
 
   it('createMfaRoleStore ignores a damaged row and bad names', () => {

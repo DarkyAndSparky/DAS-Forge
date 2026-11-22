@@ -24,6 +24,10 @@
  *   keep-alive ping (`: heartbeat\n\n`), needed because many reverse
  *   proxies/load balancers silently kill an HTTP connection that's been
  *   idle for 30-60s - this resets that idle timer from the server side.
+ * @param {((req, channel) => boolean|Promise<boolean>)|'any-authenticated'|'public'} [opts.authorize] - who may open this channel
+ *   (audit S-18). A function must return exactly `true`. Omitted or 'any-authenticated': any signed-in user (`req.user`), nobody
+ *   else - the default is closed, not open. 'public': anonymous clients too, an explicit choice for a public status stream.
+ * @param {number} [opts.maxClientsPerKey=5] - open streams one user (or address) may hold; 0 turns the limit off
  * @param {(req) => object} [opts.initialEvent] - optional event sent
  *   immediately on connect (e.g. current state snapshot), before any
  *   live events, so the client doesn't have to wait for the next change
@@ -67,7 +71,7 @@ export function createSseHandler({
   authorize,
   reauthorize,
   reauthorizeMs = 60_000,
-  maxClientsPerKey = 0,
+  maxClientsPerKey = 5,
   clientKey = (req) => String(req.user?.id ?? req.ip ?? 'anon'),
   getReplay,
 }) {
@@ -84,10 +88,10 @@ export function createSseHandler({
 
     // Channel authorization (audit C06): runs BEFORE headers go out so a
     // refusal is a real 403 and a throwing hook is a 500, never a hung stream.
-    if (authorize) {
+    if (authorize !== 'public') {
       let allowed;
       try {
-        allowed = (await authorize(req, channel)) === true;
+        allowed = typeof authorize === 'function' ? (await authorize(req, channel)) === true : Boolean(req.user);
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error('[das-forge] sse authorize threw:', err);

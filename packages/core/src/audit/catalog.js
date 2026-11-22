@@ -99,7 +99,6 @@ const catalog = new Map(Object.entries({
   'admin.backup.verify': E('Проверка копии', 'Backup verified', 'backup'),
   'system.backup_verify': E('Проверка свежей копии по расписанию', 'Scheduled backup verification', 'backup', 'notice'),
   'system.backup_run': E('Резервная копия по расписанию', 'Scheduled backup', 'backup'),
-  'system.backup_verify': E('Проверка копии по расписанию', 'Scheduled backup check', 'backup'),
   'backup.restore': E('Восстановление из копии', 'Restore from backup', 'backup', 'critical', '{actor} восстановил базу из копии', '{actor} restored the database from a backup'),
 
   'admin.mail.cancel': E('Письмо отменено', 'Mail cancelled', 'mail'),

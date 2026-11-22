@@ -80,3 +80,37 @@ describe('SSE authorize / per-user limit / ids (C06)', () => {
     expect(seen[0]).toHaveLength(128);
   });
 });
+
+describe('SSE closed by default (audit S-18)', () => {
+  const run = async (opts, req) => {
+    const bus = createEventBus();
+    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000, ...opts });
+    const out = { code: null, ended: false };
+    const res = {
+      status(c) { out.code = c; return this; }, set() { return this; }, json() { out.ended = true; return this; },
+      writeHead(c) { out.code = c; }, flushHeaders() {}, write() { return true; }, end() { out.ended = true; }, on() {}, once() {},
+    };
+    const listeners = {};
+    await handler({ ip: '1.1.1.1', headers: {}, on: (e, f) => { listeners[e] = f; }, ...req }, res);
+    listeners.close?.();
+    return out;
+  };
+  it('without `authorize` a stream needs a signed-in user', async () => {
+    expect((await run({}, {})).code).toBe(403);
+    expect((await run({}, { user: { id: 1 } })).code).toBe(200);
+  });
+  it("'any-authenticated' is the same, 'public' lets anonymous clients in", async () => {
+    expect((await run({ authorize: 'any-authenticated' }, {})).code).toBe(403);
+    expect((await run({ authorize: 'public' }, {})).code).toBe(200);
+  });
+  it('one user may hold 5 streams by default, the sixth gets 429', async () => {
+    const bus = createEventBus();
+    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'c', heartbeatMs: 60_000 });
+    const codes = [];
+    for (let i = 0; i < 6; i++) {
+      const res = { status(c) { codes.push(c); return this; }, set() { return this; }, json() { return this; }, writeHead(c) { codes.push(c); }, flushHeaders() {}, write() { return true; }, end() {}, on() {}, once() {} };
+      await handler({ user: { id: 7 }, ip: '1.1.1.1', headers: {}, on() {} }, res);
+    }
+    expect(codes).toEqual([200, 200, 200, 200, 200, 429]);
+  });
+});

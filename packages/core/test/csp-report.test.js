@@ -61,6 +61,13 @@ describe('report-only policy header', () => {
     expect(h).not.toContain('unsafe-inline');
     expect(h).toContain('report-uri /r');
   });
+  it('enforced policy needs a nonce for style elements but allows style attributes', () => {
+    const h = run({})['Content-Security-Policy'];
+    expect(h).toMatch(/style-src 'self' 'nonce-[^']+'/);
+    expect(h).toContain("style-src-attr 'unsafe-inline'");
+    expect(h).not.toMatch(/style-src 'self' 'unsafe-inline'/);
+    expect(run({ allowInlineStyleElements: true })['Content-Security-Policy']).toMatch(/style-src 'self' 'unsafe-inline'/);
+  });
   it('refuses a report address that is not a path', () => {
     expect(() => securityHeaders({ reportOnly: { reportUri: 'https://evil/x' } })).toThrow(TypeError);
   });

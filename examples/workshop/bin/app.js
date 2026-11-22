@@ -64,7 +64,7 @@ async function main() {
       ...(await scheduler.listRemoteBackups(ctx.appConfig.backup.destinations)),
     ],
     verifyBackupFn: (file) => scheduler.verifyBackupFile(database.createSqliteAdapter, file, { encryptionKey: ctx.appConfig.backup.encryptionKey ?? null }),
-    restoreBackupFn: async (file) => {
+    restoreBackupFn: async (file, { allowBrokenAuditChain = false } = {}) => {
       activeDb.close();
       const result = await scheduler.restoreBackup({
         dbFilePath,
@@ -76,6 +76,7 @@ async function main() {
         uploadsDir: ctx.uploadsDir,
         serverLockFile: ctx.serverLockFile,
         encryptionKey: ctx.appConfig.backup.encryptionKey ?? null,
+        allowBrokenAuditChain,
       });
       if (result.db) activeDb = result.db;
       return result;

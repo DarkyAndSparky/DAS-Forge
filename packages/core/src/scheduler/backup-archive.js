@@ -46,8 +46,12 @@ const MAX_MANIFEST_BYTES = 64 * 1024;
 export function isSafeEntryName(name) {
   if (typeof name !== 'string' || name.length === 0 || name.includes('\0') || name.includes('\\')) return false;
   if (name.startsWith('/') || /^[A-Za-z]:/.test(name)) return false;
-  return !name.split('/').some((part) => part === '..');
+  if (name.includes(':')) return false; // NTFS alternate data stream (audit S-07)
+  return !name.split('/').some((part) => part === '..' || WINDOWS_RESERVED.test(part) || /[. ]$/.test(part));
 }
+
+/** Names Windows treats as devices (with or without an extension), whatever the case (audit S-07). */
+const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(?:\..*)?$/i;
 
 /** Every regular file and empty directory under `root`, as posix paths relative to it. */
 function walkUploads(root) {

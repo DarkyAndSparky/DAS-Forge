@@ -89,7 +89,7 @@ function fakeReqRes() {
 describe('createSseHandler', () => {
   it('writes SSE headers and subscribes to the resolved channel', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'asset:1' });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'asset:1' });
     const { req, res } = fakeReqRes();
 
     handler(req, res);
@@ -101,7 +101,7 @@ describe('createSseHandler', () => {
 
   it('forwards published events as data: frames', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'chan' });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'chan' });
     const { req, res } = fakeReqRes();
     handler(req, res);
 
@@ -112,7 +112,7 @@ describe('createSseHandler', () => {
 
   it('sends an initial snapshot event before any live events', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({
+    const handler = createSseHandler({ authorize: 'public',
       eventBus: bus,
       resolveChannel: () => 'chan',
       initialEvent: () => ({ snapshot: true }),
@@ -126,7 +126,7 @@ describe('createSseHandler', () => {
   it('unsubscribes and clears the heartbeat when the connection closes', () => {
     vi.useFakeTimers();
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'chan', heartbeatMs: 1000 });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'chan', heartbeatMs: 1000 });
     const { req, res } = fakeReqRes();
     handler(req, res);
 
@@ -146,7 +146,7 @@ describe('createSseHandler', () => {
 
   it('does not deliver events published on a different channel', () => {
     const bus = createEventBus();
-    const handler = createSseHandler({ eventBus: bus, resolveChannel: () => 'chan-a' });
+    const handler = createSseHandler({ authorize: 'public', eventBus: bus, resolveChannel: () => 'chan-a' });
     const { req, res } = fakeReqRes();
     handler(req, res);
 

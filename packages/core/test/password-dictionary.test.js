@@ -216,6 +216,6 @@ describe('admin block "Password dictionary"', () => {
     const all = query(db, {});
     expect(JSON.stringify(all)).not.toContain('Password2024');
     const page = await call(routes['GET /admin/password-policy'], { user: admin, query: { chk: '1', b: '1', c: '0', f: '-' } });
-    expect(page.body).toContain('adm-toast');
+    expect(page.body).toContain('role="status"');
   });
 });

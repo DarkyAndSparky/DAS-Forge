@@ -3,7 +3,7 @@ import { columnsAsync } from '../database/helpers-async.js';
 import { normalizeLimit } from '../database/identifiers.js';
 import { AUDIT_DDL, AUDIT_HASH_COLUMNS, AUDIT_NO_UPDATE_DDL, AUDIT_NO_UPDATE_PG_DDL } from './schema.js';
 import { SUBJECTS_DDL, ERASED, isPseudonym, PLAIN_ACTORS, META_PERSON_KEYS, META_IP_KEYS, newPseudonym } from './subjects.js';
-import { computeHash, redactMeta, VERIFY_PAGE } from './chain.js';
+import { computeHash, redactMeta, VERIFY_PAGE, sealOf, newSealState, checkSeal } from './chain.js';
 import { rowToEntry } from './mapper.js';
 import { whereFrom, MAX_AUDIT_LIMIT } from './query.js';
 import { notifyListeners, HAS_LABEL } from './log.js';
@@ -139,10 +139,11 @@ export async function logAsync(
       ip: await pseudonymizeAsync(tx, 'ip', ip),
       created_at: now,
     };
+    const hash = computeHash(prevHash, row);
     const info = await tx.run(
-      `INSERT INTO audit_log (actor, action, entity, entity_id, result, meta, request_id, ip, created_at, prev_hash, hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row.actor, row.action, row.entity, row.entity_id, row.result, row.meta, row.request_id, row.ip, row.created_at, prevHash, computeHash(prevHash, row)]
+      `INSERT INTO audit_log (actor, action, entity, entity_id, result, meta, request_id, ip, created_at, prev_hash, hash, seal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.actor, row.action, row.entity, row.entity_id, row.result, row.meta, row.request_id, row.ip, row.created_at, prevHash, hash, sealOf(hash)]
     );
     return tx.get('SELECT * FROM audit_log WHERE id = ?', [Number(info.lastInsertRowid)]);
   }, { mode: 'immediate' });
@@ -190,9 +191,10 @@ export async function countAsync(db, filters = {}) {
   return (await a.get(`SELECT COUNT(*) AS c FROM audit_log${where}`, params)).c;
 }
 
-export async function verifyChainAsync(db, { anchor } = {}) {
+export async function verifyChainAsync(db, { anchor, sealKey } = {}) {
   const a = asyncDb(db);
   await ensureAuditTableAsync(a);
+  const seal = sealKey === undefined ? newSealState() : newSealState(Array.isArray(sealKey) ? sealKey : sealKey ? [sealKey] : []);
   let previous = null;
   let checked = 0;
   let afterId = -1;
@@ -206,6 +208,8 @@ export async function verifyChainAsync(db, { anchor } = {}) {
       if (computeHash(row.prev_hash, row) !== row.hash) {
         return { ok: false, checked, brokenAtId: row.id, reason: 'row content does not match its hash (row was modified)' };
       }
+      const sealBreak = checkSeal(seal, row);
+      if (sealBreak) return { ok: false, checked, brokenAtId: row.id, reason: sealBreak };
       previous = { id: row.id, hash: row.hash };
       checked++;
     }
@@ -217,7 +221,7 @@ export async function verifyChainAsync(db, { anchor } = {}) {
     if (!row) return { ok: false, checked, brokenAtId: anchor.id, reason: 'anchored row is missing (log was truncated or rewritten)' };
     if (row.hash !== anchor.hash) return { ok: false, checked, brokenAtId: anchor.id, reason: 'anchored row hash differs (history was rewritten)' };
   }
-  return { ok: true, checked };
+  return seal.sealed || seal.unverified ? { ok: true, checked, sealed: seal.sealed, unverifiedSeals: seal.unverified } : { ok: true, checked };
 }
 
 export async function anchorAsync(db) {

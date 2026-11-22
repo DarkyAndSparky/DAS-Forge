@@ -26,6 +26,13 @@ describe('public About page', () => {
     expect(render({}, { locale: 'en' })).toContain('About the platform');
   });
 
+  it('shows the platform logo and the application\'s own brand block', () => {
+    const html = render({ appName: 'Workshop', apps: [{ name: 'Workshop', version: '1' }], brand: () => '<img class="adm-logo" src="/branding/logo/light" alt=""><span>Acme</span>' });
+    expect(html).toContain('/branding/logo/light');
+    expect(html).toContain('<span>Acme</span>');
+    expect(html).toContain('data:image/png;base64,'); // the DAS-Forge logo of the core
+  });
+
   it('shows no runtime details', () => {
     const html = render({ appName: 'W' });
     expect(html).not.toContain(process.version);

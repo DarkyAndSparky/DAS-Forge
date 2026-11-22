@@ -8,8 +8,10 @@ services:
     restart: unless-stopped
     environment:
       DAS_SESSION_SECRET_FILE: /run/secrets/session_secret
+      DAS_TOTP_KEY_FILE: /run/secrets/totp_key   # a key of its own for second-factor secrets (audit R-03)
     secrets:
       - session_secret
+      - totp_key
     volumes:
       - app-data:/app/data
     ports:
@@ -19,6 +21,8 @@ services:
 secrets:
   session_secret:
     file: ./secrets/session_secret.txt   # create it: 32+ random characters, NOT committed
+  totp_key:
+    file: ./secrets/totp_key.txt         # a DIFFERENT value (`app secret generate`), NOT committed
 
 volumes:
   app-data:
