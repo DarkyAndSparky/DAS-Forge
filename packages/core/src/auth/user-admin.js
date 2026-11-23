@@ -1,5 +1,5 @@
 import { atomic } from '../database/atomic.js';
-import { randomBytes } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 
 import { ensureAuthTables } from './schema.js';
 import { findUserById, createUser, anonymizeUser, deleteUser, setUserRole } from './users.js';
@@ -51,9 +51,8 @@ export function normalizeEmail(email) {
 /** A random temporary password (no look-alike characters), for "set it and force a change". */
 export function generateTempPassword(length = 24) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  const bytes = randomBytes(length);
   let out = '';
-  for (let i = 0; i < length; i++) out += alphabet[bytes[i] % alphabet.length];
+  for (let i = 0; i < length; i++) out += alphabet[randomInt(alphabet.length)];
   return out;
 }
 

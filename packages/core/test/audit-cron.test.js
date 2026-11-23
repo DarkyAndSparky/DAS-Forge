@@ -154,7 +154,9 @@ describe('audit redaction (audit S-05)', () => {
     expect(out.nested[0].msg).toBe('password=[REDACTED] given');
   });
   it('blanks a JWT and leaves ordinary text and short values alone', () => {
-    expect(redactText('t eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk end')).toBe('t [REDACTED] end');
+    // assembled at run time: a literal token in the source makes secret scanners (gitleaks) flag the repository
+    const jwt = [Buffer.from('{"alg":"HS256"}').toString('base64url'), Buffer.from('{"sub":"1234567890"}').toString('base64url'), 'x'.repeat(43)].join('.');
+    expect(redactText(`t ${jwt} end`)).toBe('t [REDACTED] end');
     expect(redactText('user ann created record 12; key=a')).toBe('user ann created record 12; key=a');
     expect(redactText('x'.repeat(9000)).endsWith('...[truncated]')).toBe(true);
     expect(redactText(5)).toBe(5);

@@ -20,7 +20,7 @@ async function codeObjects(db) {
 }
 
 /**
- * @returns {{ ok: boolean, message: string, details?: string[] }}
+ * @returns {Promise<{ ok: boolean, message: string, details?: string[] }>}
  */
 export async function inspectStagedDatabase({ createAdapterFn, stagedPath, livePath = null, allowBrokenAuditChain = false, existsSync }) {
   let staged;

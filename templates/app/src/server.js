@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 
-import { CORE_VERSION, http, auth, audit, scheduler as schedulerModule, database as databaseModule, health, certs, logs, ui as uiModule, admin as adminModule, branding, maintenance as maintenanceModule, announcement as announcementModule, observability, privacy, policy as policyModule, security as securityModule, cli as cliModule } from '@das-forge/core';
+import { CORE_VERSION, http, auth, audit, scheduler as schedulerModule, database as databaseModule, health, certs, logs, ui as uiModule, admin as adminModule, branding, maintenance as maintenanceModule, announcement as announcementModule, observability, privacy, policy as policyModule, about as aboutModule, security as securityModule, cli as cliModule } from '@das-forge/core';
 import { buildContext, buildAlerts } from './context.js';
 import { formatStartBanner } from './banner.js';
 import { buildDoctorCategories } from './doctor-categories.js';
@@ -125,6 +125,8 @@ export function createApp(ctx) {
 
   const appRoutes = registerRoutes(app, { db, authProvider, bans, appConfig, moduleRegistry, onLock: ctx.onLock ?? null, vendorIdentity, emailService: ctx.emailService, logger });
   policy.mount(app);
+  // Public "About" page; the "Powered by DAS-Forge" line of every page leads here. Fill in `author` and the description for your product.
+  aboutModule.mountAboutPage(app, { appName: PACKAGE.name, appVersion: PACKAGE.version, brand, licenseUrl: '/policy/license', security: security.securityTxt });
 
   // The admin panel: sign-in and the `admin.access` permission are required. Which sections it has, and which you
   // switch off or add, is described in the "Administration" guide.

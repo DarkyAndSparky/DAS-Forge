@@ -13,13 +13,19 @@ const err = (code, message) => Object.assign(new Error(message), { code });
  */
 export function checkSvgShape(text, limits = SVG_SHAPE_LIMITS) {
   const { maxDepth, maxElements, maxAttributes } = { ...SVG_SHAPE_LIMITS, ...limits };
-  const tag = /<(\/?)([A-Za-z][^\s>/]*)([^>]*)>/g;
-  let depth = 0; let elements = 0; let attributes = 0; let m;
-  while ((m = tag.exec(text)) !== null) {
-    if (m[1] === '/') { depth = Math.max(0, depth - 1); continue; }
+  let depth = 0; let elements = 0; let attributes = 0;
+  // A scan with indexOf, not one big pattern: "<a<a<a..." with no ">" made the pattern rescan to the end from every "<" (quadratic).
+  let end = -1;
+  for (let at = text.indexOf('<'); at !== -1; at = text.indexOf('<', at + 1)) {
+    if (end < at) { end = text.indexOf('>', at + 1); if (end === -1) break; }
+    const m = /^(\/?)[A-Za-z][^\s>/]*/.exec(text.slice(at + 1, Math.min(end, at + 1 + 256)));
+    if (!m) continue;
+    const closing = m[1];
+    const rest = text.slice(at + 1 + m[0].length, end);
+    at = end; // the tag is consumed whole, as the pattern did
+    if (closing === '/') { depth = Math.max(0, depth - 1); continue; }
     elements += 1;
     if (elements > maxElements) throw err('SVG_TOO_COMPLEX', `SVG has more than ${maxElements} elements`);
-    const rest = m[3];
     if (rest) {
       attributes += (rest.match(/=/g)?.length ?? 0);
       if (attributes > maxAttributes) throw err('SVG_TOO_COMPLEX', `SVG has more than ${maxAttributes} attributes`);

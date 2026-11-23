@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { isUnsafeKey } from '../util/unsafe-key.js';
 
 /**
  * Explicit env-var -> config-path overrides (12-factor style).
@@ -47,6 +48,7 @@ function toBool(v) {
 
 function setPath(target, path, value) {
   const parts = path.split('.');
+  if (parts.some(isUnsafeKey)) throw new Error(`config: refusing the key path "${parts.join('.')}"`);
   let node = target;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i];

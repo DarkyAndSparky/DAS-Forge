@@ -7,6 +7,7 @@
  * namespace(s); an app adds its own with `addNamespace`. `missingKeys()` lists keys that exist in one language only,
  * which a test can assert to be empty - an untranslated string can no longer slip through silently.
  */
+import { isUnsafeKey } from '../util/unsafe-key.js';
 
 export const DEFAULT_LOCALES = ['ru', 'en'];
 export { coreNamespaces } from './catalog.js';
@@ -65,8 +66,12 @@ function build(lib, { locales, defaultLocale, namespaces, sync }) {
   const registry = new Map(); // ns -> { [locale]: flat object }
 
   const resources = {};
-  for (const lng of locales) resources[lng] = {};
+  for (const lng of locales) {
+    if (isUnsafeKey(lng)) throw new Error(`i18n: "${lng}" cannot be a locale`);
+    resources[lng] = {};
+  }
   for (const [ns, bundles] of Object.entries(namespaces)) {
+    if (isUnsafeKey(ns)) throw new Error(`i18n: "${ns}" cannot be a namespace name`);
     registry.set(ns, {});
     for (const lng of locales) {
       resources[lng][ns] = bundles?.[lng] ?? {};

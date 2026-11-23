@@ -13,6 +13,7 @@ import { createRegistrationStore, ensureRegistrationsTableAsync } from './regist
 import { createDirectoryLinks, ensureDirectoryLinksTableAsync } from './directory.js';
 import { parseId } from '../util/parse-id.js';
 import { renderRegisterPage, renderRegisterConfirmPage, renderLoginPage, renderForgotPasswordPage, renderResetPasswordPage, renderForcedPasswordPage, renderAccountBody } from './pages.js';
+import { trimTrailingSlashes } from '../util/trim-slashes.js';
 
 export { ACCOUNT_TEXTS, createRegistrationStore, createDirectoryLinks, ensureRegistrationsTableAsync, ensureDirectoryLinksTableAsync };
 
@@ -343,7 +344,7 @@ export function mountAccountRoutes(app, {
       }
       if (needMail && !emailService?.enabled) return res.status(503).json({ error: 'EMAIL_DISABLED' });
       try { auth.validateUsername(username); } catch { return res.status(400).json({ error: 'INVALID', fields: ['username'] }); }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'INVALID', fields: ['email'] });
+      if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'INVALID', fields: ['email'] });
       const weak = await passwordRules.checkFull(password, { username, email, isAdmin: false }, {});
       if (!weak.ok) return res.status(400).json({ error: 'WEAK_PASSWORD', fields: ['password'], problems: weak.problems });
       // budgets: a few requests per address per hour, one mail per e-mail per ten minutes (silently the same answer)
@@ -363,7 +364,7 @@ export function mountAccountRoutes(app, {
         return res.status(201).json({ ok: true });
       }
       const token = await store.addAsync({ username, email, passwordHash, ip, ttlHours: regCfg.ttlHours ?? 24 });
-      const verifyUrl = `${String(appConfig?.email?.baseUrl ?? '').replace(/\/+$/, '')}/register/confirm#token=${token}`;
+      const verifyUrl = `${trimTrailingSlashes(appConfig?.email?.baseUrl ?? '')}/register/confirm#token=${token}`;
       void emailService.sendEmailVerification({ to: email, verifyUrl, locale: localeOf(req) }).catch((err) => logger?.warn?.('registration mail failed', { code: err?.code }));
       await logAudit(req, { actor: null, action: 'auth.registration_requested' });
       res.status(202).json({ ok: true });
@@ -716,7 +717,7 @@ export function mountAccountRoutes(app, {
       const { token } = await auth.createPasswordResetTokenAsync(db, user.id, { ttlMinutes });
       // Token in the URL FRAGMENT: it is never sent to a server, so it cannot land in
       // access logs or Referer headers; the page reads it and POSTs it to /password/reset.
-      const resetUrl = `${String(appConfig?.email?.baseUrl ?? '').replace(/\/+$/, '')}/reset-password#token=${token}`;
+      const resetUrl = `${trimTrailingSlashes(appConfig?.email?.baseUrl ?? '')}/reset-password#token=${token}`;
       await emailService.sendPasswordReset({ to: user.email, resetUrl, expiresInMinutes: ttlMinutes });
       await logAudit(req, { actor: null, action: 'auth.password_reset_requested', entity: 'user', entityId: user.id });
     })().catch((err) => logger?.warn?.('password reset mail failed', { code: err?.code }));

@@ -107,6 +107,13 @@ describe('the application over real HTTP', () => {
     expect(res.text).toContain(`<script nonce="${nonce}">`);
   });
 
+  it('serves the public About page and the accessibility statement', async () => {
+    for (const path of ['/about', '/policy/accessibility']) {
+      const res = await rawRequest(port, { url: path });
+      expect(res.status, path).toBe(200);
+    }
+  });
+
   it('a wrong password and an unknown name get the SAME answer', async () => {
     const wrong = await login('root', 'not-the-password');
     const unknown = await login('nobody', 'whatever-password');

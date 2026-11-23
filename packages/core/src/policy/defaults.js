@@ -49,6 +49,14 @@ export const DEFAULT_TEXTS = {
 
 Подробнее — в [Политике использования](/policy).
 `,
+    accessibility: `# Заявление о доступности {{app}}
+
+Мы стремимся к тому, чтобы {{app}} можно было использовать с клавиатуры, с экранным диктором и при ограниченном зрении (ориентир — WCAG 2.2, уровень AA).
+
+Это заготовка: владелец приложения заполняет её в разделе «Политики» администрирования — состояние соответствия, известные ограничения, контакт для обращений и надзорный орган.
+
+Если вы столкнулись с неудобством, сообщите об этом через контакты, указанные в [Политике использования](/policy).
+`,
     license: `# Лицензионное соглашение {{app}}
 
 Это заглушка. Текст лицензионного соглашения ещё не утверждён: владелец приложения заменяет его своим текстом в разделе администрирования «Политики».
@@ -111,6 +119,14 @@ You can change your choice by deleting the \`das_consent\` cookie in your browse
 
 More in the [Usage policy](/policy).
 `,
+    accessibility: `# {{app}} accessibility statement
+
+We aim for {{app}} to be usable with a keyboard, a screen reader and low vision (target: WCAG 2.2, level AA).
+
+This is a placeholder: the application owner completes it in the "Policies" administration section — conformance status, known limitations, a contact for reports and the supervisory body.
+
+If you run into a barrier, tell us through the contacts given in the [Usage policy](/policy).
+`,
     license: `# {{app}} licence agreement
 
 This is a placeholder. The licence agreement text has not been approved yet: the application owner replaces it with their own text in the "Policies" administration section.
@@ -130,7 +146,7 @@ This is a placeholder. The licence agreement text has not been approved yet: the
   },
 };
 
-export const KINDS = ['usage', 'cookies', 'license'];
+export const KINDS = ['usage', 'cookies', 'license', 'accessibility'];
 
 /**
  * The platform's own licence notice. It is NOT editable and not stored: the licence page shows it first, and the

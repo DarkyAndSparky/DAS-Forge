@@ -11,6 +11,7 @@ import { inactiveUsersAsync, userCardAsync } from './user-activity.js';
 import { describeAgent } from '../auth/devices.js';
 import { OPS_TEXTS as L } from './sections-ops.js';
 import { parseId } from '../util/parse-id.js';
+import { trimTrailingSlashes } from '../util/trim-slashes.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -310,7 +311,7 @@ export function mountUsersSection({ app, db, guard, page: render, basePath, loca
       if (!user.email) throw new Refuse('NO_EMAIL');
       const ttlMinutes = manage.email.ttlMinutes ?? 30;
       const { token } = await createPasswordResetTokenAsync(db, user.id, { ttlMinutes });
-      const resetUrl = `${String(manage.email.baseUrl).replace(/\/+$/, '')}${manage.email.resetPath ?? '/reset-password'}#token=${token}`;
+      const resetUrl = `${trimTrailingSlashes(manage.email.baseUrl)}${manage.email.resetPath ?? '/reset-password'}#token=${token}`;
       try {
         await mailService.sendPasswordReset({ to: user.email, resetUrl, expiresInMinutes: ttlMinutes, locale: localeOf(req) });
       } catch {

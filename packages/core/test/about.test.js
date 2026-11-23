@@ -63,4 +63,22 @@ describe('public About page', () => {
     expect(html).toContain('DAS-Forge 0.1.99');
     expect(html).not.toContain('target="_blank"');
   });
+
+  it('tells where to report a vulnerability: of the application (when configured) and of the platform itself', () => {
+    const html = render({ security: { contact: ['sec@example.org', 'https://example.org/report', 'tel:+70000000000', 'javascript:alert(1)', '"><b>'], policy: 'https://example.org/policy' } });
+    expect(html).toContain('Сообщить об уязвимости');
+    expect(html).toContain('href="mailto:sec@example.org"');
+    expect(html).toContain('href="https://example.org/report"');
+    expect(html).toContain('+70000000000');
+    expect(html).toContain('href="https://example.org/policy"');
+    expect(html).not.toContain('javascript:');
+    expect(html).not.toContain('<b>');
+    expect(html).toContain('github.com/DarkyAndSparky/DAS-Forge/security/advisories/new');
+    // no application contact: only the platform line; and it can be switched off
+    const bare = render({});
+    expect(bare).not.toContain('В приложении');
+    expect(bare).toContain('/security/advisories/new');
+    expect(render({ coreSecurityLink: false })).not.toContain('Сообщить об уязвимости');
+    expect(render({ security: { contact: ['sec@example.org'] } }, { locale: 'en' })).toContain('Report a vulnerability');
+  });
 });

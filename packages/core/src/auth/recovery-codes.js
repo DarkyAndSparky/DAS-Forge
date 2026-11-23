@@ -1,13 +1,12 @@
-import { randomBytes } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import { ensureAuthTables } from './schema.js';
 import { hashPassword, verifyPassword } from './password.js';
 
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I - avoids transcription errors reading off a printed sheet
 
 export function randomCode() {
-  const bytes = randomBytes(8);
   let out = '';
-  for (let i = 0; i < 8; i++) out += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
+  for (let i = 0; i < 8; i++) out += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
   return `${out.slice(0, 4)}-${out.slice(4)}`;
 }
 

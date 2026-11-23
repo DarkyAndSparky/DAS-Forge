@@ -70,7 +70,7 @@ export function createApp(ctx) {
   app.use((req, res, next) => { res.locals.pageEnd = (locale) => policy.pageEnd(req, res, locale); next(); });
   // Public "About" page; the "Powered by DAS-Forge" line of every page leads here. The author is taken from the repository owner: change it here.
   aboutModule.mountAboutPage(app, {
-    appName: 'Workshop', appVersion: PACKAGE_VERSION, brand, licenseUrl: '/policy/license', author: { name: 'DarkyAndSparky', url: 'https://github.com/DarkyAndSparky' },
+    appName: 'Workshop', appVersion: PACKAGE_VERSION, brand, licenseUrl: '/policy/license', security: appConfig.security.securityTxt, author: { name: 'DarkyAndSparky', url: 'https://github.com/DarkyAndSparky' },
     apps: [{ name: 'Workshop', version: PACKAGE_VERSION, description: 'Reference application of the platform' }],
   });
   // The announcement banner (admin panel -> Announcement) is put above the page header by the shell below via res.locals.banner.

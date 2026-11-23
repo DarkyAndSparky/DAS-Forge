@@ -20,6 +20,7 @@ export * as realtime from './realtime/index.js';
 export * as files from './files/index.js';
 export * as media from './media/index.js';
 export * as xlsx from './xlsx/index.js';
+export * as documents from './documents/index.js';
 export * as csv from './csv/index.js';
 export * as scheduler from './scheduler/index.js';
 export * as cli from './cli/index.js';

@@ -70,4 +70,5 @@ jsdom ^31.0.0, multer ^2.5.0.
 - ldapts ^9.2.0 (актуально на 0.1.100) — используют it-assets (`^9.2.0`) и net-monitor (`^9.0.0`); подключён в `core/ldap` с 0.1.95 (подгружается по требованию; запись в lock-файле перенесена из lock it-assets: 9.2.0 + `strict-event-emitter-types` 2.0.0).
 - pino-roll ^4.0.0 (it-assets, net-monitor) — ротация логов; в ядре остаётся собственная ротация файлового приёмника, пакет не берём.
 - @node-rs/argon2 (it-assets) vs argon2 (остальные): формат строки одинаковый; ядро использует `argon2`.
+- Читалки DOCX/PPTX/ODT/ODP (`documents`, 0.1.391): без новых зависимостей, поверх yauzl и своего XML-сканера из `xlsx/xml.js`. PDF: библиотека не выбрана, нужно согласование.
 - Только в приложениях, в ядро не переносятся: net-snmp, node-routeros, pdf-lib, pngjs, adm-zip (ядро — yauzl/yazl).

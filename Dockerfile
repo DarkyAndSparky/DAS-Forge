@@ -21,7 +21,9 @@ COPY packages/core/package.json packages/core/
 COPY examples/workshop/package.json examples/workshop/
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
  && npm install-scripts approve argon2 \
- && npm rebuild argon2
+ && npm rebuild argon2 \
+ && rm -rf node_modules/typescript node_modules/@typescript
+# typescript is a development tool that npm keeps as an optional dependency: the app never loads it, and its Go compiler binary only adds scanner findings
 
 FROM node:${NODE_VERSION}-bookworm-slim
 ENV NODE_ENV=production \
@@ -34,7 +36,9 @@ ENV NODE_ENV=production \
     DAS_DB_FILE=data/workshop.db
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tini \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/lib/node_modules/corepack
+# the running app does not need npm; the copy that ships with the Node image carries its own (often outdated) undici and brace-expansion
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./

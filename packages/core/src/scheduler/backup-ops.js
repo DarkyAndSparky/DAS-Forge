@@ -81,7 +81,7 @@ function integrityCheckFile(createAdapterFn, filePath) {
  * @param {(opts:object) => object} createAdapterFn - core/database's createSqliteAdapter
  * @returns {Promise<{ok: boolean, message: string}>}
  */
-async function verifyPlainBackupFile(createAdapterFn, filePath) {
+async function verifyPlainBackupFile(createAdapterFn, filePath, { deep = true } = {}) {
   if (!existsSync(filePath)) {
     return { ok: false, message: `${filePath} does not exist` };
   }
@@ -95,7 +95,12 @@ async function verifyPlainBackupFile(createAdapterFn, filePath) {
     await extractBackupDatabase(opened, dbCopy);
     const integrity = integrityCheckFile(createAdapterFn, dbCopy);
     if (!integrity.ok) return integrity;
-    return { ok: true, message: `integrity OK (${files} file(s) in archive, CRC verified)` };
+    // Beyond "the file is whole": the same inspection a restore does (triggers and views are ordinary code, the audit chain
+    // and its seal hold). A copy that would be refused at restore time must not pass as healthy here.
+    if (!deep) return { ok: true, message: `integrity OK (${files} file(s) in archive, CRC verified)` }; // a restore runs its own inspection as the next step, with the live database to compare
+    const inspected = await inspectStagedDatabase({ createAdapterFn, stagedPath: dbCopy, livePath: null, existsSync });
+    if (!inspected.ok) return { ok: false, message: inspected.message };
+    return { ok: true, message: `integrity OK (${files} file(s) in archive, CRC verified); ${inspected.message}` };
   } catch (err) {
     return { ok: false, message: err.message };
   } finally {
@@ -156,7 +161,7 @@ async function restorePlainBackup({ dbFilePath, backupFilePath, migrationsDir, c
     return { ok: false, steps, ...extra };
   };
 
-  const verify = await verifyBackupFile(createAdapterFn, backupFilePath);
+  const verify = await verifyBackupFile(createAdapterFn, backupFilePath, { deep: false });
   if (!verify.ok) return fail('Verify backup', verify.message);
   recordOk('Verify backup', verify.message);
 
@@ -435,11 +440,11 @@ async function withPlainArchive(filePath, encryptionKey, fn) {
  * (`.zip.enc`) need `encryptionKey`; a wrong key reads as a damaged file.
  * @param {(opts:object) => object} createAdapterFn
  * @param {string} filePath
- * @param {{encryptionKey?: string|null}} [opts]
+ * @param {{encryptionKey?: string|null, deep?: boolean}} [opts] `deep` (default true): also inspect the code and the audit chain in the database
  * @returns {Promise<{ok: boolean, message: string}>}
  */
-export async function verifyBackupFile(createAdapterFn, filePath, { encryptionKey = null } = {}) {
-  const r = await withPlainArchive(filePath, encryptionKey, (plain) => verifyPlainBackupFile(createAdapterFn, plain));
+export async function verifyBackupFile(createAdapterFn, filePath, { encryptionKey = null, deep = true } = {}) {
+  const r = await withPlainArchive(filePath, encryptionKey, (plain) => verifyPlainBackupFile(createAdapterFn, plain, { deep }));
   return r.error ? { ok: false, message: r.error } : r.value;
 }
 

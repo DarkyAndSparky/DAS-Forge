@@ -14,11 +14,13 @@ const TEXTS = {
     title: 'О платформе', versions: 'Версии', core: 'Ядро', licence: 'Лицензия', author: 'Автор', sources: 'Исходный код', apps: 'Приложения',
     description: 'DAS-Forge — общая платформа для внутренних приложений: вход и права, администрирование, журнал действий, копии, переводы и оформление в одном ядре.',
     mit: 'Лицензия MIT', licenceText: 'Полный текст', back: "← На главную",
+    security: 'Сообщить об уязвимости', securityApp: 'В приложении', securityCore: 'В самой платформе DAS-Forge', securityCoreHow: 'закрытое сообщение на GitHub (Security → Report a vulnerability)', securityPolicy: 'Правила приёма сообщений',
   },
   en: {
     title: 'About the platform', versions: 'Versions', core: 'Core', licence: 'Licence', author: 'Author', sources: 'Source code', apps: 'Applications',
     description: 'DAS-Forge is a shared platform for internal applications: sign-in and permissions, administration, an activity journal, backups, translations and branding in one core.',
     mit: 'MIT licence', licenceText: 'Full text', back: "← Home",
+    security: 'Report a vulnerability', securityApp: 'In the application', securityCore: 'In the DAS-Forge platform itself', securityCoreHow: 'a private report on GitHub (Security → Report a vulnerability)', securityPolicy: 'Reporting policy',
   },
 };
 
@@ -40,14 +42,19 @@ const logoSrc = (u) => { const s = String(u ?? ''); return /^\/(?!\/)[^\s"'<>]*$
  * @param {Array<{name: string, url: string}>} [o.repositories] - defaults to the core's repository
  * @param {Array<{name: string, version?: string, logoUrl?: string, repoUrl?: string, description?: string}>} [o.apps] - the applications of the platform with their own logos (a path of this site or an https address)
  * @param {(req) => object} [o.brand] - `{theme, html}` like the account pages
+ * @param {{contact?: string[], policy?: string}} [o.security] - where to report a vulnerability of THIS application (the `security.securityTxt` setting: `mailto:`, `https://`, `tel:` or a bare address; `policy` is a link to the rules). Without contacts the application line is left out
+ * @param {boolean} [o.coreSecurityLink=true] - also show how to report a vulnerability of the platform itself (a private report in the core's GitHub repository)
  * @param {boolean} [o.linkPoweredBy=true] - the "Powered by" line of every page leads here
  */
 export function mountAboutPage(app, {
   path = '/about', appName = '', appVersion = '', coreVersion = CORE_VERSION, description = null, author = null, copyright = 'DAS-Forge contributors',
-  licenseUrl = null, repositories = null, apps = [], brand = null, linkPoweredBy = true,
+  licenseUrl = null, repositories = null, apps = [], brand = null, linkPoweredBy = true, security = null, coreSecurityLink = true,
 } = {}) {
   if (!app || typeof app.get !== 'function') throw new TypeError('mountAboutPage: app is required');
   const repos = (repositories ?? [{ name: CORE_IDENTITY.name, url: CORE_IDENTITY.repoUrl }]).map((r) => ({ name: String(r.name ?? ''), url: httpsUrl(r.url) })).filter((r) => r.name && r.url);
+  const contacts = (security?.contact ?? []).map((c) => String(c).trim()).map((c) => (/^(mailto:|https:\/\/|tel:)/i.test(c) ? c : c.includes('@') ? `mailto:${c}` : null)).filter(Boolean).slice(0, 5);
+  const contactHtml = contacts.map((c) => (/^https:/i.test(c) && httpsUrl(c) ? `<a href="${esc(httpsUrl(c))}" target="_blank" rel="noopener">${esc(c)}</a>` : /^mailto:/i.test(c) ? `<a href="${esc(c.replace(/[\s"<>]/g, ''))}">${esc(c.slice(7))}</a>` : esc(c.slice(4)))).join(' · ');
+  const policyUrl = httpsUrl(security?.policy);
   if (linkPoweredBy) setPoweredByLink({ href: path, version: coreVersion });
 
   app.get(path, (req, res) => {
@@ -72,6 +79,7 @@ export function mountAboutPage(app, {
       <h2>${esc(t.licence)}</h2>
       <p>${esc(t.mit)}, © ${esc(copyright)}${logoSrc(licenseUrl)?.startsWith('/') ? ` · <a href="${esc(licenseUrl)}">${esc(t.licenceText)}</a>` : ''}</p>
       ${authorHtml ? `<h2>${esc(t.author)}</h2><p>${authorHtml}</p>` : ''}
+      ${contactHtml || coreSecurityLink ? `<h2>${esc(t.security)}</h2><ul>${contactHtml ? `<li>${esc(t.securityApp)}: ${contactHtml}${policyUrl ? ` · <a href="${esc(policyUrl)}" target="_blank" rel="noopener">${esc(t.securityPolicy)}</a>` : ''}</li>` : ''}${coreSecurityLink && CORE_IDENTITY.repoUrl ? `<li>${esc(t.securityCore)}: <a href="${esc(CORE_IDENTITY.repoUrl)}/security/advisories/new" target="_blank" rel="noopener">${esc(t.securityCoreHow)}</a></li>` : ''}</ul>` : ''}
       ${repos.length ? `<h2>${esc(t.sources)}</h2><p>${repos.map((r) => `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`).join(' · ')}</p>` : ''}
       <p class="hint"><a href="/">${esc(t.back)}</a></p>`;
     res.type('html').send(pageShell(t.title, body, { nonce: res.locals?.cspNonce, locale, brand: { theme: b.theme, html: b.html }, wide: true }));

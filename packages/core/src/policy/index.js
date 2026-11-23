@@ -12,6 +12,7 @@ import { readForm } from '../admin/sections.js';
 import { log } from '../audit/log.js';
 import { asyncDb } from '../database/async.js';
 import { contextFromRequest } from '../audit/context.js';
+import { isUnsafeKey } from '../util/unsafe-key.js';
 export { DEFAULT_TEXTS, KINDS, PLATFORM_LICENSE, MIT_TEXT } from './defaults.js';
 export { renderPolicyText } from './render.js';
 
@@ -22,14 +23,14 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const UI = {
   ru: {
     banner: 'Мы используем только необходимые cookie для работы входа. Дополнительные — только с вашего согласия.',
-    accept: 'Принять', decline: 'Отказаться', more: 'Подробнее', policy: 'Политика использования', cookies: 'Cookie', license: 'Лицензионное соглашение', components: 'Компоненты и лицензии',
+    accept: 'Принять', decline: 'Отказаться', more: 'Подробнее', policy: 'Политика использования', cookies: 'Cookie', license: 'Лицензионное соглашение', accessibility: 'Доступность', components: 'Компоненты и лицензии',
     compTitle: 'Компоненты и лицензии', pkg: 'Пакет', version: 'Версия', licenseCol: 'Лицензия', copyleft: 'копилефт',
     compIntro: 'Платформа и приложение построены на открытых компонентах. Компоненты с лицензиями GPL/LGPL/AGPL (отмечены) используются на условиях этих лицензий; полные тексты — по ссылкам.',
     licenseTexts: 'Тексты лицензий',
   },
   en: {
     banner: 'We use only the cookies needed for sign-in. Additional ones only with your consent.',
-    accept: 'Accept', decline: 'Decline', more: 'Learn more', policy: 'Usage policy', cookies: 'Cookies', license: 'Licence agreement', components: 'Components and licences',
+    accept: 'Accept', decline: 'Decline', more: 'Learn more', policy: 'Usage policy', cookies: 'Cookies', license: 'Licence agreement', accessibility: 'Accessibility', components: 'Components and licences',
     compTitle: 'Components and licences', pkg: 'Package', version: 'Version', licenseCol: 'Licence', copyleft: 'copyleft',
     compIntro: 'The platform and the application are built on open-source components. Components under GPL/LGPL/AGPL licences (marked) are used under those licences; full texts are linked.',
     licenseTexts: 'Licence texts',
@@ -40,7 +41,8 @@ function parseCookies(header) {
   const out = {};
   for (const part of String(header ?? '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+    const name = part.slice(0, i).trim();
+    if (i > 0 && !isUnsafeKey(name)) out[name] = part.slice(i + 1).trim();
   }
   return out;
 }
@@ -52,7 +54,7 @@ function safeBack(v) {
 
 const POLICY_DDL = `CREATE TABLE IF NOT EXISTS policy_texts (
     locale TEXT NOT NULL CHECK (locale IN ('ru','en')),
-    kind TEXT NOT NULL CHECK (kind IN ('usage','cookies','license')),
+    kind TEXT NOT NULL CHECK (kind IN ('usage','cookies','license','accessibility')),
     body TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     updated_by TEXT,
@@ -61,7 +63,7 @@ const POLICY_DDL = `CREATE TABLE IF NOT EXISTS policy_texts (
 const SELECT_TEXT_SQL = 'SELECT body, updated_at, updated_by FROM policy_texts WHERE locale = ? AND kind = ?';
 const UPSERT_TEXT_SQL = `INSERT INTO policy_texts (locale, kind, body, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(locale, kind) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
-const needsRebuild = (sql) => Boolean(sql) && !sql.includes("'license'");
+const needsRebuild = (sql) => Boolean(sql) && !sql.includes("'accessibility'");
 const textOf = (row, locale, kind) => (row
   ? { body: row.body, custom: true, updatedAt: row.updated_at, updatedBy: row.updated_by }
   : { body: DEFAULT_TEXTS[locale][kind], custom: false, updatedAt: null, updatedBy: null });
@@ -88,6 +90,13 @@ export async function ensurePolicyTableAsync(db) {
     });
   }
   await a.exec(POLICY_DDL);
+  if (a.dialect === 'postgres') {
+    // a table made by an earlier version has a CHECK without the newest kinds: widen it (idempotent, safe to repeat)
+    try {
+      await a.exec('ALTER TABLE policy_texts DROP CONSTRAINT IF EXISTS policy_texts_kind_check');
+      await a.exec(`ALTER TABLE policy_texts ADD CONSTRAINT policy_texts_kind_check CHECK (kind IN ('usage','cookies','license','accessibility'))`);
+    } catch { /* constraint already in place or named differently: the next save reports it */ }
+  }
 }
 
 export function ensurePolicyTable(db) {
@@ -99,7 +108,7 @@ export function ensurePolicyTable(db) {
       db.exec('ALTER TABLE policy_texts RENAME TO policy_texts_old');
       db.exec(`CREATE TABLE policy_texts (
     locale TEXT NOT NULL CHECK (locale IN ('ru','en')),
-    kind TEXT NOT NULL CHECK (kind IN ('usage','cookies','license')),
+    kind TEXT NOT NULL CHECK (kind IN ('usage','cookies','license','accessibility')),
     body TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     updated_by TEXT,
@@ -152,7 +161,7 @@ export function createPolicy({ db, appName = 'DAS-Forge', theme = {}, dependency
 
   function links(locale) {
     const u = pickTexts(UI, undefined, locale, 'policy-ui');
-    return `<nav aria-label="${esc(u.policy)}" style="margin:1.5rem 0 .5rem;font-size:.85rem;display:flex;gap:1rem;flex-wrap:wrap"><a href="${basePath}?lang=${locale}">${esc(u.policy)}</a><a href="${basePath}/cookies?lang=${locale}">${esc(u.cookies)}</a><a href="${basePath}/license?lang=${locale}">${esc(u.license)}</a><a href="${basePath}/components?lang=${locale}">${esc(u.components)}</a></nav>`;
+    return `<nav aria-label="${esc(u.policy)}" style="margin:1.5rem 0 .5rem;font-size:.85rem;display:flex;gap:1rem;flex-wrap:wrap"><a href="${basePath}?lang=${locale}">${esc(u.policy)}</a><a href="${basePath}/cookies?lang=${locale}">${esc(u.cookies)}</a><a href="${basePath}/license?lang=${locale}">${esc(u.license)}</a><a href="${basePath}/accessibility?lang=${locale}">${esc(u.accessibility)}</a><a href="${basePath}/components?lang=${locale}">${esc(u.components)}</a></nav>`;
   }
 
   function bannerHtml(req, res, locale = localeOf(req)) {
@@ -193,12 +202,13 @@ ${themeHead({ ...theme, nonce: res.locals?.cspNonce })}
       const locale = localeOf(req);
       const { body } = getText(locale, kind);
       // the licence page: the platform's fixed part first, then the application owner's editable agreement
-      const platform = kind === 'license' ? `<article>${renderPolicyText(PLATFORM_LICENSE[locale])}<pre style="white-space:pre-wrap;font-family:inherit;font-size:.9rem">${esc(MIT_TEXT.replace('{{holder}}', platformCopyright))}</pre></article><hr style="margin:2rem 0">` : '';
+      const platform = kind === 'license' ? `<article>${renderPolicyText(PLATFORM_LICENSE[locale]).replace(/<(\/?)h([123])>/g, (m, c, n) => `<${c}h${Number(n) + 1}>`)}<pre style="white-space:pre-wrap;font-family:inherit;font-size:.9rem">${esc(MIT_TEXT.replace('{{holder}}', platformCopyright))}</pre></article><hr style="margin:2rem 0">` : '';
       publicPage(req, res, { title: pickTexts(UI, undefined, locale, 'policy-ui')[kind === 'usage' ? 'policy' : kind], locale, bodyHtml: `${platform}<article>${renderPolicyText(body, { app: appName })}</article>` });
     };
     app.get(basePath, textPage('usage'));
     app.get(`${basePath}/cookies`, textPage('cookies'));
     app.get(`${basePath}/license`, textPage('license'));
+    app.get(`${basePath}/accessibility`, textPage('accessibility'));
     app.get(`${basePath}/components`, (req, res) => {
       const locale = localeOf(req);
       const u = pickTexts(UI, undefined, locale, 'policy-ui');
@@ -229,8 +239,8 @@ ${themeHead({ ...theme, nonce: res.locals?.cspNonce })}
   function mountAdmin({ app, guard, page, basePath: adminBase, localeOf: adminLocale, db: adb, stepUp = [] }) {
     const p = `${adminBase}/policy`;
     const T = {
-      ru: { language: 'Язык текстов', title: 'Политики', usage: 'Политика использования', cookies: 'Cookie', license: 'Лицензионное соглашение', save: 'Сохранить', reset: 'Вернуть шаблон', file: 'Загрузить из файла (.md, .txt)', custom: 'свой текст', def: 'шаблон платформы', upd: 'обновлено', hint: 'Разметка: # заголовок, ## раздел, - пункт списка, **жирный**, [текст](ссылка), {{app}} — название приложения. HTML не поддерживается.', done: 'Готово', bad: 'Не сохранено', open: 'Открыть страницу' },
-      en: { language: 'Language of the texts', title: 'Policies', usage: 'Usage policy', cookies: 'Cookies', license: 'Licence agreement', save: 'Save', reset: 'Restore template', file: 'Load from file (.md, .txt)', custom: 'custom text', def: 'platform template', upd: 'updated', hint: 'Markup: # heading, ## section, - list item, **bold**, [text](link), {{app}} = application name. HTML is not supported.', done: 'Done', bad: 'Not saved', open: 'Open page' },
+      ru: { language: 'Язык текстов', title: 'Политики', usage: 'Политика использования', cookies: 'Cookie', license: 'Лицензионное соглашение', accessibility: 'Заявление о доступности', save: 'Сохранить', reset: 'Вернуть шаблон', file: 'Загрузить из файла (.md, .txt)', custom: 'свой текст', def: 'шаблон платформы', upd: 'обновлено', hint: 'Разметка: # заголовок, ## раздел, - пункт списка, **жирный**, [текст](ссылка), {{app}} — название приложения. HTML не поддерживается.', done: 'Готово', bad: 'Не сохранено', open: 'Открыть страницу' },
+      en: { language: 'Language of the texts', title: 'Policies', usage: 'Usage policy', cookies: 'Cookies', license: 'Licence agreement', accessibility: 'Accessibility statement', save: 'Save', reset: 'Restore template', file: 'Load from file (.md, .txt)', custom: 'custom text', def: 'platform template', upd: 'updated', hint: 'Markup: # heading, ## section, - list item, **bold**, [text](link), {{app}} = application name. HTML is not supported.', done: 'Done', bad: 'Not saved', open: 'Open page' },
     };
     app.get(p, ...guard, (req, res) => {
       const locale = adminLocale(req);

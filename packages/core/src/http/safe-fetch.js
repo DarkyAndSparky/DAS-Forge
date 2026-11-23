@@ -35,7 +35,9 @@ const PRIVATE = mk([
 /** The 16 bytes of an IPv6 address (net.isIPv6 must already be true), or null. */
 function bytes6(ip) {
   let s = ip.toLowerCase().split('%')[0];
-  const tail = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
+  const last = s.slice(-15); // an IPv4 tail is at most 15 characters: the pattern never scans the whole text
+  const tail = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(last);
+  if (tail) tail.index += s.length - last.length;
   if (tail) s = s.slice(0, tail.index) + ((Number(tail[1]) << 8) | Number(tail[2])).toString(16) + ':' + ((Number(tail[3]) << 8) | Number(tail[4])).toString(16);
   const [head, rest, extra] = s.split('::');
   if (extra !== undefined) return null;

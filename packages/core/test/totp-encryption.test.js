@@ -10,6 +10,9 @@ function setup() {
   return { db, userId };
 }
 
+// Changes the first character of the ciphertext part. (Not the last one: the last base64 character carries unused bits, so some changes of it leave the bytes the same.)
+const tamper = (sealed) => { const [a, b, c, ...rest] = sealed.split(':'); return [a, b, (c[0] === 'A' ? 'B' : 'A') + c.slice(1), ...rest].join(':'); };
+
 describe('TOTP secrets encrypted at rest (A10)', () => {
   it('seal/open round-trips and rejects wrong key / tampering', () => {
     const sealed = auth.sealSecret('JBSWY3DPEHPK3PXP', KEY);
@@ -17,7 +20,7 @@ describe('TOTP secrets encrypted at rest (A10)', () => {
     expect(sealed).not.toContain('JBSWY3DPEHPK3PXP');
     expect(auth.openSecret(sealed, KEY)).toBe('JBSWY3DPEHPK3PXP');
     expect(() => auth.openSecret(sealed, KEY + 'x')).toThrow(/decrypt/);
-    expect(() => auth.openSecret(sealed.slice(0, -2) + 'AA', KEY)).toThrow();
+    expect(() => auth.openSecret(tamper(sealed), KEY)).toThrow();
     expect(() => auth.openSecret(sealed)).toThrow(/no encryptionKey/);
   });
 

@@ -234,4 +234,19 @@ describe('licence agreement text', () => {
     expect(policy.getText('en', 'license')).toMatchObject({ body: 'Our terms', custom: true });
     expect(typeof renderPolicyText).toBe('function');
   });
+
+  it('rebuilds a three-kind table, keeps rows and serves the accessibility page', async () => {
+    const { createPolicy, ensurePolicyTable, KINDS } = await import('../src/policy/index.js');
+    const db = createSqliteAdapter({ file: ':memory:' });
+    db.exec(`CREATE TABLE policy_texts (locale TEXT NOT NULL CHECK (locale IN ('ru','en')), kind TEXT NOT NULL CHECK (kind IN ('usage','cookies','license')), body TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT, PRIMARY KEY (locale, kind))`);
+    db.run(`INSERT INTO policy_texts VALUES ('en', 'license', 'Old licence', '2026-10-01T00:00:00Z', 'root')`);
+    ensurePolicyTable(db);
+    expect(db.get(`SELECT body FROM policy_texts WHERE kind = 'license'`).body).toBe('Old licence');
+    const policy = createPolicy({ db, appName: 'Workshop' });
+    expect(KINDS).toContain('accessibility');
+    policy.setText('en', 'accessibility', 'Our statement', 'root');
+    expect(policy.getText('en', 'accessibility').body).toBe('Our statement');
+    expect(policy.getText('ru', 'accessibility').body).toContain('доступности');
+  });
+
 });

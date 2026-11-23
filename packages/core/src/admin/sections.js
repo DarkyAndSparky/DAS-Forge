@@ -12,6 +12,7 @@ import { mountIpBan } from './sections-ipban.js';
 import { createDbLastRunStore } from '../scheduler/state.js';
 import { asyncDb } from '../database/async.js';
 import { parseId } from '../util/parse-id.js';
+import { isUnsafeKey } from '../util/unsafe-key.js';
 
 /** One full-width row with a hint for an empty table. */
 export const emptyRow = (cols, text) => `<tr><td colspan="${cols}" class="adm-empty">${String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}</td></tr>`;
@@ -50,7 +51,7 @@ const L = {
  */
 function onlyStrings(body) {
   const out = {};
-  for (const [k, v] of Object.entries(body)) out[k] = typeof v === 'string' ? v : (typeof v === 'number' || typeof v === 'boolean') ? String(v) : '';
+  for (const [k, v] of Object.entries(body)) if (!isUnsafeKey(k)) out[k] = typeof v === 'string' ? v : (typeof v === 'number' || typeof v === 'boolean') ? String(v) : '';
   return out;
 }
 
@@ -101,7 +102,7 @@ function validDate(v) {
 function liveHtml({ path, qs, lastId, paged, label, nonce }) {
   if (paged) return '';
   const n = nonce ? ` nonce="${esc(nonce)}"` : '';
-  return `<p><label class="adm-muted"><input type="checkbox" id="adm-live"> ${esc(label)}</label></p><script${n}>(function(){var c=document.getElementById('adm-live'),b=document.querySelector('tbody[data-paged="audit"]');if(!c||!b)return;var last=${Number(lastId) || 0},t=null,url=${JSON.stringify(`${path}/live?${qs}`)};function poll(){fetch(url+'&after='+last,{credentials:'same-origin',headers:{Accept:'application/json'}}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d||!d.count)return;var e=b.querySelector('tr td[colspan]');if(e)e.parentNode.remove();var rs=new DOMParser().parseFromString('<table><tbody>'+d.rows+'</tbody></table>','text/html').querySelectorAll('tbody > tr');b.prepend.apply(b,Array.prototype.slice.call(rs));last=d.lastId}).catch(function(){})}c.addEventListener('change',function(){if(c.checked){poll();t=setInterval(poll,5000)}else{clearInterval(t);t=null}})})();</script>`;
+  return `<p><label class="adm-muted"><input type="checkbox" id="adm-live"> ${esc(label)}</label></p><script${n}>(function(){var c=document.getElementById('adm-live'),b=document.querySelector('tbody[data-paged="audit"]');if(!c||!b)return;var last=${Number(lastId) || 0},t=null,url=${JSON.stringify(`${path}/live?${qs}`).replace(/</g, '\\u003c')};function poll(){fetch(url+'&after='+last,{credentials:'same-origin',headers:{Accept:'application/json'}}).then(function(r){return r.ok?r.json():null}).then(function(d){if(!d||!d.count)return;var e=b.querySelector('tr td[colspan]');if(e)e.parentNode.remove();var rs=new DOMParser().parseFromString('<table><tbody>'+d.rows+'</tbody></table>','text/html').querySelectorAll('tbody > tr');b.prepend.apply(b,Array.prototype.slice.call(rs));last=d.lastId}).catch(function(){})}c.addEventListener('change',function(){if(c.checked){poll();t=setInterval(poll,5000)}else{clearInterval(t);t=null}})})();</script>`;
 }
 
 /** What the object was called when the event happened: the login for a user, `target` for the rest (kept in `meta`). */

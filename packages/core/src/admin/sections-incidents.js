@@ -1,5 +1,5 @@
 import { pickTexts } from '../i18n/overrides.js';
-import { IncidentError } from '../privacy/incidents.js';
+import { IncidentError, INCIDENT_REGIMES } from '../privacy/incidents.js';
 import { readForm, emptyRow } from './sections.js';
 import { pageParams, pagerFor } from './paging.js';
 
@@ -12,6 +12,7 @@ export const INCIDENT_TEXTS = {
     declare: 'Зафиксировать инцидент', title: 'Название', description: 'Что произошло', severity: 'Тяжесть', personal: 'Затронуты персональные данные', detected: 'Обнаружен (UTC, пусто — сейчас)',
     sLow: 'Низкая', sMedium: 'Средняя', sHigh: 'Высокая', stOpen: 'Открыт', stNotified: 'Регулятор уведомлён', stClosed: 'Закрыт',
     colId: '№', colTitle: 'Название', colSeverity: 'Тяжесть', colStatus: 'Статус', colDetected: 'Обнаружен', colFirst: 'Первичное уведомление', colDetails: 'Уточнённые сведения', colActions: 'Действия',
+    colFinal: 'Итоговый отчёт', regimesLabel: 'Режимы уведомления', rPd: 'Персональные данные (152-ФЗ, GDPR)', 'rKii-significant': 'КИИ, значимый объект (3 ч)', rKii: 'КИИ, прочие объекты (24 ч)', rNis2: 'NIS2 (24 ч, 72 ч, итоговый отчёт)', rCra: 'CRA (24 ч, 72 ч, итоговый отчёт)', finalAt: 'Итоговый отчёт отправлен (UTC)', e_REGIME_INVALID: 'Неизвестный режим уведомления.',
     due: 'срок', sent: 'отправлено', overdue: 'просрочено', na: '—', empty: 'Инцидентов нет.',
     update: 'Обновить', firstAt: 'Первичное уведомление отправлено (UTC)', detailsAt: 'Уточнённые сведения отправлены (UTC)', measures: 'Принятые меры', status: 'Статус', save: 'Сохранить', open: 'Подробнее',
     done: 'Сохранено.', bad: 'Не удалось сохранить.',
@@ -23,6 +24,7 @@ export const INCIDENT_TEXTS = {
     declare: 'Record an incident', title: 'Title', description: 'What happened', severity: 'Severity', personal: 'Personal data is involved', detected: 'Detected (UTC, empty = now)',
     sLow: 'Low', sMedium: 'Medium', sHigh: 'High', stOpen: 'Open', stNotified: 'Regulator notified', stClosed: 'Closed',
     colId: '#', colTitle: 'Title', colSeverity: 'Severity', colStatus: 'Status', colDetected: 'Detected', colFirst: 'First notice', colDetails: 'Details notice', colActions: 'Actions',
+    colFinal: 'Final report', regimesLabel: 'Notice regimes', rPd: 'Personal data (152-FZ, GDPR)', 'rKii-significant': 'Critical infrastructure, significant object (3 h)', rKii: 'Critical infrastructure, other objects (24 h)', rNis2: 'NIS2 (24 h, 72 h, final report)', rCra: 'CRA (24 h, 72 h, final report)', finalAt: 'Final report sent (UTC)', e_REGIME_INVALID: 'Unknown notice regime.',
     due: 'due', sent: 'sent', overdue: 'overdue', na: '—', empty: 'No incidents.',
     update: 'Update', firstAt: 'First notice sent (UTC)', detailsAt: 'Details sent (UTC)', measures: 'Measures taken', status: 'Status', save: 'Save', open: 'Details',
     done: 'Saved.', bad: 'Could not save.',
@@ -48,22 +50,26 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
   };
   const toast = (l, req) => (req.query?.msg === 'ok' ? `<div class="adm-toast">${esc(l.done)}</div>` : req.query?.msg === 'bad' ? `<div class="adm-toast" style="border-left-color:var(--adm-danger)">${esc(l[`e_${String(req.query.e ?? '')}`] ?? l.bad)}</div>` : '');
   const field = 'height:2.4rem;box-sizing:border-box';
+  // One checkbox per regime (`regime_<name>`): the form reader keeps one value per field name. On the declare form the personal-data regime has its own box.
+  const regimeBoxes = (l, chosen = [], withPd = false) => `<fieldset class="adm-field"><legend>${esc(l.regimesLabel)}</legend><input type="hidden" name="regimes_set" value="1">${Object.keys(INCIDENT_REGIMES).filter((n) => withPd || n !== 'pd').map((n) => `<label><input type="checkbox" name="regime_${n}" value="1"${chosen.includes(n) ? ' checked' : ''}> ${esc(l[`r${n[0].toUpperCase()}${n.slice(1)}`] ?? n)}</label>`).join('<br>')}</fieldset>`;
+  const regimesOf = (f) => Object.keys(INCIDENT_REGIMES).filter((n) => f[`regime_${n}`] === '1');
 
   app.get(p, ...guard, async (req, res) => {
     const l = tx(req);
     const pg = pageParams(req);
     const rows = await incidents.list({ limit: pg.size, offset: pg.offset });
     const total = await incidents.count();
-    const body = rows.length ? rows.map((i) => `<tr><td>${i.id}</td><td><a href="${p}/${i.id}">${esc(i.title)}</a></td><td>${sevBadge(l, i.severity)}</td><td>${esc(st(l, i.status))}</td><td>${esc(i.detectedAt.slice(0, 16))}</td><td>${dueCell(l, i.firstNoticeDue, i.firstNoticeAt)}</td><td>${dueCell(l, i.detailsDue, i.detailsNoticeAt)}</td></tr>`).join('') : emptyRow(7, l.empty);
+    const body = rows.length ? rows.map((i) => `<tr><td>${i.id}</td><td><a href="${p}/${i.id}">${esc(i.title)}</a></td><td>${sevBadge(l, i.severity)}</td><td>${esc(st(l, i.status))}</td><td>${esc(i.detectedAt.slice(0, 16))}</td><td>${dueCell(l, i.firstNoticeDue, i.firstNoticeAt)}</td><td>${dueCell(l, i.detailsDue, i.detailsNoticeAt)}</td><td>${dueCell(l, i.finalNoticeDue, i.finalNoticeAt)}</td></tr>`).join('') : emptyRow(8, l.empty);
     const opt = (v, label, cur) => `<option value="${v}"${cur === v ? ' selected' : ''}>${esc(label)}</option>`;
     const form = `<form method="post" action="${p}/declare" class="adm-card" style="display:flex;flex-direction:column;gap:.75rem;max-width:36rem;margin-top:1rem"><h2>${esc(l.declare)}</h2>
 <label class="adm-field">${esc(l.title)}<input class="adm-input" name="title" required maxlength="200" style="${field}"></label>
 <label class="adm-field">${esc(l.description)}<textarea class="adm-input" name="description" rows="4" maxlength="4000"></textarea></label>
 <label class="adm-field">${esc(l.severity)}<select class="adm-input" name="severity" style="${field}">${opt('low', l.sLow)}${opt('medium', l.sMedium, 'medium')}${opt('high', l.sHigh)}</select></label>
 <label><input type="checkbox" name="personalData" value="1"> ${esc(l.personal)}</label>
+${regimeBoxes(l)}
 <label class="adm-field">${esc(l.detected)}<input class="adm-input" type="datetime-local" name="detectedAt" style="${field}"></label>
 <div><button class="adm-btn primary" type="submit">${esc(l.declare)}</button></div></form>`;
-    await render(req, res, { active: p, title: l.incidents, bodyHtml: `${toast(l, req)}<div class="adm-card"><p class="adm-muted">${esc(l.hint)}</p></div><div class="adm-card" style="margin-top:1rem;overflow:auto"><table class="adm-table"><thead><tr><th>${esc(l.colId)}</th><th>${esc(l.colTitle)}</th><th>${esc(l.colSeverity)}</th><th>${esc(l.colStatus)}</th><th>${esc(l.colDetected)}</th><th>${esc(l.colFirst)}</th><th>${esc(l.colDetails)}</th></tr></thead><tbody data-paged="incidents">${body}</tbody></table>${pagerFor({ req, res, path: p, name: 'incidents', ...pg, count: rows.length, total, locale: localeOf(req) })}</div>${form}` });
+    await render(req, res, { active: p, title: l.incidents, bodyHtml: `${toast(l, req)}<div class="adm-card"><p class="adm-muted">${esc(l.hint)}</p></div><div class="adm-card" style="margin-top:1rem;overflow:auto"><table class="adm-table"><thead><tr><th>${esc(l.colId)}</th><th>${esc(l.colTitle)}</th><th>${esc(l.colSeverity)}</th><th>${esc(l.colStatus)}</th><th>${esc(l.colDetected)}</th><th>${esc(l.colFirst)}</th><th>${esc(l.colDetails)}</th><th>${esc(l.colFinal)}</th></tr></thead><tbody data-paged="incidents">${body}</tbody></table>${pagerFor({ req, res, path: p, name: 'incidents', ...pg, count: rows.length, total, locale: localeOf(req) })}</div>${form}` });
   });
 
   app.get(`${p}/:id`, ...guard, async (req, res) => {
@@ -77,9 +83,11 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
 <label class="adm-field">${esc(l.severity)}<select class="adm-input" name="severity" style="${field}">${sopt('low', l.sLow)}${sopt('medium', l.sMedium)}${sopt('high', l.sHigh)}</select></label>
 <label class="adm-field">${esc(l.firstAt)}<input class="adm-input" type="datetime-local" name="firstNoticeAt" value="${esc(localInput(i.firstNoticeAt))}" style="${field}"></label>
 <label class="adm-field">${esc(l.detailsAt)}<input class="adm-input" type="datetime-local" name="detailsNoticeAt" value="${esc(localInput(i.detailsNoticeAt))}" style="${field}"></label>
+<label class="adm-field">${esc(l.finalAt)}<input class="adm-input" type="datetime-local" name="finalNoticeAt" value="${esc(localInput(i.finalNoticeAt))}" style="${field}"></label>
+${regimeBoxes(l, i.regimes, true)}
 <label class="adm-field">${esc(l.measures)}<textarea class="adm-input" name="measures" rows="5" maxlength="4000">${esc(i.measures)}</textarea></label>
 <div><button class="adm-btn primary" type="submit">${esc(l.save)}</button> <a class="adm-btn" href="${p}">${esc(l.incidents)}</a></div></form>`;
-    await render(req, res, { active: p, title: `${l.incidents} #${i.id}`, bodyHtml: `${toast(l, req)}<div class="adm-card"><h2>${esc(i.title)}</h2><p>${esc(i.description)}</p><p class="adm-muted">${esc(l.detected)}: ${esc(i.detectedAt.slice(0, 16))} · ${esc(l.colFirst)}: ${dueCell(l, i.firstNoticeDue, i.firstNoticeAt)} · ${esc(l.colDetails)}: ${dueCell(l, i.detailsDue, i.detailsNoticeAt)}</p></div>${form}` });
+    await render(req, res, { active: p, title: `${l.incidents} #${i.id}`, bodyHtml: `${toast(l, req)}<div class="adm-card"><h2>${esc(i.title)}</h2><p>${esc(i.description)}</p><p class="adm-muted">${esc(l.detected)}: ${esc(i.detectedAt.slice(0, 16))} · ${esc(l.colFirst)}: ${dueCell(l, i.firstNoticeDue, i.firstNoticeAt)} · ${esc(l.colDetails)}: ${dueCell(l, i.detailsDue, i.detailsNoticeAt)} · ${esc(l.colFinal)}: ${dueCell(l, i.finalNoticeDue, i.finalNoticeAt)}</p></div>${form}` });
   });
 
   const fail = (res, err, back, next) => (err instanceof IncidentError ? res.redirect(303, `${back}?msg=bad&e=${encodeURIComponent(err.code)}`) : next(err));
@@ -87,7 +95,7 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
   app.post(`${p}/declare`, ...guard, ...stepUp, async (req, res, next) => {
     try {
       const f = await readForm(req);
-      const i = await incidents.declare({ title: f.title, description: f.description, severity: String(f.severity ?? 'medium'), personalData: f.personalData === '1', detectedAt: fromInput(f.detectedAt), actor: actorOf(req) });
+      const i = await incidents.declare({ title: f.title, description: f.description, severity: String(f.severity ?? 'medium'), personalData: f.personalData === '1', regimes: regimesOf(f), detectedAt: fromInput(f.detectedAt), actor: actorOf(req) });
       res.redirect(303, `${p}/${i.id}?msg=ok`);
     } catch (err) { fail(res, err, p, next); }
   });
@@ -97,7 +105,7 @@ export function mountIncidentsSection({ app, guard, page: render, basePath, loca
     try {
       const f = await readForm(req);
       const pick = (k) => (f[k] === undefined ? undefined : fromInput(f[k]));
-      await incidents.update(req.params.id, { status: f.status, severity: f.severity, firstNoticeAt: pick('firstNoticeAt'), detailsNoticeAt: pick('detailsNoticeAt'), measures: f.measures, actor: actorOf(req) });
+      await incidents.update(req.params.id, { status: f.status, severity: f.severity, firstNoticeAt: pick('firstNoticeAt'), detailsNoticeAt: pick('detailsNoticeAt'), finalNoticeAt: pick('finalNoticeAt'), regimes: f.regimes_set === '1' ? regimesOf(f) : undefined, measures: f.measures, actor: actorOf(req) });
       res.redirect(303, `${back}?msg=ok`);
     } catch (err) { fail(res, err, back, next); }
   });

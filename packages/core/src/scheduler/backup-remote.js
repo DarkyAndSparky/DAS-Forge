@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 
 import { SftpDestinationConfigSchema, MountDestinationConfigSchema } from '../config/schema.js';
 import { resolveEnvRef } from '../logs/sinks.js';
+import { trimTrailingSlashes } from '../util/trim-slashes.js';
 
 /**
  * Backup targets other than a plain local directory (audit L01): a mounted network share and SFTP.
@@ -168,7 +169,7 @@ export function createSftpTarget(destination, { ssh2 = null, env = process.env }
   let client = null;
   let sftp = null;
 
-  const remote = (name) => `${cfg.remotePath.replace(/\/+$/, '')}/${assertPlainName(name)}`;
+  const remote = (name) => `${trimTrailingSlashes(cfg.remotePath)}/${assertPlainName(name)}`;
 
   async function connect() {
     if (sftp) return;

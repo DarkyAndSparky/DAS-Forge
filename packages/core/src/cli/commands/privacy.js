@@ -160,19 +160,20 @@ export function registerPrivacyCommands(cli, { findUserByUsernameFn, exportUserD
 function registerIncidentCommands(cli, incidents) {
   const out = (m) => console.log(m); // eslint-disable-line no-console
   const err = (m) => console.error(m); // eslint-disable-line no-console
-  const line = (i) => `#${i.id} [${i.status}] ${i.severity}${i.personalData ? ' PD' : ''} ${i.detectedAt.slice(0, 16)}Z ${i.title}${i.firstNoticeDue?.overdue || i.detailsDue?.overdue ? '  !! OVERDUE' : ''}`;
+  const line = (i) => `#${i.id} [${i.status}] ${i.severity}${i.regimes?.length ? ` [${i.regimes.join(',')}]` : ''} ${i.detectedAt.slice(0, 16)}Z ${i.title}${i.firstNoticeDue?.overdue || i.detailsDue?.overdue || i.finalNoticeDue?.overdue ? '  !! OVERDUE' : ''}`;
   const fail = (e) => { if (e?.name === 'IncidentError') { err(`Incident error: ${e.code}`); return 1; } throw e; };
   const id = (flags) => flagString(flags, 'id');
 
   cli.command('privacy incident declare', {
-    description: 'Record a security incident (app privacy incident declare --title <text> [--description <text>] [--severity low|medium|high] [--personal-data] [--detected <ISO date>])',
+    description: 'Record a security incident (app privacy incident declare --title <text> [--description <text>] [--severity low|medium|high] [--personal-data] [--regime pd,kii,kii-significant,nis2,cra] [--detected <ISO date>])',
     async handler({ flags }) {
       const title = flagString(flags, 'title');
       if (!title) { err('Usage: privacy incident declare --title <text> [--description <text>] [--severity low|medium|high] [--personal-data] [--detected <ISO date>]'); return EXIT.USAGE; }
       try {
-        const i = await incidents.declare({ title, description: flagString(flags, 'description') ?? '', severity: flagString(flags, 'severity') ?? 'medium', personalData: flags['personal-data'] === true, detectedAt: flagString(flags, 'detected'), actor: cliActor() });
+        const i = await incidents.declare({ title, description: flagString(flags, 'description') ?? '', severity: flagString(flags, 'severity') ?? 'medium', personalData: flags['personal-data'] === true, regimes: (flagString(flags, 'regime') ?? '').split(',').map((x) => x.trim()).filter(Boolean), detectedAt: flagString(flags, 'detected'), actor: cliActor() });
         out(`Recorded incident #${i.id}.`);
-        if (i.firstNoticeDue) out(`Personal data involved: first notice due ${i.firstNoticeDue.at}, details due ${i.detailsDue.at} (check the current deadlines with a lawyer).`);
+        const dl = [['first', i.firstNoticeDue], ['details', i.detailsDue], ['final', i.finalNoticeDue]].filter(([, d]) => d).map(([k, d]) => `${k} due ${d.at}`);
+        if (dl.length) out(`Notice regimes [${i.regimes.join(', ')}]: ${dl.join(', ')} (check the current deadlines with a lawyer).`);
         return 0;
       } catch (e) { return fail(e); }
     },

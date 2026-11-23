@@ -266,7 +266,7 @@ export function createAdmin({ sessionWarnMs = 120_000, ipBan = null, texts = {},
       // open incidents: red when one is of high severity or has a notice deadline passed, amber otherwise
       const open = (await incidents.list({ limit: 1000 })).filter((i) => i.status !== 'closed');
       const high = open.filter((i) => i.severity === 'high').length;
-      const late = open.filter((i) => i.firstNoticeDue?.overdue || i.detailsDue?.overdue).length;
+      const late = open.filter((i) => i.firstNoticeDue?.overdue || i.detailsDue?.overdue || i.finalNoticeDue?.overdue).length;
       if (open.length) {
         const colour = high || late ? 'var(--adm-danger)' : 'var(--adm-warn)';
         const detail = [high ? `${t.alertHigh}: ${high}` : '', late ? `${t.alertLate}: ${late}` : ''].filter(Boolean).join(', ');

@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import semver from 'semver';
 import { ensureSettingsTableAsync } from '../../branding/company-branding.js';
 import { asyncDb } from '../../database/async.js';
+import { trimTrailingSlashes } from '../../util/trim-slashes.js';
 
 const CACHE_KEY = 'dependency_audit';
 const SEVERITY_RANK = { critical: 4, high: 3, moderate: 2, low: 1 };
@@ -72,7 +73,7 @@ export async function findVulnerabilities(packages, { fetchFn = safeFetch, regis
   const body = {};
   for (const p of packages) (body[p.name] ??= []).push(p.version);
   assertOutboundUrl(registry, { label: 'registry', protocols: ['https:', 'http:'] });
-  const res = await fetchFn(`${registry.replace(/\/+$/, '')}/-/npm/v1/security/advisories/bulk`, {
+  const res = await fetchFn(`${trimTrailingSlashes(registry)}/-/npm/v1/security/advisories/bulk`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(body),

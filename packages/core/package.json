@@ -1,6 +1,6 @@
 {
   "name": "@das-forge/core",
-  "version": "0.1.390",
+  "version": "0.1.401",
   "description": "DAS-Forge shared platform core",
   "license": "MIT",
   "repository": {
@@ -35,6 +35,7 @@
     "./files": "./src/files/index.js",
     "./media": "./src/media/index.js",
     "./xlsx": "./src/xlsx/index.js",
+    "./documents": "./src/documents/index.js",
     "./csv": "./src/csv/index.js",
     "./scheduler": "./src/scheduler/index.js",
     "./cli": "./src/cli/index.js",

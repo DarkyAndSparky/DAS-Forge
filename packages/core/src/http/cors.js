@@ -1,4 +1,5 @@
 import cors from 'cors';
+import { trimTrailingSlashes } from '../util/trim-slashes.js';
 
 /**
  * CORS on top of the `cors` package, driven by an explicit allow-list
@@ -36,7 +37,7 @@ export function createCors({
 } = {}) {
   const allowed = new Set();
   for (const raw of origins) {
-    const origin = String(raw).trim().replace(/\/+$/, '');
+    const origin = trimTrailingSlashes(String(raw).trim());
     if (origin === '*' || origin.includes('*')) {
       throw new Error(`CORS: wildcard origins are not supported (got "${raw}"); list exact origins`);
     }
