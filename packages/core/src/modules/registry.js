@@ -85,8 +85,32 @@ export function createModuleRegistry() {
     return parsed;
   }
 
+  /**
+   * Registers the application's modules as the `modules` list of its configuration says:
+   * `modules: [{ name: 'reporting', enabled: true, options: { ... } }]`. `available` maps a name to a factory, `(options) => registration`,
+   * which the application writes (it is the only place that knows the module's code). An entry with `enabled: false` is skipped, its factory
+   * is not even called; a name with no factory fails at start (a typing error in the configuration must not look like a disabled module);
+   * a module that is available but not mentioned in the configuration is NOT registered. Returns `{ registered, skipped }` (lists of names).
+   */
+  function registerConfigured(entries, available) {
+    const registered = [];
+    const skipped = [];
+    const seen = new Set();
+    for (const entry of entries ?? []) {
+      if (seen.has(entry.name)) throw new Error(`Module "${entry.name}" is listed twice in the configuration`);
+      seen.add(entry.name);
+      const factory = available?.[entry.name];
+      if (typeof factory !== 'function') throw new Error(`Configuration lists module "${entry.name}", but the application has no such module (known: ${Object.keys(available ?? {}).join(', ') || 'none'})`);
+      if (entry.enabled === false) { skipped.push(entry.name); continue; }
+      registerModule(factory(entry.options ?? {}));
+      registered.push(entry.name);
+    }
+    return { registered, skipped };
+  }
+
   return {
     registerModule,
+    registerConfigured,
     getModule: (id) => modules.get(id),
     listModuleIds: () => [...modules.keys()],
 

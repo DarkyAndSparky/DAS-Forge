@@ -175,7 +175,7 @@ const config = await loadConfig({ schema: Schema });
 
 ### modules
 
-Список `{ name, enabled, options }` — какие модули ядра включены у приложения.
+Список `{ name, enabled, options }` — какие **модули приложения** (не модули ядра) включены. Сам по себе список ничего не делает: приложение передаёт его в `registry.registerConfigured(appConfig.modules, { имя: фабрика })` (см. [«Как включать и выключать модули»](02-modules.md)). Модули ядра включаются своими ключами (`email.enabled`, `auth.totp.enabled` и т. д.) и составом приложения.
 
 ### security
 

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Политика поддержки и обновлений безопасности — DAS-Forge 0.1.413</title>
+<style>
+:root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
+@media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15.5px/1.7 var(--ui)}
+a{color:var(--accent)}code,pre{font-family:var(--mono)}
+header.top{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding:22px 32px;border-bottom:1px solid var(--line);background:var(--bg1)}
+header.top .logo{width:56px;height:56px;flex:none}header.top .logo svg{width:100%;height:100%}
+header.top h1{margin:0;font-size:24px;color:var(--accent)}header.top p{margin:2px 0 0;color:var(--dim);font-size:13px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}.badges img{height:20px}
+.wrap{display:grid;grid-template-columns:250px 1fr;max-width:1240px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line)}
+nav.toc a{display:block;padding:6px 10px;border-radius:4px;color:var(--dim);text-decoration:none;font-size:13px}
+nav.toc a:hover{background:var(--bg2);color:var(--accent)}
+main{padding:36px 48px 90px;min-width:0}
+section{margin-bottom:64px;scroll-margin-top:16px}
+section>h2{font-size:26px;color:var(--accent);border-bottom:1px solid var(--line);padding-bottom:10px;margin:0 0 16px}
+section h3{font-size:19px;margin:30px 0 10px}section h4{font-size:16px;margin:22px 0 8px}
+p,li{max-width:90ch}
+code{background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.88em}
+pre{background:var(--bg1);border:1px solid var(--line);border-radius:6px;padding:14px 16px;overflow:auto}pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:12px 0}table{border-collapse:collapse;font-size:14px;width:100%}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:var(--bg2)}
+blockquote{margin:12px 0;padding:8px 16px;border-left:3px solid var(--accent);background:var(--bg1)}
+@media (max-width:820px){.wrap{grid-template-columns:1fr}nav.toc{position:static;height:auto;border:0}main{padding:24px 16px 60px}header.top{padding:16px}}
+nav.toc .grp{margin:16px 10px 4px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.back{display:inline-block;margin:0 0 18px;font-size:13px}
+main.page{max-width:960px;margin:0 auto}
+main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;margin:34px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}main.page h3{font-size:18px;margin:26px 0 8px}main.page h4{font-size:15.5px}
+
+</style>
+</head>
+<body>
+<header class="top">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  
+  <rect width="64" height="64" rx="10" fill="#5fb8c9"/>
+  <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
+        fill="#0d0f12" text-anchor="middle">WS</text>
+</svg></div>
+<div><h1>Политика поддержки и обновлений безопасности</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.413 · <code>docs/templates/support-policy.md</code></p></div>
+</header>
+<main class="page">
+<h1 id="политика-поддержки-и-обновлений-безопасности">Политика поддержки и обновлений безопасности</h1>
+<p>Продукт: [НАЗВАНИЕ ПРИЛОЖЕНИЯ]. Редакция от [ДАТА].</p>
+<p><em>Заготовка к ядру DAS-Forge. Срок поддержки — решение владельца продукта; ядро его не выбирает. Сроки ниже даны как ориентиры, сверьте их с юристом и с нормами вашей страны.</em></p>
+<h2 id="что-мы-обещаем">Что мы обещаем</h2>
+<ul><li><strong>Срок поддержки версии:</strong> [5] лет с даты выпуска версии [или короче — если вы заранее и обоснованно считаете, что продукт используют меньше; в ЕС (Cyber Resilience Act) по умолчанию ориентир — не менее 5 лет].</li><li><strong>Обновления безопасности</strong> в этот срок выпускаются <strong>бесплатно</strong>, отдельно от платных новых возможностей, где это возможно.</li><li><strong>Дата окончания поддержки</strong> указана для каждой версии в таблице ниже и на странице «О платформе» / в <a href="security.html"><code>SECURITY.md</code></a>. Когда поддержка заканчивается, мы предупреждаем не позднее чем за [6] месяцев.</li><li>После окончания поддержки обновления безопасности остаются доступными для скачивания [не менее 10 лет с выпуска версии — ориентир CRA; проверьте].</li></ul>
+<h2 id="таблица-версий">Таблица версий</h2>
+<div class="tbl"><table><thead><tr><th>Версия</th><th>Выпущена</th><th>Поддержка до</th><th>Статус</th></tr></thead><tbody><tr><td>[1.x]</td><td>[ДАТА]</td><td>[ДАТА]</td><td>[поддерживается / только безопасность / закончена]</td></tr></tbody></table></div>
+<h2 id="сроки-исправления-уязвимостей">Сроки исправления уязвимостей</h2>
+<div class="tbl"><table><thead><tr><th>Серьёзность</th><th>Подтвердить получение</th><th>Выпустить исправление</th></tr></thead><tbody><tr><td>Критическая</td><td>[1] рабочий день</td><td>[7] дней</td></tr><tr><td>Высокая</td><td>[3] рабочих дня</td><td>[30] дней</td></tr><tr><td>Средняя и низкая</td><td>[5] рабочих дней</td><td>[в плановом выпуске]</td></tr></tbody></table></div>
+<h2 id="как-мы-сообщаем-об-обновлениях">Как мы сообщаем об обновлениях</h2>
+<ul><li>Запись в журнале изменений (<code>CHANGELOG</code>) с пометкой «безопасность».</li><li>Уведомление администраторам: [ПОЧТА / РАССЫЛКА / ОБЪЯВЛЕНИЕ В АДМИНКЕ].</li><li>Для исправленных уязвимостей — публикация описания после того, как пользователи могли обновиться [например, через 30 дней].</li></ul>
+<h2 id="что-должен-делать-пользователь">Что должен делать пользователь</h2>
+<p>Ставить обновления безопасности в разумный срок. Версии, не получающие обновлений, использовать на свой риск.</p>
+<h2 id="контакт">Контакт</h2>
+<p>[АДРЕС ПОЧТЫ] — вопросы по поддержке и сообщения об уязвимостях (см. «Политику приёма сообщений об уязвимостях»).</p>
+<p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/docs/templates/support-policy.md">docs/templates/support-policy.md на GitHub</a></p>
+</main>
+</body>
+</html>

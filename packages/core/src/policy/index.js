@@ -254,7 +254,7 @@ ${themeHead({ ...theme, nonce: res.locals?.cspNonce })}
         const id = `t-${loc}-${kind}`;
         return `<div class="adm-card" style="margin-bottom:1rem"><h2>${esc(t[kind])} — ${loc.toUpperCase()} <span class="adm-badge ${cur.custom ? 'info' : ''}">${esc(cur.custom ? t.custom : t.def)}</span>${cur.updatedAt ? ` <span class="adm-muted">${esc(t.upd)}: ${esc(cur.updatedAt)} ${esc(cur.updatedBy ?? '')}</span>` : ''}</h2>
 <form method="post" action="${p}/save"><input type="hidden" name="locale" value="${loc}"><input type="hidden" name="kind" value="${kind}">
-<textarea id="${id}" name="body" class="adm-input" rows="12" style="width:100%;font-family:ui-monospace,monospace" maxlength="${MAX_BODY}">${esc(cur.body)}</textarea>
+<textarea id="${id}" name="body" aria-label="${esc(t[kind])} — ${loc.toUpperCase()}" class="adm-input" rows="12" style="width:100%;font-family:ui-monospace,monospace" maxlength="${MAX_BODY}">${esc(cur.body)}</textarea>
 <p style="margin:.5rem 0"><button class="adm-btn primary" type="submit">${esc(t.save)}</button> <label class="adm-btn" style="display:inline-block">${esc(t.file)}<input type="file" accept=".md,.txt,text/plain" data-load="${id}" style="display:none"></label> <a href="${basePath}${kind === 'usage' ? '' : `/${kind}`}?lang=${loc}" target="_blank" rel="noopener">${esc(t.open)}</a></p></form>
 <form method="post" action="${p}/reset"><input type="hidden" name="locale" value="${loc}"><input type="hidden" name="kind" value="${kind}"><button class="adm-btn danger" type="submit" data-confirm="${esc(t.reset)}?">${esc(t.reset)}</button></form></div>`;
       })).join('');

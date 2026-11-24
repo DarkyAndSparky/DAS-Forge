@@ -26,6 +26,9 @@ const ODF_MIME = /^application\/vnd\.oasis\.opendocument\.(text|presentation)(-t
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const clean = (s) => s.replace(CONTROL, '');
 
+/** A PDF starts with `%PDF-` within its first kilobyte (readers tolerate a little junk before it). */
+export const isPdf = (buffer) => buffer.subarray(0, 1024).includes('%PDF-', 0, 'latin1');
+
 /** Which kind of file this is, from the names of the parts (never from the file name, which the sender chooses). */
 function detect(names, mime) {
   if (mime) return /presentation/.test(mime) ? 'odp' : 'odt';
@@ -157,18 +160,24 @@ function readMeta(format, xml) {
  * - `blocks`: headings, paragraphs and tables in reading order (slides carry `slide: n`); `text` is the same as plain text.
  * - `safety`: `{ macros, embedded, externalLinks, encrypted, activeX }`; `warnings` lists what the caller should know
  *   (`EXTERNAL_LINKS`, `EMBEDDED_OBJECTS`, `HIDDEN_TEXT` - hidden runs are left out of the text, `TRUNCATED`).
- * - Options: `macros` ('refuse' by default | 'ignore'), `externalLinks` ('allow' by default | 'refuse'; links are never
+ * - A PDF is handed to `readers.pdf` (the reader of `@das-forge/documents-pdf`); without one, `PDF_READER_MISSING`.
+ * - Options: `readers`, `macros` ('refuse' by default | 'ignore'), `externalLinks` ('allow' by default | 'refuse'; links are never
  *   followed), `embedded` ('allow' | 'refuse'), `inspectOnly` (no text, just `safety` and `metadata`), `limits`, `signal`.
  * Refusals throw `DocumentError` with `code`: NOT_A_DOCUMENT, TOO_BIG, ENCRYPTED, MACROS, EXTERNAL_LINKS, EMBEDDED_OBJECTS, ...
  * Old binary .doc/.ppt and .rtf are not read (they are not archives).
  */
-export async function readDocument(buffer, { macros = 'refuse', externalLinks = 'allow', embedded = 'allow', inspectOnly = false, limits: custom = {}, zip = defaultZip, signal } = {}) {
+export async function readDocument(buffer, { macros = 'refuse', externalLinks = 'allow', embedded = 'allow', inspectOnly = false, limits: custom = {}, zip = defaultZip, signal, readers = {} } = {}) {
   if (!Buffer.isBuffer(buffer)) throw new TypeError('readDocument: a Buffer is required');
   for (const [k, v, ok] of [['macros', macros, ['refuse', 'ignore']], ['externalLinks', externalLinks, ['allow', 'refuse']], ['embedded', embedded, ['allow', 'refuse']]]) {
     if (!ok.includes(v)) throw new RangeError(`readDocument: ${k} is ${ok.map((x) => `'${x}'`).join(' or ')}`);
   }
   const limits = { ...DEFAULT_LIMITS, ...custom };
   if (buffer.length > limits.maxBytes) throw new DocumentError('TOO_BIG', 'the file is larger than allowed');
+  if (isPdf(buffer)) {
+    // PDF is not an archive: it is read by a plug-in (`@das-forge/documents-pdf`), which the application passes in `readers.pdf`.
+    if (typeof readers.pdf !== 'function') throw new DocumentError('PDF_READER_MISSING', 'the file is a PDF and no PDF reader is installed (see @das-forge/documents-pdf)');
+    return await readers.pdf(buffer, { macros, externalLinks, embedded, inspectOnly, limits, signal });
+  }
   if (buffer.length >= 8 && buffer.readUInt32BE(0) === 0xd0cf11e0) throw new DocumentError('ENCRYPTED_OR_LEGACY', 'the file is in the old binary container (an encrypted document or a .doc/.ppt), which is not read');
   if (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x04034b50) throw new DocumentError('NOT_A_DOCUMENT', 'the file is not a document');
   const zl = { maxEntries: limits.maxEntries, maxEntryBytes: limits.maxEntryBytes, maxTotalBytes: limits.maxTotalBytes, maxPartBytes: limits.maxPartBytes };

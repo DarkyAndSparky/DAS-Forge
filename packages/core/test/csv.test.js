@@ -96,4 +96,53 @@ describe('formula neutralisation: hidden and full-width forms (audit S-06)', () 
     for (const s of ['hello', 'a=b', 'x @ y', ' hello', '']) expect(isFormulaText(s), JSON.stringify(s)).toBe(false);
     for (const s of ['=1+1', ' =1+1', '＝1']) expect(unescapeFormula(escapeFormula(s))).toBe(s);
   });
+
+  describe('exports from 1C and Excel', () => {
+    const cp866 = (str) => Buffer.from([...str].map((ch) => { const c = ch.charCodeAt(0); return c >= 0x410 && c <= 0x43f ? c - 0x410 + 0x80 : c >= 0x440 && c <= 0x44f ? c - 0x440 + 0xe0 : c; }));
+    const cp1251 = (str) => Buffer.from([...str].map((ch) => { const c = ch.charCodeAt(0); return c >= 0x410 && c <= 0x44f ? c - 0x410 + 0xc0 : c; }));
+    const text = 'Наименование;Количество;Примечание\r\nСтол офисный;5;без скидки\r\nКресло рабочее;12;доставка в понедельник\r\n';
+
+    it('tells windows-1251 from cp866 and says it guessed', () => {
+      for (const make of [cp1251, cp866]) {
+        const r = parseCsv(make(text));
+        expect(r.rows[1]).toEqual(['Стол офисный', '5', 'без скидки']);
+        expect(r.warnings).toEqual([{ code: 'ENCODING_GUESSED', encoding: make === cp1251 ? 'windows-1251' : 'ibm866' }]);
+      }
+    });
+
+    it('an explicit fallback encoding is used as given, without a guess', () => {
+      const r = parseCsv(cp866(text), { fallbackEncoding: 'ibm866' });
+      expect(r.rows[1][0]).toBe('Стол офисный');
+      expect(r.warnings).toEqual([]);
+    });
+
+    it('finds the delimiter by many lines, knows the pipe, and keeps quoted delimiters out of the count', () => {
+      expect(parseCsv('a|b|c\n1|2|3\n').delimiter).toBe('|');
+      const r = parseCsv('name;note\n"a, b, c, d";x\n"e, f";y\n');
+      expect(r.delimiter).toBe(';');
+      expect(r.warnings).toEqual([]);
+    });
+
+    it('a delimiter that only the first line has is reported as a guess', () => {
+      const r = parseCsv('a,b\nx\ny\nz\n');
+      expect(r.warnings.map((w) => w.code)).toContain('DELIMITER_GUESSED');
+    });
+
+    it("honours Excel's sep= line and does not return it as data", () => {
+      const r = parseCsv('sep=;\nA;B\n1;2\n');
+      expect(r.rows).toEqual([['A', 'B'], ['1', '2']]);
+      expect(r.warnings).toEqual([{ code: 'SEP_HINT_USED', delimiter: ';' }]);
+    });
+
+    it('counts rows of a different width', () => {
+      expect(parseCsv('a;b;c\n1;2\n1;2;3;4\n', { delimiter: ';' }).warnings).toEqual([{ code: 'RAGGED_ROWS', count: 2 }]);
+    });
+  });
+
+  it("a text that already starts with an apostrophe before a formula survives the escape and its undo (found by a random test)", () => {
+    for (const v of ["'=1", "''=1", "'@x", '=1', "'abc"]) {
+      expect(unescapeFormula(escapeFormula(v))).toBe(v);
+      expect(parseCsv(writeCsv([[v, 'z']]), { delimiter: ',', unescapeFormulae: true }).rows[0][0]).toBe(v);
+    }
+  });
 });

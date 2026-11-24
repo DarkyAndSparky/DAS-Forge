@@ -14,7 +14,7 @@ import { createFakeExpressSession } from './helpers/fake-express-session.js';
  * core/auth session/TOTP/authenticator logic - no stand-ins for any of
  * that. The one thing this sandbox genuinely cannot exercise is
  * argon2id itself (no network here to install the native package, see
- * docs/internal/roadmap.md's standing methodology note) - password hashing/
+ * docs/archive/roadmap.md's standing methodology note) - password hashing/
  * verification below uses a plain SHA-256 stand-in authProvider
  * instead of core/auth's real hashPassword/verifyPassword, so these
  * tests prove routes.js's REQUEST-HANDLING LOGIC (status codes, session

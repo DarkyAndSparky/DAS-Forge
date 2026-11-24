@@ -8,7 +8,7 @@ import { queryByExample, countByExample, pageByExample } from './query-by-exampl
 /**
  * Plain static import - this is all that's actually needed.
  *
- * History (see docs/internal/roadmap.md §12-15 for the full story): three
+ * History (see docs/archive/roadmap.md §12-15 for the full story): three
  * increasingly elaborate workarounds were tried here first (vitest
  * config `external`, `/* @vite-ignore *\/`, a runtime-computed import
  * specifier) chasing a `Failed to load url sqlite` error under Vitest.

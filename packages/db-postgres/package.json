@@ -1,6 +1,6 @@
 {
   "name": "@das-forge/db-postgres",
-  "version": "0.1.401",
+  "version": "0.1.413",
   "description": "PostgreSQL driver for DAS-Forge (ADR-0010): the asynchronous database contract over a `pg` pool.",
   "type": "module",
   "license": "MIT",

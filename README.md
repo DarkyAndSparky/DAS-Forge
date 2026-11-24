@@ -6,7 +6,7 @@
 
 <p align="center">
   Общая платформа для внутренних приложений: безопасность, администрирование, переводы и оформление — один раз, в ядре.<br>
-  Документация для версии ядра <b><!--core-version-->0.1.401<!--/core-version--></b>
+  Документация для версии ядра <b><!--core-version-->0.1.413<!--/core-version--></b>
 </p>
 
 <p align="center">
@@ -63,7 +63,7 @@ npm start            # https://127.0.0.1:9002 (HTTP на 9001 перенапра
 | [Эксплуатация](docs/guide/10-operations.md) | Docker, копии, журналы, обновление |
 | [Разработка ядра](docs/guide/11-development.md) | версия, документация, тесты |
 
-Прочее: [CHANGELOG](packages/core/CHANGELOG.md) · [находки аудита](docs/internal/audit-findings.md) · [внешний аудит ядра](docs/internal/audit-core-external.md) · [пробелы документации](docs/internal/doc-audit.md) · [сверка с планом](docs/internal/roadmap-gaps.md) · [целевые зависимости](docs/internal/dependencies-target.md) · [roadmap](docs/internal/roadmap.md) (исторический).
+Прочее: [CHANGELOG](packages/core/CHANGELOG.md) · [находки аудита](docs/archive/audit-findings.md) · [внешний аудит ядра](docs/internal/audit-core-external.md) · [пробелы документации](docs/archive/doc-audit.md) · [сверка с планом](docs/internal/roadmap-gaps.md) · [целевые зависимости](docs/internal/dependencies-target.md) · [roadmap](docs/archive/roadmap.md) (исторический).
 
 ## Участие и поддержка
 

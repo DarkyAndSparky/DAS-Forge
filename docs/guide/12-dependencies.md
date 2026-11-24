@@ -76,6 +76,7 @@
 |---|---|---|
 | `@types/node` | `^26.0.0` | корень |
 | `eslint` | `^10.15.0` | корень |
+| `fast-check` | `^4.11.0` | корень |
 | `typescript` | `^7.0.2` | корень |
 | `vitest` | `^5.1.0` | packages/core |
 | `pino-pretty` | `^13.2.0` | packages/core |

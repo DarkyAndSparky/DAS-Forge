@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Шаблоны — DAS-Forge 0.1.401</title>
+<title>Шаблоны: приложение и документы — DAS-Forge 0.1.413</title>
 <style>
 :root{--bg:#0d0f12;--bg1:#15181d;--bg2:#1e2228;--fg:#c9ccd2;--dim:#8a8f99;--accent:#f0975c;--line:rgba(217,123,63,.22);--mono:ui-monospace,Consolas,monospace;--ui:system-ui,'Segoe UI',sans-serif}
 @media (prefers-color-scheme:light){:root{--bg:#f4f1ec;--bg1:#eae5da;--bg2:#ddd5c4;--fg:#201d18;--dim:#6b6456;--accent:#a35420;--line:rgba(163,84,32,.28)}}
@@ -44,13 +44,28 @@ main.page h1{color:var(--accent);font-size:28px}main.page h2{font-size:22px;marg
   <text x="32" y="40" font-family="monospace" font-size="24" font-weight="700"
         fill="#0d0f12" text-anchor="middle">WS</text>
 </svg></div>
-<div><h1>Шаблоны</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.401 · <code>templates/README.md</code></p></div>
+<div><h1>Шаблоны: приложение и документы</h1><p><a href="../index.html">← Документация DAS-Forge</a> · версия ядра 0.1.413 · <code>templates/README.md</code></p></div>
 </header>
 <main class="page">
-<h1 id="templates">templates/</h1>
-<p>Заготовки новых приложений на ядре DAS-Forge.</p>
-<div class="tbl"><table><thead><tr><th>Шаблон</th><th>Что это</th></tr></thead><tbody><tr><td><a href="templates-app-readme.html"><code>app/</code></a></td><td>минимальное, но настоящее приложение: вход, смена временного пароля, права, пример данных с API и страницей, админ-панель, CLI, миграции, резервные копии, алерты, переводы ru/en, тесты</td></tr></tbody></table></div>
-<p>Описание и порядок работы — <a href="../index.html#workshop"><code>docs/guide/09-workshop.md</code></a>, раздел «Шаблон приложения».</p>
+<h1 id="шаблоны-приложение-и-документы">Шаблоны: приложение и документы</h1>
+<p>В репозитории два вида заготовок: <strong>шаблон приложения</strong> на ядре (код) и <strong>шаблоны документов</strong> для организации, которая запускает приложение.</p>
+<h2 id="1-шаблон-приложения-templates-app">1. Шаблон приложения (<code>templates/app/</code>)</h2>
+<p>Минимальное, но настоящее приложение: вход, смена временного пароля, права, пример данных с API и страницей, админ-панель, CLI, миграции, резервные копии, алерты, страница «О платформе» и политики (в том числе заявление о доступности), переводы ru/en, тесты. Копируйте папку, переименуйте, заменяйте пример своей предметной областью.</p>
+<pre><code class="lang-bash">cp -r templates/app ../my-new-app &amp;&amp; cd ../my-new-app
+# 1. имя: замените `my-app` в package.json, app.config.js, `My App` в src/*.js, логотип в assets/brand/
+# 2. порт: server.port в app.config.js — следующий свободный 9N02
+# 3. ядро: "@das-forge/core" в package.json — диапазон выпущенной версии; пока ядра нет в npm — путь "file:../das-forge-core/packages/core"
+npm install
+npm run cli -- config check
+npm start      # пароль первого администратора — в баннере и в data/first-run-admin.txt
+npm test</code></pre>
+<p>В production секрет сессии берётся из окружения (<code>DAS_SESSION_SECRET</code> или <code>DAS_SESSION_SECRET_FILE</code>), а не из <code>app.config.js</code>. Установочные скрипты argon2 и других пакетов npm может заблокировать: см. <a href="../index.html#quick-start"><code>docs/guide/01-quick-start.md</code></a>.</p>
+<div class="tbl"><table><thead><tr><th>Файл</th><th>Что делает</th></tr></thead><tbody><tr><td><code>app.config.js</code></td><td>настройки приложения: имя, порт, база, копии</td></tr><tr><td><code>src/context.js</code></td><td>единая сборка: конфигурация → база → брендинг → вход → копии → модули → персональные данные → почта</td></tr><tr><td><code>src/server.js</code></td><td>порядок обработчиков, админ-панель, планировщик, остановка</td></tr><tr><td><code>src/routes.js</code></td><td>вход, выход, <code>/me</code>, смена пароля, страницы, пример API <code>/notes</code> — заменить своим</td></tr><tr><td><code>src/roles.js</code></td><td>роли и права</td></tr><tr><td><code>src/notes.js</code>, <code>migrations/001_init.js</code></td><td>пример модели — заменить своей</td></tr></tbody></table></div>
+<p>Полное описание, удаление примера «заметки», что в шаблон не входит и обновление ядра — в <a href="templates-app-readme.html">README шаблона</a>. Порядок работы — <a href="../index.html#workshop"><code>docs/guide/09-workshop.md</code></a>.</p>
+<h2 id="2-шаблоны-документов-docs-templates">2. Шаблоны документов (<code>docs/templates/</code>)</h2>
+<p>Заготовки для организации-владельца приложения: ядро выполняет технические требования, а регламенты и публичные тексты пишет владелец.</p>
+<div class="tbl"><table><thead><tr><th>Файл</th><th>Для чего</th></tr></thead><tbody><tr><td><code>incident-response.md</code></td><td>регламент реагирования на инцидент безопасности: роли, шаги, сроки уведомлений</td></tr><tr><td><code>vulnerability-disclosure.md</code></td><td>политика приёма сообщений об уязвимостях вашего приложения (как <a href="security.html"><code>SECURITY.md</code></a> ядра)</td></tr><tr><td><code>support-policy.md</code></td><td>срок поддержки версий, бесплатные обновления безопасности, сроки исправления (CRA)</td></tr><tr><td><code>accessibility-statement.md</code></td><td>заявление о доступности интерфейса (EAA, ГОСТ Р 52872, Section 508)</td></tr></tbody></table></div>
+<p>Как пользоваться: скопируйте файл в документацию своего приложения, заполните места в <code>[…]</code>, удалите пояснения. Это заготовки, не юридические документы: сроки и ссылки на нормы сверьте с юристом.</p>
 <p class="back"><a href="https://github.com/DarkyAndSparky/DAS-Forge/blob/main/templates/README.md">templates/README.md на GitHub</a></p>
 </main>
 </body>

@@ -1288,3 +1288,151 @@ describe('buildWorkbookStream: a workbook written as a stream', () => {
     expect((await readWorkbook(file, { zip: fakeZip, limits: { maxRows: 10000 } })).sheets[0].rows.length).toBe(5001);
   });
 });
+
+describe('xlsx: cell mode (cells: true)', () => {
+  const styles = '<styleSheet><numFmts><numFmt numFmtId="170" formatCode="dd.mm.yyyy"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="170"/><xf numFmtId="4"/></cellXfs></styleSheet>';
+  const cellsXml = '<row r="1"><c r="A1" t="inlineStr"><is><t>Итого</t></is></c><c r="B1" s="3"><f>SUM(B2:B3)</f><v>30</v></c><c r="C1" s="2"><v>46328</v></c></row>'
+    + '<row r="2"><c r="B2"><v>10</v></c><c r="C2" t="b"><v>1</v></c><c r="D2" t="e"><f>1/0</f><v>#DIV/0!</v></c></row>'
+    + '<row r="3"><c r="B3"><f t="shared" ref="B3:B4" si="0">B2*2</f><v>20</v></c><c r="E3"><f>A1&amp;"x"</f></c></row><row r="4"><c r="B4"><f t="shared" si="0"/><v>40</v></c></row>';
+  const open = async () => (await read(await base(sheet(cellsXml), { 'xl/styles.xml': styles }), { cells: true })).sheets[0].cells;
+
+  it('gives address, type, value, formula text and number format of every cell', async () => {
+    const cells = await open();
+    const by = Object.fromEntries(cells.map((c) => [c.ref, c]));
+    expect(by.A1).toEqual({ ref: 'A1', row: 1, col: 1, type: 'string', value: 'Итого' });
+    expect(by.B1).toMatchObject({ type: 'number', value: 30, formula: 'SUM(B2:B3)', format: 4 });
+    expect(by.C1).toMatchObject({ type: 'date', format: 'dd.mm.yyyy' });
+    expect(by.C2).toMatchObject({ type: 'boolean', value: true });
+    expect(by.D2).toMatchObject({ type: 'error', value: null, error: '#DIV/0!', formula: '1/0' });
+  });
+
+  it('marks shared formulas, and a formula whose result was not stored', async () => {
+    const by = Object.fromEntries((await open()).map((c) => [c.ref, c]));
+    expect(by.B3).toMatchObject({ formula: 'B2*2', sharedFormula: 0, value: 20 });
+    expect(by.B4).toMatchObject({ formula: null, sharedFormula: 0, value: 40 });
+    expect(by.E3).toMatchObject({ type: 'blank', value: null, formula: 'A1&"x"' });
+  });
+
+  it('is off by default and leaves `rows` the same either way', async () => {
+    const buf = await base(sheet(cellsXml), { 'xl/styles.xml': styles });
+    const off = (await read(buf)).sheets[0];
+    const on = (await read(buf, { cells: true })).sheets[0];
+    expect(off.cells).toBeUndefined();
+    expect(on.rows).toEqual(off.rows);
+  });
+
+  it('skips hidden rows like the rows do, and other readers say they have no cell mode', async () => {
+    const buf = await base(sheet('<row r="1" hidden="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="A2"><v>2</v></c></row>'));
+    expect((await read(buf, { cells: true, skipHiddenRows: true })).sheets[0].cells.map((c) => c.ref)).toEqual(['A2']);
+    const any = await readSpreadsheet(buf, { zip: fakeZip, cells: true });
+    expect(any.sheets[0].cells).toHaveLength(2);
+  });
+});
+
+describe('xlsx: extras (extras: true) - links, notes, drop-down rules, names, properties', () => {
+  const sheetXml = '<worksheet xmlns:r="x"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Сайт</t></is></c></row></sheetData>'
+    + '<dataValidations count="3">'
+    + '<dataValidation type="list" allowBlank="1" sqref="B2:B20"><formula1>"Новая,В работе,Закрыта"</formula1></dataValidation>'
+    + '<dataValidation type="list" sqref="C2:C20"><formula1>Справочник!$A$1:$A$5</formula1></dataValidation>'
+    + '<dataValidation type="whole" operator="between" sqref="D2"><formula1>1</formula1><formula2>100</formula2></dataValidation>'
+    + '</dataValidations>'
+    + '<hyperlinks><hyperlink ref="A1" r:id="rId1" tooltip="к сайту"/><hyperlink ref="A2" r:id="rId2"/><hyperlink ref="A3" location="Лист2!A1" display="на лист 2"/></hyperlinks></worksheet>';
+  const sheetRels = '<Relationships><Relationship Id="rId1" Type="x/hyperlink" Target="https://example.org/a?b=1&amp;c=2" TargetMode="External"/>'
+    + '<Relationship Id="rId2" Type="x/hyperlink" Target="file:///C:/secret.xlsx" TargetMode="External"/>'
+    + '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments1.xml"/></Relationships>';
+  const comments = '<comments><authors><author>Иванов</author><author>Петров</author></authors><commentList>'
+    + '<comment ref="A1" authorId="1"><text><r><t>Проверить </t></r><r><t>ссылку</t></r><rPh><t>XX</t></rPh></text></comment>'
+    + '<comment ref="B2" authorId="0"><text><t>Другая</t></text></comment></commentList></comments>';
+  const wbNames = '<workbook xmlns:r="x"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets><definedNames>'
+    + '<definedName name="Цены">S!$B$2:$B$50</definedName><definedName name="_xlnm.Print_Area" localSheetId="0">S!$A$1:$D$20</definedName><definedName name="Скрытое" hidden="1">42</definedName></definedNames></workbook>';
+  const core = '<cp:coreProperties xmlns:cp="x" xmlns:dc="y" xmlns:dcterms="z"><dc:title>Заявки</dc:title><dc:creator>Иванов</dc:creator><cp:lastModifiedBy>Петров</cp:lastModifiedBy><dcterms:created>2026-11-02T10:00:00Z</dcterms:created></cp:coreProperties>';
+  const app = '<Properties><Application>Microsoft Excel</Application><Company>ООО Ромашка</Company></Properties>';
+  const file = () => pack({ '[Content_Types].xml': TYPES, 'xl/workbook.xml': wbNames, 'xl/_rels/workbook.xml.rels': RELS, 'xl/worksheets/sheet1.xml': sheetXml, 'xl/worksheets/_rels/sheet1.xml.rels': sheetRels, 'xl/comments1.xml': comments, 'docProps/core.xml': core, 'docProps/app.xml': app });
+
+  it('reports hyperlinks with their targets, marking those that are not web or mail links', async () => {
+    const { hyperlinks } = (await read(await file(), { extras: true })).sheets[0];
+    expect(hyperlinks).toEqual([
+      { ref: 'A1', target: 'https://example.org/a?b=1&c=2', tooltip: 'к сайту' },
+      { ref: 'A2', target: 'file:///C:/secret.xlsx', unsafe: true },
+      { ref: 'A3', location: 'Лист2!A1', display: 'на лист 2' },
+    ]);
+  });
+
+  it('reports notes with authors and the plain text of rich runs', async () => {
+    const { comments: c } = (await read(await file(), { extras: true })).sheets[0];
+    expect(c).toEqual([{ ref: 'A1', author: 'Петров', text: 'Проверить ссылку' }, { ref: 'B2', author: 'Иванов', text: 'Другая' }]);
+  });
+
+  it('reports data validations: a literal list as values, a list from a range, a number range', async () => {
+    const { validations: v } = (await read(await file(), { extras: true })).sheets[0];
+    expect(v[0]).toMatchObject({ sqref: 'B2:B20', type: 'list', allowBlank: true, list: ['Новая', 'В работе', 'Закрыта'] });
+    expect(v[1]).toMatchObject({ type: 'list', listRange: 'Справочник!$A$1:$A$5' });
+    expect(v[1].list).toBeUndefined();
+    expect(v[2]).toMatchObject({ type: 'whole', operator: 'between', formula1: '1', formula2: '100', allowBlank: false });
+  });
+
+  it('reports named ranges (with the sheet they belong to) and the book properties', async () => {
+    const r = await read(await file(), { extras: true });
+    expect(r.names).toEqual([
+      { name: 'Цены', ref: 'S!$B$2:$B$50', sheet: null, hidden: false, builtin: false },
+      { name: '_xlnm.Print_Area', ref: 'S!$A$1:$D$20', sheet: 'S', hidden: false, builtin: true },
+      { name: 'Скрытое', ref: '42', sheet: null, hidden: true, builtin: false },
+    ]);
+    expect(r.properties).toEqual({ title: 'Заявки', creator: 'Иванов', lastModifiedBy: 'Петров', created: new Date('2026-11-02T10:00:00Z'), application: 'Microsoft Excel', company: 'ООО Ромашка' });
+  });
+
+  it('is off by default, works with cells together, and a file without any of it gives empty lists', async () => {
+    const plain = await read(await file());
+    expect(plain.names).toBeUndefined();
+    expect(plain.sheets[0].hyperlinks).toBeUndefined();
+    const both = await read(await file(), { extras: true, cells: true });
+    expect(both.sheets[0].cells[0].ref).toBe('A1');
+    const bare = await read(await base(sheet('<row r="1"><c r="A1"><v>1</v></c></row>')), { extras: true });
+    expect(bare.sheets[0]).toMatchObject({ hyperlinks: [], comments: [], validations: [] });
+    expect(bare).toMatchObject({ names: [], properties: {} });
+  });
+
+  it('readSpreadsheet passes names and properties through', async () => {
+    const r = await readSpreadsheet(await file(), { zip: fakeZip, extras: true });
+    expect(r.names).toHaveLength(3);
+    expect(r.properties.title).toBe('Заявки');
+  });
+});
+
+describe('xlsx: sheet layout, cell styles, pictures and charts', () => {
+  const styles = '<styleSheet><fonts><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/><color rgb="FFFF0000"/></font><font><i/><u/><sz val="14"/><name val="Arial"/></font></fonts>'
+    + '<fills><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/></patternFill></fill></fills>'
+    + '<cellXfs><xf numFmtId="0" fontId="0" fillId="0"/><xf numFmtId="0" fontId="1" fillId="2"/><xf numFmtId="0" fontId="2" fillId="0"/></cellXfs></styleSheet>';
+  const body = '<worksheet xmlns:r="x"><sheetPr><tabColor rgb="FF00B050"/></sheetPr><dimension ref="A1:C3"/>'
+    + '<sheetViews><sheetView showGridLines="0"><pane xSplit="1" ySplit="2" topLeftCell="B3" state="frozen"/></sheetView></sheetViews>'
+    + '<cols><col min="1" max="1" width="24.5" customWidth="1"/><col min="3" max="4" width="9" hidden="1"/></cols>'
+    + '<sheetData><row r="1"><c r="A1" s="1" t="inlineStr"><is><t>Заголовок</t></is></c><c r="B1" s="2"><v>5</v></c><c r="C1"><v>7</v></c></row></sheetData>'
+    + '<autoFilter ref="A1:C20"/></worksheet>';
+  const rels = '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>';
+  const file = () => pack({ '[Content_Types].xml': TYPES, 'xl/workbook.xml': WB, 'xl/_rels/workbook.xml.rels': RELS, 'xl/styles.xml': styles, 'xl/worksheets/sheet1.xml': body, 'xl/worksheets/_rels/sheet1.xml.rels': rels, 'xl/drawings/drawing1.xml': '<d/>', 'xl/media/image1.png': 'png', 'xl/media/image2.png': 'png', 'xl/charts/chart1.xml': '<c/>' });
+
+  it('reports column widths and hiding, frozen panes, the filter, the used range, tab colour and grid lines', async () => {
+    const { layout } = (await read(await file(), { extras: true })).sheets[0];
+    expect(layout).toEqual({
+      columns: [{ min: 1, max: 1, width: 24.5, hidden: false }, { min: 3, max: 4, width: 9, hidden: true }],
+      freeze: { rows: 2, cols: 1, topLeft: 'B3' }, autoFilter: 'A1:C20', dimension: 'A1:C3', tabColor: '#00B050', showGridLines: false, hasDrawing: true,
+    });
+  });
+
+  it('counts pictures, charts and drawings of the book without opening them', async () => {
+    expect((await read(await file(), { extras: true })).objects).toEqual({ images: 2, charts: 1, drawings: 1 });
+  });
+
+  it('with styles: true the cell records carry a short look (bold, colour, fill, font), nothing for plain cells', async () => {
+    const by = Object.fromEntries((await read(await file(), { cells: true, styles: true })).sheets[0].cells.map((c) => [c.ref, c]));
+    expect(by.A1.style).toEqual({ bold: true, color: '#FF0000', fill: '#FFFF00' });
+    expect(by.B1.style).toEqual({ italic: true, underline: true, fontSize: 14, font: 'Arial' });
+    expect(by.C1.style).toBeUndefined();
+    expect((await read(await file(), { cells: true })).sheets[0].cells[0].style).toBeUndefined();
+  });
+
+  it('the sheet without any of it reports a plain layout', async () => {
+    const { layout } = (await read(await base(sheet('<row r="1"><c r="A1"><v>1</v></c></row>')), { extras: true })).sheets[0];
+    expect(layout).toEqual({ columns: [], freeze: null, autoFilter: null, dimension: null, tabColor: null, showGridLines: true, hasDrawing: false });
+  });
+});

@@ -4,12 +4,17 @@ import { DocumentError } from './errors.js';
 /**
  * `readDocument` in a worker thread of its own, for files from people you do not trust: own heap with a ceiling
  * (`maxMemoryMb`, 512; `RESOURCE_LIMIT`), a time limit (`timeoutMs`, 30 s; `TIMEOUT`), an empty environment, `signal`.
- * Options are those of `readDocument` that can be copied to another thread (no `zip`).
+ * Options are those of `readDocument` that can be copied to another thread (no `zip`, no `readers`); a plug-in reader is
+ * named by module: `readerModules: { pdf: '@das-forge/documents-pdf' }` (the module's default export is the reader).
  */
 export function readDocumentIsolated(buffer, { timeoutMs = 30_000, maxMemoryMb = 512, signal, ...opts } = {}) {
   if (!Buffer.isBuffer(buffer)) throw new TypeError('readDocumentIsolated: a Buffer is required');
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1) throw new RangeError('readDocumentIsolated: timeoutMs must be a positive number');
   if (!Number.isFinite(maxMemoryMb) || maxMemoryMb < 16) throw new RangeError('readDocumentIsolated: maxMemoryMb must be at least 16');
+  if (opts.readers) throw new TypeError('readDocumentIsolated: reader functions cannot be passed to another thread; name the module in readerModules instead');
+  for (const [kind, spec] of Object.entries(opts.readerModules ?? {})) {
+    if (!['pdf'].includes(kind) || typeof spec !== 'string' || !spec) throw new TypeError('readDocumentIsolated: readerModules is { pdf: "<module name or file URL>" }');
+  }
   if (opts.zip) throw new TypeError('readDocumentIsolated: the archive reader cannot be passed to another thread');
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {

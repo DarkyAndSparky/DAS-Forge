@@ -75,6 +75,12 @@ if (cmd === 'get') {
     const pgPkg = readJson(pgPkgPath); pgPkg.version = arg; writeJson(pgPkgPath, pgPkg);
     if (lock.packages?.['packages/db-postgres']) lock.packages['packages/db-postgres'].version = arg;
   }
+  // the PDF reader plug-in as well
+  const pdfPkgPath = path.join(root, 'packages/documents-pdf/package.json');
+  if (existsSync(pdfPkgPath)) {
+    const pdfPkg = readJson(pdfPkgPath); pdfPkg.version = arg; writeJson(pdfPkgPath, pdfPkg);
+    if (lock.packages?.['packages/documents-pdf']) lock.packages['packages/documents-pdf'].version = arg;
+  }
   writeJson(lockPath, lock);
   console.log(`version ${arg}; documentation files updated: ${stamp(arg)}`);
 } else if (cmd === 'stamp') {

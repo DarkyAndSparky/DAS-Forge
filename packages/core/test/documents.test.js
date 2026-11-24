@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { defaultZip } from '../src/xlsx/zip-backend.js';
-import { readDocument, inspectDocument, readDocumentIsolated, DocumentError } from '../src/documents/index.js';
+import { readDocument, inspectDocument, readDocumentIsolated, DocumentError, isPdf } from '../src/documents/index.js';
 
 const zipOf = (files) => defaultZip.write(Object.entries(files).map(([n, c]) => [n, Buffer.from(c)]));
 const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
@@ -105,5 +105,22 @@ describe('readDocument: OpenDocument', () => {
     const e = await odf('application/vnd.oasis.opendocument.text', '<office:text><text:p>x</text:p></office:text>', { 'META-INF/manifest.xml': '<manifest><encryption-data/></manifest>' });
     await expect(readDocument(e)).rejects.toMatchObject({ code: 'ENCRYPTED' });
     await expect(readDocument(await odf('application/vnd.oasis.opendocument.spreadsheet', ''))).rejects.toMatchObject({ code: 'NOT_A_DOCUMENT' });
+  });
+});
+
+describe('readDocument: PDF', () => {
+  const pdf = Buffer.from('%PDF-1.7\n%%EOF');
+  it('is refused with a clear code when no PDF reader is plugged in', async () => {
+    await expect(readDocument(pdf)).rejects.toMatchObject({ code: 'PDF_READER_MISSING' });
+  });
+  it('is handed to readers.pdf with the options of the call', async () => {
+    let seen;
+    const r = await readDocument(pdf, { macros: 'ignore', readers: { pdf: async (b, o) => { seen = o; return { format: 'pdf', text: 'ok' }; } } });
+    expect(r.format).toBe('pdf');
+    expect(seen).toMatchObject({ macros: 'ignore', externalLinks: 'allow' });
+  });
+  it('is recognised by its start, not by what follows', () => {
+    expect(isPdf(Buffer.from('junk%PDF-1.4'))).toBe(true);
+    expect(isPdf(Buffer.from('PK\u0003\u0004'))).toBe(false);
   });
 });

@@ -46,11 +46,13 @@ export async function readSpreadsheet(buffer, { hiddenSheets = 'include', timeou
     if (e?.name === 'TimeoutError') throw new XlsxError('TIMEOUT', 'reading the file took too long');
     throw e;
   }
+  if (opts.cells && format !== 'xlsx') result.warnings = [...result.warnings, { code: 'CELLS_NOT_AVAILABLE', format }];
+  if (opts.extras && format !== 'xlsx') result.warnings = [...result.warnings, { code: 'EXTRAS_NOT_AVAILABLE', format }];
   const hidden = result.sheets.filter((x) => x.hidden).length;
   const warnings = [...result.warnings];
   let sheets = result.sheets;
   if (hidden && hiddenSheets === 'skip') { sheets = sheets.filter((x) => !x.hidden); warnings.push({ code: 'HIDDEN_SHEETS_SKIPPED', count: hidden }); } else if (hidden) warnings.push({ code: 'HIDDEN_SHEETS_READ', count: hidden });
-  return { sheets, warnings, format };
+  return { sheets, warnings, format, ...(result.names ? { names: result.names, properties: result.properties, objects: result.objects } : {}) };
 }
 
 function runReader(format, buffer, opts) {

@@ -228,13 +228,13 @@ ${pagerHtml({ name: 'audit', shown: items.length, total, nextUrl: nextBeforeId ?
     const days = [1, 7, 30].includes(Number(req.query?.days)) ? Number(req.query.days) : 7;
     const r = await summarizeAsync(db, { since: new Date(Date.now() - days * 86_400_000).toISOString() });
     const card = (label, value) => `<div class="adm-card" style="flex:1 1 9rem"><div class="adm-muted">${esc(label)}</div><div style="font-size:1.6rem;font-weight:600">${esc(value)}</div></div>`;
-    const list = (title, rows) => `<div class="adm-card" style="flex:1 1 18rem"><h3>${esc(title)}</h3>${rows.length ? `<table class="adm-table"><tbody>${rows.map((x) => `<tr><td><code translate="no">${esc(x.key)}</code></td><td>${esc(x.count)}</td></tr>`).join('')}</tbody></table>` : `<p class="adm-muted">${esc(l.sNone)}</p>`}</div>`;
+    const list = (title, rows) => `<div class="adm-card" style="flex:1 1 18rem"><h2 style="font-size:1rem;margin:1.25rem 0 .5rem">${esc(title)}</h2>${rows.length ? `<table class="adm-table"><tbody>${rows.map((x) => `<tr><td><code translate="no">${esc(x.key)}</code></td><td>${esc(x.count)}</td></tr>`).join('')}</tbody></table>` : `<p class="adm-muted">${esc(l.sNone)}</p>`}</div>`;
     const chart = r.perDay.length ? svgBarChart(r.perDay.map((d) => ({ label: d.day.slice(5), value: d.failures })), { title: l.sPerDay, unit: l.sFails }) : `<p class="adm-muted">${esc(l.sNone)}</p>`;
     const t = r.totals;
     const periods = [[1, l.last24], [7, l.last7], [30, l.last30]].map(([d, label]) => `<a class="adm-btn${d === days ? ' primary' : ''}" href="${path}/summary?days=${d}">${esc(label)}</a>`).join(' ');
     await render(req, res, { active: path, title: l.summaryTab, bodyHtml: `<p>${periods} <a class="adm-btn" href="${path}">${esc(l.back)}</a></p>
 <div style="display:flex;flex-wrap:wrap;gap:.75rem">${card(l.sEvents, t.events)}${card(l.sLogins, t.logins)}${card(l.sFails, t.loginFailures)}${card(l.sLocks, t.lockouts)}${card(l.sNewDev, t.newDevices)}${card(l.sAdmin, t.adminActions)}${card(l.sActive, t.activeUsers)}</div>
-<div class="adm-card" style="margin-top:.75rem"><h3>${esc(l.sPerDay)}</h3>${chart}</div>
+<div class="adm-card" style="margin-top:.75rem"><h2 style="font-size:1rem;margin:1.25rem 0 .5rem">${esc(l.sPerDay)}</h2>${chart}</div>
 <div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-top:.75rem">${canSeeSensitive(req) ? list(l.sTopIps, r.topFailedIps) : ''}${list(l.sTopLogins, r.topFailedLogins)}${list(l.sTopActions, r.topActions.map((x) => ({ key: describeEvent({ action: x.key }, localeOf(req)).title, count: x.count })))}</div>
 <p class="adm-muted">${esc(l.sNote)}</p>` });
   });

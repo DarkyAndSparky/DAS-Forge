@@ -26,7 +26,7 @@ export function createCli({ name = 'app' } = {}) {
    *   command path, e.g. "[--force]" or "<username> [--count n]". Only
    *   used by `app help <command>` / `app <command> --help` - optional,
    *   so existing command() call sites that don't pass it keep working
-   *   unchanged (see docs/internal/roadmap.md's backlog note on this being a
+   *   unchanged (see docs/archive/roadmap.md's backlog note on this being a
    *   gradual fill-in, not a one-shot rewrite of every command)
    * @param {Array<{name:string, description:string}>} [opts.flags] -
    *   per-command help detail, optional for the same reason as `usage`
@@ -62,7 +62,7 @@ export function createCli({ name = 'app' } = {}) {
 
   /**
    * man-style detail for ONE command - the piece that used to be
-   * entirely missing (docs/internal/roadmap.md's "CLI help в духе man" backlog
+   * entirely missing (docs/archive/roadmap.md's "CLI help в духе man" backlog
    * item): `printUsage()` above only ever listed every command's
    * one-line description, with no way to see a single command's flags
    * or an example invocation without reading the source. Falls back

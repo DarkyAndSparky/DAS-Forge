@@ -154,3 +154,27 @@ describe('createModuleRegistry', () => {
     expect(() => registry.registerModule({ id: 'x', dataSubject: { export: () => {} } })).toThrow();
   });
 });
+
+describe('registerConfigured (the `modules` key of the configuration)', () => {
+  const available = { reporting: (o) => ({ id: 'reporting', permissions: [`read:${o.area ?? 'all'}`] }), audit2: () => ({ id: 'audit2' }) };
+  it('registers enabled entries with their options, skips disabled ones without calling the factory', () => {
+    const registry = createModuleRegistry();
+    let called = 0;
+    const out = registry.registerConfigured([{ name: 'reporting', enabled: true, options: { area: 'finance' } }, { name: 'audit2', enabled: false }], { ...available, audit2: () => { called += 1; return { id: 'audit2' }; } });
+    expect(out).toEqual({ registered: ['reporting'], skipped: ['audit2'] });
+    expect(registry.listModuleIds()).toEqual(['reporting']);
+    expect(registry.getPermissions()).toEqual(['read:finance']);
+    expect(called).toBe(0);
+  });
+  it('does not register a module the configuration does not mention', () => {
+    const registry = createModuleRegistry();
+    registry.registerConfigured([], available);
+    expect(registry.listModuleIds()).toEqual([]);
+  });
+  it('refuses an unknown name and a name listed twice', () => {
+    const registry = createModuleRegistry();
+    expect(() => registry.registerConfigured([{ name: 'reportng' }], available)).toThrow(/no such module.*reporting/);
+    expect(() => registry.registerConfigured([{ name: 'reporting' }, { name: 'reporting' }], available)).toThrow(/twice/);
+  });
+});
+

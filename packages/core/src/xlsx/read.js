@@ -20,7 +20,7 @@ export function checkDates(dates) {
 
 export const capText = (t) => { if (t.length > MAX_CELL_CHARS) throw new XlsxError('CELL_TOO_LONG', 'a cell holds more text than Excel allows'); return t; };
 
-const WANTED = /^(\[Content_Types\]\.xml|_rels\/\.rels|xl\/(?!calcChain)[^/]+\.xml|xl\/_rels\/[^/]+\.rels|xl\/worksheets\/_rels\/[^/]+\.rels|xl\/tables\/[^/]+\.xml|xl\/(?!(?:drawings|charts|theme|diagrams|externalLinks|media|printerSettings|activeX|embeddings|ctrlProps|slicers|pivotTables|pivotCache|persons|threadedComments|richData)\/)[^/]+\/[^/]+\.xml)$/i;
+const WANTED = /^(\[Content_Types\]\.xml|_rels\/\.rels|docProps\/(?:core|app)\.xml|xl\/(?!calcChain)[^/]+\.xml|xl\/_rels\/[^/]+\.rels|xl\/worksheets\/_rels\/[^/]+\.rels|xl\/tables\/[^/]+\.xml|xl\/(?!(?:drawings|charts|theme|diagrams|externalLinks|media|printerSettings|activeX|embeddings|ctrlProps|slicers|pivotTables|pivotCache|persons|threadedComments|richData)\/)[^/]+\/[^/]+\.xml)$/i;
 
 /** Part names as producers write them vary: "Xl\\Workbook.xml", "/xl/workbook.xml"; compare them normalised. */
 export const normName = (n) => n.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
@@ -80,24 +80,69 @@ function parseSharedStrings(xml, limits) {
   return out;
 }
 
+function colorOf(a) {
+  if (a.rgb) return `#${String(a.rgb).slice(-6).toUpperCase()}`;
+  if (a.theme !== undefined) return `theme:${a.theme}`;
+  if (a.indexed !== undefined) return `indexed:${a.indexed}`;
+  return null;
+}
+
 function parseStyles(xml) {
   const custom = new Map();
   const xfDate = [];
   const xfCode = [];
-  let inXfs = false;
+  const fonts = []; const fills = []; const xfFont = []; const xfFill = [];
+  let inXfs = false; let inFonts = false; let inFills = false; let font = null; let fill = null;
+  const off = (v) => v === '0' || v === 'false';
   for (const tk of tokens(xml)) {
     if (tk.type === 'open') {
       if (tk.name === 'numFmt') custom.set(Number(tk.attrs.numFmtId), tk.attrs.formatCode ?? '');
       else if (tk.name === 'cellXfs') inXfs = true;
+      else if (tk.name === 'fonts') inFonts = true;
+      else if (tk.name === 'fills') inFills = true;
+      else if (inFonts && tk.name === 'font') font = {};
+      else if (font && tk.name === 'b') font.bold = !off(tk.attrs.val);
+      else if (font && tk.name === 'i') font.italic = !off(tk.attrs.val);
+      else if (font && tk.name === 'strike') font.strike = !off(tk.attrs.val);
+      else if (font && tk.name === 'u') font.underline = tk.attrs.val !== 'none';
+      else if (font && tk.name === 'color') font.color = colorOf(tk.attrs);
+      else if (font && tk.name === 'sz') font.size = Number(tk.attrs.val);
+      else if (font && tk.name === 'name') font.name = tk.attrs.val;
+      else if (inFills && tk.name === 'fill') fill = { pattern: null, color: null };
+      else if (fill && tk.name === 'patternFill') fill.pattern = tk.attrs.patternType ?? null;
+      else if (fill && tk.name === 'fgColor') fill.color = colorOf(tk.attrs);
       else if (tk.name === 'xf' && inXfs) {
         const id = Number(tk.attrs.numFmtId ?? 0);
         const code = custom.get(id);
         xfCode.push(code ?? id);
         xfDate.push(id === 46 || (code !== undefined && isElapsed(code)) ? false : BUILTIN_DATE_FORMATS.has(id) || (code !== undefined && isDateCode(code)));
+        xfFont.push(Number(tk.attrs.fontId ?? 0)); xfFill.push(Number(tk.attrs.fillId ?? 0));
       }
-    } else if (tk.type === 'close' && tk.name === 'cellXfs') inXfs = false;
+    } else if (tk.type === 'close') {
+      if (tk.name === 'cellXfs') inXfs = false;
+      else if (tk.name === 'fonts') inFonts = false;
+      else if (tk.name === 'fills') inFills = false;
+      else if (tk.name === 'font' && font) { if (fonts.length < 10_000) fonts.push(font); font = null; }
+      else if (tk.name === 'fill' && fill) { if (fills.length < 10_000) fills.push(fill); fill = null; }
+    }
   }
-  return { xfDate, xfCode };
+  return { xfDate, xfCode, fonts, fills, xfFont, xfFill };
+}
+
+/** Short look of a cell: bold, italic, underline, strike, text colour, solid fill, and the font or size when it differs from the book's first font. Empty when the cell looks like the default. */
+function styleSummary(st, xf) {
+  const f = st.fonts[st.xfFont[xf] ?? 0] ?? {}; const base = st.fonts[0] ?? {};
+  const fl = st.fills[st.xfFill[xf] ?? 0];
+  const out = {};
+  if (f.bold) out.bold = true;
+  if (f.italic) out.italic = true;
+  if (f.underline) out.underline = true;
+  if (f.strike) out.strike = true;
+  if (f.color && f.color !== base.color) out.color = f.color;
+  if (fl && fl.pattern === 'solid' && fl.color) out.fill = fl.color;
+  if (f.size && f.size !== base.size) out.fontSize = f.size;
+  if (f.name && f.name !== base.name) out.font = f.name;
+  return out;
 }
 
 /** The Excel table in a part: its name, its range (same shape as `merges`), whether it has a header row and a totals row, and its column names. */
@@ -120,6 +165,107 @@ function parseTable(xml) {
  * ends (only rows that hold something) and null otherwise. `values` is sparse; `merges` fills up as the tokens come.
  * The same machine serves reading a whole sheet and streaming it.
  */
+const MAX_FORMULA_CHARS = 8192;
+const MAX_EXTRAS = 10_000;
+const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+
+/** Sheet layout facts from one opening tag: column widths and hiding, frozen panes, filter range, used range, tab colour, grid lines. */
+function sheetLayout(l, tk) {
+  const a = tk.attrs;
+  if (tk.name === 'col' && l.columns.length < 1000) { const min = num(a.min); const max = num(a.max); if (min && max) l.columns.push({ min, max: Math.min(max, 16_384), width: num(a.width), hidden: isOn(a.hidden) }); }
+  else if (tk.name === 'pane' && !l.freeze && a.state !== 'split') { const cols = num(a.xSplit) ?? 0; const rows = num(a.ySplit) ?? 0; if (cols || rows) l.freeze = { rows, cols, topLeft: a.topLeftCell ?? null }; }
+  else if (tk.name === 'autoFilter' && l.autoFilter === null) l.autoFilter = a.ref ?? null;
+  else if (tk.name === 'dimension') l.dimension = a.ref ?? null;
+  else if (tk.name === 'tabColor') l.tabColor = colorOf(a);
+  else if (tk.name === 'sheetView' && isOn(a.showGridLines === undefined ? '1' : a.showGridLines) === false) l.showGridLines = false;
+}
+const MAX_TEXT = 4096;
+const cut = (t, n = MAX_TEXT) => (typeof t === 'string' && t.length > n ? t.slice(0, n) : t);
+const isOn = (v) => v === '1' || v === 'true';
+
+/** A data validation (the rule behind a drop-down or an input check). `list` holds the values of a literal list ("a,b,c"); `listRange` the range a list takes its values from. */
+function validationRecord(a) {
+  const rec = { sqref: cut(a.sqref ?? '', 1024), type: a.type ?? 'any' };
+  if (a.operator) rec.operator = a.operator;
+  rec.allowBlank = isOn(a.allowBlank);
+  const f1 = a.formula1 !== undefined ? cut(decodeExcelEscapes(a.formula1)) : null;
+  const f2 = a.formula2 !== undefined ? cut(decodeExcelEscapes(a.formula2)) : null;
+  if (f1 !== null) rec.formula1 = f1;
+  if (f2 !== null) rec.formula2 = f2;
+  if (rec.type === 'list' && f1) {
+    const lit = /^"([\s\S]*)"$/.exec(f1);
+    if (lit) rec.list = lit[1].replace(/""/g, '"').split(',').map((x) => x.trim()).slice(0, 1000); else rec.listRange = f1;
+  }
+  if (a.promptTitle || a.prompt) rec.prompt = cut(a.prompt ?? a.promptTitle);
+  return rec;
+}
+
+/** Comments of a sheet (the legacy notes part): `[{ ref, author, text }]`. */
+function parseComments(xml) {
+  const authors = []; const out = [];
+  let cur = null; let inAuthor = false; let inT = false; let inPh = false; let a = '';
+  for (const tk of tokens(xml)) {
+    if (tk.type === 'open') {
+      if (tk.name === 'author') { inAuthor = true; a = ''; } else if (tk.name === 'comment' && out.length < MAX_EXTRAS) cur = { ref: tk.attrs.ref ?? '', authorId: Number(tk.attrs.authorId ?? -1), text: '' };
+      else if (cur && tk.name === 'rPh') inPh = true; else if (cur && tk.name === 't') inT = true;
+    } else if (tk.type === 'text') { if (inAuthor) a += tk.text; else if (cur && inT && !inPh) cur.text += tk.text; } else if (tk.name === 'author') { authors.push(cut(a, 200)); inAuthor = false; } else if (tk.name === 't') inT = false; else if (tk.name === 'rPh') inPh = false;
+    else if (tk.name === 'comment' && cur) { out.push({ ref: cur.ref, author: authors[cur.authorId] ?? null, text: cut(decodeExcelEscapes(cur.text)) }); cur = null; }
+  }
+  return out;
+}
+
+const localName = (n) => n.slice(n.indexOf(':') + 1);
+/** Book properties from docProps/core.xml and app.xml. Dates come as Date when they parse. */
+function parseProperties(core, app) {
+  const out = {};
+  const MAP = { title: 'title', subject: 'subject', creator: 'creator', keywords: 'keywords', description: 'description', lastModifiedBy: 'lastModifiedBy', category: 'category', created: 'created', modified: 'modified', Application: 'application', AppVersion: 'appVersion', Company: 'company', Manager: 'manager' };
+  for (const xml of [core, app]) {
+    if (!xml) continue;
+    let key = null; let text = '';
+    for (const tk of tokens(xml)) {
+      if (tk.type === 'open') { const n = localName(tk.name); key = MAP[n] ?? null; text = ''; } else if (tk.type === 'text') { if (key) text += tk.text; } else if (key && MAP[localName(tk.name)] === key) {
+        const t = text.trim();
+        if (t) { const d = key === 'created' || key === 'modified' ? new Date(t) : null; out[key] = d && !Number.isNaN(d.getTime()) ? d : cut(t, 1000); }
+        key = null;
+      }
+    }
+  }
+  return out;
+}
+
+/** Named ranges and constants: `[{ name, ref, sheet (name of the sheet it belongs to, or null), hidden, builtin }]`. `builtin` marks Excel's own names (_xlnm.Print_Area and the like). */
+function parseDefinedNames(xml, sheetNames) {
+  const out = []; let cur = null; let text = '';
+  for (const tk of tokens(xml)) {
+    if (tk.type === 'open' && tk.name === 'definedName' && out.length < 5000) { cur = { name: cut(tk.attrs.name ?? '', 255), sheet: tk.attrs.localSheetId !== undefined ? (sheetNames[Number(tk.attrs.localSheetId)] ?? null) : null, hidden: isOn(tk.attrs.hidden) }; text = ''; } else if (tk.type === 'text' && cur) text += tk.text;
+    else if (tk.type === 'close' && tk.name === 'definedName' && cur) { out.push({ name: cur.name, ref: cut(text.trim(), MAX_FORMULA_CHARS), sheet: cur.sheet, hidden: cur.hidden, builtin: cur.name.startsWith('_xlnm.') }); cur = null; }
+  }
+  return out;
+}
+const colLetters = (i) => { let n = i + 1; let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+
+/**
+ * One cell in cell mode. `type`: 'string' | 'number' | 'boolean' | 'date' | 'error' | 'blank' (a cell that has only a
+ * formula whose result was not stored). `formula` is the formula text without "="; a cell that continues a shared
+ * formula has `formula: null` and `sharedFormula: <group>` (the text sits in the first cell of the group); `arrayFormula`
+ * is true for array formulas. `format` is the number format code (or the built-in format's number when the file only
+ * names one). `error` is the error text ("#DIV/0!") of an error cell.
+ */
+function cellRecord(cell, col, rowNo, value, code, style) {
+  const type = cell.t === 'e' ? 'error' : value === null ? 'blank' : typeof value === 'string' ? 'string' : typeof value === 'boolean' ? 'boolean' : value instanceof Date ? 'date' : 'number';
+  const rec = { ref: `${colLetters(col)}${rowNo}`, row: rowNo, col: col + 1, type, value };
+  if (type === 'error') rec.error = cell.v ?? null;
+  if (cell.f) {
+    const a = cell.fAttrs ?? {};
+    rec.formula = cell.fText !== '' ? cell.fText : null;
+    if (a.t === 'shared' && a.si !== undefined) rec.sharedFormula = Number(a.si);
+    if (a.t === 'array') rec.arrayFormula = true;
+  }
+  if (code !== undefined && code !== 0 && code !== 'General') rec.format = code;
+  if (style && Object.keys(style).length) rec.style = style;
+  return rec;
+}
+
 export class RowParser {
   constructor(ctx, counters) {
     this.ctx = ctx; this.counters = counters;
@@ -127,6 +273,8 @@ export class RowParser {
     this.rowNo = 0; this.nextCol = 0; this.hiddenRow = false; this.inRow = false;
     this.cell = null; this.text = ''; this.collecting = null;
     this.cur = []; this.curShown = ctx.fmt ? [] : null;
+    this.cellsOut = ctx.cells ? [] : null; // cell mode: one record per cell (see `cellRecord`)
+    this.layout = ctx.extras ? { columns: [], freeze: null, autoFilter: null, dimension: null, tabColor: null, showGridLines: true } : null; this.links = ctx.extras ? [] : null; this.validations = ctx.extras ? [] : null; this.dv = null; // extras: hyperlinks and data validations of the sheet
   }
 
   feed(tk) {
@@ -150,16 +298,24 @@ export class RowParser {
         const r = parseRange(tk.attrs.ref);
         if (r && this.merges.length < 10_000) this.merges.push(r);
       } else if (tk.name === 'c') {
-        this.cell = { ref: tk.attrs.r ?? null, col: tk.attrs.r ? colIndex(tk.attrs.r) : this.nextCol, t: tk.attrs.t ?? 'n', s: Number(tk.attrs.s ?? 0), v: null, is: '', f: false };
-      } else if (this.cell && (tk.name === 'v' || tk.name === 'f')) { this.collecting = tk.name; this.text = ''; if (tk.name === 'f') this.cell.f = true; }
+        this.cell = { ref: tk.attrs.r ?? null, col: tk.attrs.r ? colIndex(tk.attrs.r) : this.nextCol, t: tk.attrs.t ?? 'n', s: Number(tk.attrs.s ?? 0), v: null, is: '', f: false, fText: '', fAttrs: null };
+      } else if (this.cell && (tk.name === 'v' || tk.name === 'f')) { this.collecting = tk.name; this.text = ''; if (tk.name === 'f') { this.cell.f = true; this.cell.fAttrs = tk.attrs; } }
       else if (this.cell && tk.name === 't') { this.collecting = 'is'; this.text = ''; }
+      if (this.layout) sheetLayout(this.layout, tk);
+      if (this.links && tk.name === 'hyperlink' && this.links.length < MAX_EXTRAS) this.links.push({ ref: tk.attrs.ref ?? '', rid: attr(tk.attrs, 'id') ?? null, location: tk.attrs.location ?? null, display: tk.attrs.display ?? null, tooltip: tk.attrs.tooltip ?? null });
+      else if (this.validations && tk.name === 'dataValidation') this.dv = { ...tk.attrs };
+      else if (this.dv && (tk.name === 'formula1' || tk.name === 'formula2')) { this.collecting = tk.name; this.text = ''; }
       return null;
     }
     if (tk.type === 'text') { if (this.collecting) this.text += tk.text; return null; }
     // close
+    if (this.dv) {
+      if ((tk.name === 'formula1' || tk.name === 'formula2') && this.collecting === tk.name) { this.dv[tk.name] = this.text; this.collecting = null; return null; }
+      if (tk.name === 'dataValidation') { if (this.validations.length < MAX_EXTRAS) this.validations.push(validationRecord(this.dv)); this.dv = null; return null; }
+    }
     const { cell } = this;
     if (tk.name === 'v' && this.collecting === 'v') { cell.v = this.text; this.collecting = null; }
-    else if (tk.name === 'f') this.collecting = null;
+    else if (tk.name === 'f') { if (this.collecting === 'f') cell.fText = this.text.slice(0, MAX_FORMULA_CHARS); this.collecting = null; }
     else if (tk.name === 't' && this.collecting === 'is') { cell.is += this.text; this.collecting = null; }
     else if (tk.name === 'row') {
       this.inRow = false;
@@ -188,6 +344,7 @@ export class RowParser {
           value = !Number.isFinite(n) ? null : xfDate[cell.s] ? serialToDate(n, date1904) : n;
         }
         if (value === null && cell.t === 'e' && this.curShown) this.curShown[col] = cell.v;
+        if (this.cellsOut && (value !== null || cell.f || cell.t === 'e')) this.cellsOut.push(cellRecord(cell, col, this.rowNo, value, xfCode[cell.s], this.ctx.styleOf ? this.ctx.styleOf(cell.s) : undefined));
         if (value !== null) {
           this.cur[col] = value;
           if (this.curShown) {
@@ -223,7 +380,7 @@ async function parseSheet(xml, ctx, counters) {
     }
   }
   const out = squareUp(rows);
-  return { rows: out, shown: shown ? squareUp(shown, out.length) : null, merges: parser.merges };
+  return { rows: out, shown: shown ? squareUp(shown, out.length) : null, merges: parser.merges, cells: parser.cellsOut, links: parser.links, validations: parser.validations, layout: parser.layout };
 }
 
 /** Sparse rows -> dense rows with trailing empties trimmed (rows, when given, is the length to match). */
@@ -319,7 +476,8 @@ export async function openPackage(buffer, { limits, zip, macros, externalLinks, 
   const sstXml = partText(parts, sstRel ? resolveTarget(sstRel.target, wbDir) : `${wbDir}sharedStrings.xml`);
   const shared = sstXml ? parseSharedStrings(sstXml, limits) : [];
   const stylesXml = partText(parts, stRel ? resolveTarget(stRel.target, wbDir) : `${wbDir}styles.xml`);
-  const { xfDate, xfCode } = stylesXml ? parseStyles(stylesXml) : { xfDate: [], xfCode: [] };
+  const styles = stylesXml ? parseStyles(stylesXml) : { xfDate: [], xfCode: [], fonts: [], fills: [], xfFont: [], xfFill: [] };
+  const { xfDate, xfCode } = styles;
   const fmt = display ? createFormatter({ locale, date1904 }) : null;
 
 
@@ -340,7 +498,21 @@ export async function openPackage(buffer, { limits, zip, macros, externalLinks, 
     }
     return tables;
   };
-  return { limits, parts, list, rels, wbDir, shared, xfDate, xfCode, fmt, date1904, linked, tablesOf };
+  /** The relationships of the sheet part at `path`: Id -> { target (resolved inside the file, or as written when external), type, external }. */
+  const sheetRels = (path) => {
+    const out = new Map();
+    const relsPath = path.replace(/([^/]+)$/, '_rels/$1.rels');
+    const x = WANTED.test(normName(relsPath)) ? partText(parts, relsPath) : null;
+    if (!x) return out;
+    const dir = path.slice(0, path.lastIndexOf('/') + 1);
+    for (const tk of tokens(x)) {
+      if (tk.type !== 'open' || tk.name !== 'Relationship' || out.size >= 1000) continue;
+      const external = (tk.attrs.TargetMode ?? '').toLowerCase() === 'external';
+      out.set(tk.attrs.Id, { target: external ? (tk.attrs.Target ?? '') : resolveTarget(tk.attrs.Target ?? '', dir), type: tk.attrs.Type ?? '', external });
+    }
+    return out;
+  };
+  return { limits, parts, list, rels, wbDir, wbXml, shared, xfDate, xfCode, styles, fmt, date1904, linked, tablesOf, sheetRels };
 }
 
 /**
@@ -353,10 +525,10 @@ export async function openPackage(buffer, { limits, zip, macros, externalLinks, 
  * @param {{limits?: Partial<typeof DEFAULT_LIMITS>, sheets?: string[], zip?: {read: Function}, fillMergedCells?: boolean, macros?: 'refuse'|'ignore', externalLinks?: 'refuse'|'ignore', skipHiddenRows?: boolean, signal?: AbortSignal}} [opts]
  * @returns {Promise<{sheets: Array<{name: string, hidden: boolean, rows: any[][], merges: Array<{c1:number,r1:number,c2:number,r2:number}>, tables: Array<{name:string,c1:number,r1:number,c2:number,r2:number,headerRow:boolean,totalsRow:boolean,columns:string[]}>}>, warnings: Array<{code: string, count: number}>}>}
  */
-export async function readWorkbook(buffer, { limits: custom = {}, sheets: only, zip = defaultZip, fillMergedCells = false, macros = 'refuse', externalLinks = 'refuse', skipHiddenRows = false, display = false, locale = 'en', dates = 'date', skipHiddenColumns = false, signal } = {}) {
+export async function readWorkbook(buffer, { limits: custom = {}, sheets: only, zip = defaultZip, fillMergedCells = false, macros = 'refuse', externalLinks = 'refuse', skipHiddenRows = false, display = false, locale = 'en', dates = 'date', skipHiddenColumns = false, cells = false, extras = false, styles: wantStyles = false, signal } = {}) {
   checkDates(dates);
   const limits = { ...DEFAULT_LIMITS, ...custom };
-  const { parts, list, rels, wbDir, shared, xfDate, xfCode, fmt, date1904, linked, tablesOf } = await openPackage(buffer, { limits, zip, macros, externalLinks, display, locale, signal });
+  const { parts, list, rels, wbDir, wbXml, shared, xfDate, xfCode, styles, fmt, date1904, linked, tablesOf, sheetRels } = await openPackage(buffer, { limits, zip, macros, externalLinks, display, locale, signal });
 
   const counters = { cells: 0, formulas: 0, errors: 0, skipped: 0 };
   const out = [];
@@ -368,14 +540,37 @@ export async function readWorkbook(buffer, { limits: custom = {}, sheets: only, 
     const xml = path && WANTED.test(normName(path)) ? partText(parts, path) : null;
     if (xml === null) throw new XlsxError('NOT_A_WORKBOOK', `the sheet "${sh.name}" has no data part`);
     const tables = tablesOf(path);
-    const parsed = await parseSheet(xml, { shared, xfDate: dates === 'serial' ? [] : xfDate, xfCode, fmt, date1904, limits, signal, skipHiddenRows, skipHiddenColumns }, counters);
+    const parsed = await parseSheet(xml, { shared, xfDate: dates === 'serial' ? [] : xfDate, xfCode, fmt, date1904, limits, signal, skipHiddenRows, skipHiddenColumns, cells, extras, styleOf: wantStyles && cells ? (xf) => styleSummary(styles, xf) : null }, counters);
     if (fillMergedCells) { fillMerged(parsed.rows, parsed.merges, limits); if (parsed.shown) fillMerged(parsed.shown, parsed.merges, limits); }
-    out.push({ name: sh.name, hidden: sh.hidden, rows: parsed.rows, ...(parsed.shown ? { shown: parsed.shown } : {}), merges: parsed.merges, tables });
+    out.push({ name: sh.name, hidden: sh.hidden, rows: parsed.rows, ...(parsed.shown ? { shown: parsed.shown } : {}), merges: parsed.merges, tables, ...(parsed.cells ? { cells: parsed.cells } : {}), ...(extras ? sheetExtras(parsed, sheetRels(path), parts) : {}) });
   }
   const warnings = [];
   if (counters.formulas) warnings.push({ code: 'FORMULAS_NOT_EVALUATED', count: counters.formulas });
   if (counters.errors) warnings.push({ code: 'ERROR_CELLS_IGNORED', count: counters.errors });
   if (counters.skipped) warnings.push({ code: 'NON_WORKSHEET_SKIPPED', count: counters.skipped });
   if (linked) warnings.push({ code: 'EXTERNAL_LINKS_IGNORED', count: 1 });
+  if (extras) {
+    const core = partText(parts, 'docProps/core.xml'); const app = partText(parts, 'docProps/app.xml');
+    const present = [...parts.keys()].filter((k) => k.startsWith('#names:')).map((k) => normName(k.slice(7)));
+    const objects = { images: present.filter((n) => /^xl\/media\//.test(n)).length, charts: present.filter((n) => /^xl\/charts\/chart[^/]*\.xml$/.test(n)).length, drawings: present.filter((n) => /^xl\/drawings\/drawing[^/]*\.xml$/.test(n)).length };
+    return { sheets: out, warnings, names: parseDefinedNames(wbXml, list.map((x) => x.name)), properties: parseProperties(core, app), objects };
+  }
   return { sheets: out, warnings };
+}
+
+/** Hyperlinks (with their targets), notes and data validations of one sheet. A link that leaves the file is only reported, never opened; `unsafe: true` marks targets that are not http(s), mailto, tel or ftp (file:, javascript:, UNC paths). */
+function sheetExtras(parsed, rels, parts) {
+  const hyperlinks = parsed.links.map((l) => {
+    const rel = l.rid ? rels.get(l.rid) : null;
+    const rec = { ref: l.ref };
+    if (rel?.external) { rec.target = cut(rel.target, 2048); if (!/^(https?|mailto|tel|ftp):/i.test(rel.target.trim())) rec.unsafe = true; } else if (rel) rec.target = rel.target;
+    if (l.location) rec.location = cut(l.location, 1024);
+    if (l.display) rec.display = cut(l.display);
+    if (l.tooltip) rec.tooltip = cut(l.tooltip);
+    return rec;
+  });
+  const cRel = [...rels.values()].find((r) => /\/comments$/.test(r.type) && !r.external);
+  const cx = cRel && WANTED.test(normName(cRel.target)) ? partText(parts, cRel.target) : null;
+  const hasDrawing = [...rels.values()].some((r) => /\/drawing$/.test(r.type));
+  return { hyperlinks, comments: cx ? parseComments(cx) : [], validations: parsed.validations, layout: { ...parsed.layout, hasDrawing } };
 }

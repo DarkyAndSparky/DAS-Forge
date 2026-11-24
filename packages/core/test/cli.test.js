@@ -94,7 +94,7 @@ describe('createCli', () => {
     expect(() => cli.command('dup', { description: 'd', handler: () => 0 })).toThrow(/already registered/);
   });
 
-  // "man для CLI" - docs/internal/roadmap.md's long-open backlog item, closed as
+  // "man для CLI" - docs/archive/roadmap.md's long-open backlog item, closed as
   // a mechanism in 0.1.18 (filling in usage/flags/examples per existing
   // command is left as follow-up, see the roadmap note).
   describe('per-command help ("man"-style, 0.1.18)', () => {
